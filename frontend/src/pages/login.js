@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
-import { getBrokers, verifyEmail, resendVerification, login2fa, setup2fa, enable2fa, forgotPassword, resetPassword } from '../services/api'
+import { supabase } from '../lib/supabase'
+import { getBrokers } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
 import { Shield, Wallet, Eye, EyeOff, KeyRound, ScanLine, Copy, Check, ArrowLeft, Lock, Mail, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react'
 
@@ -28,18 +29,11 @@ function passwordScore(p) {
   return Math.min(5, s)
 }
 
-function extractDetail(err) {
-  const d = err?.response?.data?.detail
-  if (typeof d === 'string') return d
-  if (d && typeof d === 'object') return { error: d.error, message: d.message }
-  return null
-}
-
 function CodeInput({ value, onChange, onComplete, length = 6, autoFocus }) {
   const refs = useRef([])
   const digits = Array.from({ length }, (_, i) => value[i] || '')
   const handle = (i, raw) => {
-    const ch = raw.replace(/\D/g, '').slice(-1)
+    const ch = raw.replace(/[^A-Za-z0-9]/g, '').slice(-1).toUpperCase()
     const next = value.slice(0, i) + ch + value.slice(i + 1)
     onChange(next.slice(0, length))
     if (ch && i < length - 1) refs.current[i + 1]?.focus()
@@ -51,7 +45,7 @@ function CodeInput({ value, onChange, onComplete, length = 6, autoFocus }) {
     }
   }
   const handlePaste = (e) => {
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, length)
+    const text = e.clipboardData.getData('text').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, length)
     if (text) {
       e.preventDefault()
       onChange(text)
@@ -88,7 +82,7 @@ function Spinner() {
 
 export default function AuthPage() {
   const router = useRouter()
-  const { user, login, register, completeLogin } = useAuth()
+  const { user, login, register, verifyMfa, verifyEmail, resendVerification, sendResetCode, resetPassword } = useAuth()
   const [lang, setLang] = useState('fr')
   const [step, setStep] = useState(STEPS.login)
   const [ready, setReady] = useState(false)
@@ -110,7 +104,8 @@ export default function AuthPage() {
   const [code, setCode] = useState('')
   const [recoveryMode, setRecoveryMode] = useState(false)
   const [recoveryInput, setRecoveryInput] = useState('')
-  const [tempToken, setTempToken] = useState(null)
+  const [factorId, setFactorId] = useState(null)
+  const [challengeId, setChallengeId] = useState(null)
   const [resetCode, setResetCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNew, setConfirmNew] = useState('')
@@ -137,7 +132,7 @@ export default function AuthPage() {
   }, [])
 
   useEffect(() => {
-    if (user && step === STEPS.login) router.replace(next)
+    if (user && ready && step !== STEPS.setup2fa && step !== STEPS.recoveryCodes) router.replace(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, ready])
 
@@ -149,20 +144,17 @@ export default function AuthPage() {
     try {
       const data = await login(email.trim(), password)
       if (data?.status === 'totp_required') {
-        setTempToken(data.temp_token)
+        setFactorId(data.factorId)
+        setChallengeId(data.challengeId)
         go(STEPS.login2fa)
       }
     } catch (err) {
-      const d = extractDetail(err)
-      if (d?.error === 'email_not_verified') {
-        setInfo(d.message || t(lang, 'authEmailSent'))
+      const msg = err?.message || err?.error_description || err?.code || err?.name || ''
+      if (/otp|verif|confirm|unverified/i.test(msg)) {
+        setInfo(t(lang, 'authEmailSent'))
         setStep(STEPS.verifyEmail)
-      } else if (err?.response?.status === 423) {
-        setError(t(lang, 'authAccountLocked'))
-      } else if (err?.response?.status === 429) {
-        setError(d || t(lang, 'authError'))
       } else {
-        setError(typeof d === 'string' ? d : t(lang, 'authInvalid'))
+        setError(msg || t(lang, 'authInvalid'))
       }
     } finally { setBusy(false) }
   }
@@ -176,7 +168,7 @@ export default function AuthPage() {
     }
     setBusy(true)
     try {
-      await register({
+      const res = await register({
         name: name.trim(),
         email: email.trim(),
         password,
@@ -184,11 +176,14 @@ export default function AuthPage() {
         broker_name: accountType === 'real' ? brokerName : null,
         broker_account: accountType === 'real' ? brokerAccount.trim() : null,
       })
+      if (res?.status === 'ok') {
+        router.replace(next)
+        return
+      }
       setInfo(t(lang, 'authEmailSent'))
       setStep(STEPS.verifyEmail)
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
@@ -201,8 +196,7 @@ export default function AuthPage() {
       setStep(STEPS.setup2fa)
       startSetup()
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
@@ -213,63 +207,63 @@ export default function AuthPage() {
       setCode('')
       setInfo(t(lang, 'authCodeSentAgain'))
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
   const startSetup = async () => {
     try {
-      const r = await setup2fa()
-      setSetupData(r.data)
+      const { data: enroll } = await supabase.auth.mfa.enroll({ factorType: 'totp' })
+      if (!enroll) throw new Error(t(lang, 'authError'))
+      setSetupData({
+        provisioning_uri: enroll.totp.uri || enroll.totp.qr_code,
+        secret: enroll.totp.secret,
+        factorId: enroll.id,
+      })
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     }
   }
 
   const submit2faSetup = async (value) => {
     const v = value || setupCode
-    if (v.length < 6) return
+    if (v.length < 6 || !setupData) return
     setBusy(true); setError(null)
     try {
-      const r = await enable2fa(v)
-      setRecoveryCodes(r.data.recovery_codes || [])
+      const ch = await supabase.auth.mfa.challenge({ factorId: setupData.factorId })
+      if (ch.error) throw ch.error
+      const vr = await supabase.auth.mfa.verify({ factorId: setupData.factorId, challengeId: ch.data.id, code: v.replace(/\s/g, '') })
+      if (vr.error) throw vr.error
+      const rc = await supabase.auth.mfa.generateRecoveryCodes()
+      setRecoveryCodes(rc.data?.codes || [])
       setStep(STEPS.recoveryCodes)
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
   const submit2faLogin = async (value) => {
     const v = value || code
-    if (v.length < 6 || !tempToken) return
+    if (v.length < 6 || !factorId || !challengeId) return
     setBusy(true); setError(null)
     try {
-      const r = await login2fa(tempToken, v)
-      completeLogin(r.data)
+      await verifyMfa(factorId, challengeId, v)
       router.replace(next)
     } catch (err) {
-      const d = extractDetail(err)
-      if (err?.response?.status === 423) setError(t(lang, 'authAccountLocked'))
-      else setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
       setCode(''); setRecoveryInput('')
     } finally { setBusy(false) }
   }
 
   const submitRecoveryLogin = async (e) => {
     e.preventDefault()
-    if (!recoveryInput.trim() || !tempToken) return
+    if (!recoveryInput.trim() || !factorId || !challengeId) return
     setBusy(true); setError(null)
     try {
-      const r = await login2fa(tempToken, recoveryInput.trim())
-      completeLogin(r.data)
+      await verifyMfa(factorId, challengeId, recoveryInput.trim())
       router.replace(next)
     } catch (err) {
-      const d = extractDetail(err)
-      if (err?.response?.status === 423) setError(t(lang, 'authAccountLocked'))
-      else setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
       setRecoveryInput('')
     } finally { setBusy(false) }
   }
@@ -278,12 +272,11 @@ export default function AuthPage() {
     e.preventDefault()
     setBusy(true); setError(null); setInfo(null)
     try {
-      await forgotPassword(email.trim())
+      await sendResetCode(email.trim())
       setInfo(t(lang, 'authResetSent'))
       setStep(STEPS.reset)
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
@@ -301,8 +294,7 @@ export default function AuthPage() {
         go(STEPS.login)
       }, 1600)
     } catch (err) {
-      const d = extractDetail(err)
-      setError(typeof d === 'string' ? d : t(lang, 'authError'))
+      setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
   }
 
@@ -565,7 +557,7 @@ export default function AuthPage() {
             <button className="ghost-btn copy" onClick={copyCodes}>
               {copied ? <Check size={14} color="#00C853" /> : <Copy size={14} />} <span>{t(lang, 'auth2faCopied')}</span>
             </button>
-            <button className="auth-submit" onClick={() => { completeLogin({ ...user, totp_enabled: true }); router.replace(next) }}>
+            <button className="auth-submit" onClick={() => router.replace(next)}>
               <span>{t(lang, 'auth2faNow')}</span>
             </button>
             <button className="ghost-btn" onClick={() => router.replace(next)}>

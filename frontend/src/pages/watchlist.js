@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
+import { supabase } from '../lib/supabase'
 import { Search, Plus, Star, ChevronLeft, X } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 
@@ -193,6 +194,26 @@ export default function Watchlist() {
       clearInterval(interval)
     }
   }, [fetchData])
+
+  // Realtime Supabase : mise à jour des prix à l'insertion de ticks
+  useEffect(() => {
+    const channel = supabase
+      .channel('watchlist-ticks')
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'market_data',
+      }, payload => {
+        const row = payload.new || {}
+        const price = row.close_price
+        if (price == null) return
+        setStocks(prev => prev.map(s =>
+          s.id === row.company_id
+            ? { ...s, current_price: price, change_percent: row.change_percent ?? s.change_percent }
+            : s
+        ))
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   const toggleFavorite = (symbol) => {
     setFavorites(prev => {

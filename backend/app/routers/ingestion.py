@@ -5,9 +5,13 @@ from typing import Optional, List
 import os
 import shutil
 import uuid
+import logging
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from ..core.security import require_admin
+from ..core.supabase_auth import storage_signed_url, storage_upload
 from ..database import get_db
 from ..models.company import Company
 from ..models.financial import StatementType, FinancialStatement
@@ -77,6 +81,11 @@ async def ingest_pdf(
     pdf_path = os.path.join(UPLOAD_DIR, safe_name)
     with open(pdf_path, "wb") as f:
         f.write(content)
+
+    # Archivage dans Supabase Storage (bucket "uploads", chemin pdfs/…)
+    storage_path = f"pdfs/{safe_name}"
+    if not storage_upload("uploads", storage_path, content, "application/pdf"):
+        logger.warning("Storage Supabase indisponible — PDF non archivé")
 
     try:
         extracted = PDFExtractor().extract_financial_statements(pdf_path)
@@ -208,6 +217,8 @@ def get_statements(
             "source_file": s.source_file,
             "currency": s.currency,
             "extracted_at": s.extracted_at.isoformat() if s.extracted_at else None,
+            "source_url": storage_signed_url("uploads", f"pdfs/{s.source_file}")
+            if s.source_file else None,
             "line_items": [
                 {"account": i.account_name, "value": i.value, "code": i.account_code}
                 for i in s.line_items

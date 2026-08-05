@@ -1,83 +1,199 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { login as apiLogin, register as apiRegister, getMe, logoutApi } from '../services/api'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { supabase } from './supabase'
+import { legacyLogin as apiLegacyLogin, getMe, updateMe as apiUpdateMe } from '../services/api'
 
 const TOKEN_KEY = 'bluerock_token'
 const USER_KEY = 'bluerock_user'
 
-function loadUser() {
+function loadCached() {
   try {
     const raw = localStorage.getItem(USER_KEY)
     return raw ? JSON.parse(raw) : null
   } catch { return null }
 }
 
-const AuthContext = createContext({ user: null, loading: true, login: async () => {}, register: async () => {}, logout: () => {} })
+function profileFromSession(sbUser, profile) {
+  const factors = sbUser?.factors || []
+  const mfaEnabled = factors.some(f => f.status === 'verified')
+  return {
+    ...(profile || {}),
+    email: sbUser?.email || profile?.email || '',
+    name: sbUser?.user_metadata?.full_name || profile?.name || 'Utilisateur',
+    email_verified: !!sbUser?.email_confirmed_at,
+    totp_enabled: mfaEnabled,
+    auth_id: sbUser?.id,
+  }
+}
+
+const AuthContext = createContext({
+  user: null, loading: true, supabase,
+  login: async () => {}, register: async () => {}, verifyMfa: async () => {},
+  logout: () => {}, updateUser: () => {}, refreshProfile: async () => {},
+})
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const profileRef = useRef(null)
+  const busyRef = useRef(false)
+
+  const persist = useCallback((u) => {
+    try { localStorage.setItem(USER_KEY, JSON.stringify(u)) } catch {}
+  }, [])
+
+  const syncSession = useCallback(async (session) => {
+    // session == null → déconnecté
+    const sbUser = session?.user || session
+    if (!sbUser) {
+      profileRef.current = null
+      try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+      setUser(null)
+      setLoading(false)
+      return
+    }
+    try { localStorage.setItem(TOKEN_KEY, session?.access_token || sbUser.access_token || '') } catch {}
+    let profile = profileRef.current
+    if (!profile) {
+      try {
+        const res = await getMe().catch(() => null)
+        profile = res ? res.data : null
+      } catch {}
+      profileRef.current = profile || null
+    }
+    const merged = profileFromSession(sbUser, profile)
+    setUser(merged)
+    persist(merged)
+    setLoading(false)
+  }, [getMe, persist])
 
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY)
-    const cached = loadUser()
-    if (!token) { setLoading(false); return }
-    getMe()
-      .then(res => {
-        setUser(res.data)
-        localStorage.setItem(USER_KEY, JSON.stringify(res.data))
-      })
-      .catch(() => {
-        localStorage.removeItem(TOKEN_KEY)
-        localStorage.removeItem(USER_KEY)
-      })
-      .finally(() => setLoading(false))
-    if (cached && !user) setUser(cached)
+    if (busyRef.current) return
+    busyRef.current = true
+    supabase.auth.getSession().then(({ data }) => syncSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      syncSession(session)
+    })
+    return () => sub.subscription.unsubscribe()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const login = useCallback(async (email, password) => {
-    const res = await apiLogin(email, password)
-    const data = res.data
-    // Étape 2FA : aucun token final émis, on transmet la réponse à l'UI
-    if (data.status === 'totp_required') return data
-    localStorage.setItem(TOKEN_KEY, data.token)
-    localStorage.setItem(USER_KEY, JSON.stringify(data))
-    setUser(data)
-    return data
-  }, [])
+    let res = await supabase.auth.signInWithPassword({ email, password })
+    if (res.error && /invalid|credentials/i.test(res.error.message || '')) {
+      // Compte pré-Supabase → migration : vérif legacy puis reconnexion
+      await apiLegacyLogin(email, password).catch(() => null)
+      res = await supabase.auth.signInWithPassword({ email, password })
+    }
+    if (res.error) throw res.error
+    const sbUser = res.data.user
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    const factors = sbUser?.factors || []
+    if (factors.length && aal?.nextLevel === 'aal2' && aal?.currentLevel !== 'aal2') {
+      const first = factors.find(f => f.status === 'verified')
+      if (first) {
+        const ch = await supabase.auth.mfa.challenge({ factorId: first.id })
+        if (ch.error) throw ch.error
+        return { status: 'totp_required', factorId: first.id, challengeId: ch.data.id }
+      }
+    }
+    await syncSession(res.data.session)
+    return { status: 'ok' }
+  }, [syncSession])
+
+  const verifyMfa = useCallback(async (factorId, challengeId, code) => {
+    const res = await supabase.auth.mfa.verify({ factorId, challengeId, code: code.replace(/\s/g, '') })
+    if (res.error) throw res.error
+    const { data: session } = await supabase.auth.getSession()
+    await syncSession(session.session)
+    return res.data
+  }, [syncSession])
 
   const register = useCallback(async (payload) => {
-    const res = await apiRegister(payload)
-    return res.data // { status: 'pending_verification', email }
+    const { data, error } = await supabase.auth.signUp({
+      email: payload.email,
+      password: payload.password,
+      options: {
+        emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
+        data: {
+          full_name: payload.name,
+          account_type: payload.account_type || 'demo',
+          broker_name: payload.broker_name || null,
+          broker_account: payload.broker_account || null,
+        },
+      },
+    })
+    if (error) throw error
+    return data.session ? { status: 'ok', user: data.user } : { status: 'pending_verification', email: payload.email }
   }, [])
 
+  const verifyEmail = useCallback(async (email, code) => {
+    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' })
+    if (error) throw error
+    await syncSession(data.session)
+    return { status: 'verified' }
+  }, [syncSession])
+
+  const resendVerification = useCallback(async (email) => {
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+    if (error) throw error
+    return { status: 'sent' }
+  }, [])
+
+  const sendResetCode = useCallback(async (email) => {
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false, emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined },
+    })
+    if (error) throw error
+    return { status: 'sent' }
+  }, [])
+
+  const resetPassword = useCallback(async (email, code, newPassword) => {
+    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' })
+    if (error) throw error
+    const upd = await supabase.auth.updateUser({ password: newPassword })
+    if (upd.error) throw upd.error
+    await syncSession(data.session || upd.data.session)
+    return { status: 'reset' }
+  }, [syncSession])
+
   const logout = useCallback(async () => {
-    try {
-      if (localStorage.getItem(TOKEN_KEY)) {
-        await logoutApi().catch(() => {})
-      }
-    } catch {}
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
+    try { await supabase.auth.signOut() } catch {}
+    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+    profileRef.current = null
     setUser(null)
   }, [])
 
-  const completeLogin = useCallback((data) => {
-    localStorage.setItem(TOKEN_KEY, data.token)
-    localStorage.setItem(USER_KEY, JSON.stringify(data))
-    setUser(data)
-    return data
-  }, [])
+  const updateUser = useCallback((patch) => {
+    setUser(prev => {
+      const merged = { ...(prev || {}), ...patch }
+      persist(merged)
+      return merged
+    })
+    if (patch?.name !== undefined && profileRef.current) {
+      profileRef.current = { ...profileRef.current, ...patch }
+      apiUpdateMe({ name: patch.name, avatar: patch.avatar }).catch(() => {})
+    }
+    return patch
+  }, [persist])
 
-  const updateUser = useCallback((data) => {
-    const merged = { ...user, ...data }
-    localStorage.setItem(USER_KEY, JSON.stringify(merged))
+  const refreshProfile = useCallback(async () => {
+    const res = await getMe().catch(() => null)
+    if (!res) return
+    profileRef.current = res.data
+    const { data: session } = await supabase.auth.getSession()
+    const merged = profileFromSession(session.session?.user || { factors: [] }, res.data)
     setUser(merged)
+    persist(merged)
     return merged
-  }, [user])
+  }, [persist])
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, completeLogin, updateUser }}>
+    <AuthContext.Provider value={{
+      user, loading, supabase,
+      login, register, verifyEmail, resendVerification, verifyMfa,
+      sendResetCode, resetPassword, logout, updateUser, refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   )

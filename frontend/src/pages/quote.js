@@ -4,6 +4,7 @@ import BottomNav from '../components/BottomNav'
 import MarketChart from '../components/MarketChart'
 import { getCompany, getCompanyMarketData, getMarketLive, getCompanies, getPosition, getPortfolio, placeOrder } from '../services/api'
 import { useAuth } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, ChevronDown, Search } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtCompact, fmtChange } from '../lib/i18n'
 
@@ -128,6 +129,55 @@ export default function Quote() {
     const liveInterval = setInterval(() => tick(), 15000)
     return () => { mounted.current = false; clearInterval(interval); clearInterval(liveInterval) }
   }, [symbol, load, tick, user])
+
+  // Realtime Supabase : ticks market_data insérés par l'ingestion
+  useEffect(() => {
+    if (!company?.id) return
+    const channel = supabase
+      .channel(`quotes-${company.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'market_data',
+        filter: `company_id=eq.${company.id}`,
+      }, payload => {
+        const row = payload.new || {}
+        const price = row.close_price
+        if (price == null || !mounted.current) return
+        setCompany(prev => {
+          if (!prev) return prev
+          if (prev.current_price != null && Math.abs(prev.current_price - price) > 1e-9) {
+            flashRef.current = price > prev.current_price ? 'up' : 'down'
+          }
+          return {
+            ...prev,
+            current_price: price,
+            change_percent: row.change_percent ?? prev.change_percent,
+            price_source: 'REALTIME',
+          }
+        })
+        if (flashRef.current) {
+          setFlash(flashRef.current)
+          flashRef.current = null
+          setTimeout(() => { if (mounted.current) setFlash(null) }, 1200)
+        }
+        setAllData(prev => {
+          const lastDate = prev.length ? new Date(prev[prev.length - 1].date) : null
+          const rowDate = new Date(row.date)
+          if (lastDate && rowDate <= lastDate) return prev
+          return [...prev, {
+            date: row.date,
+            open_price: row.open_price,
+            high_price: row.high_price ?? price,
+            low_price: row.low_price ?? price,
+            close_price: price,
+            volume: row.volume,
+            change_percent: row.change_percent,
+            is_synthetic: row.is_synthetic,
+          }]
+        })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [company?.id])
 
   const toggleFavorite = () => {
     const favs = loadJSON(FAV_KEY, [])

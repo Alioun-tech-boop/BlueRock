@@ -93,6 +93,8 @@ def _ensure_schema():
         "dividends": ["is_synthetic"],
         "users": [
             "avatar",
+            "auth_id",
+            "legacy_hash",
             "email_verified",
             "email_verify_code",
             "email_verify_expires",
@@ -126,6 +128,10 @@ def _ensure_schema():
                     default = "FALSE" if col in ("email_verified", "totp_enabled") else "0"
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl} NOT NULL DEFAULT {default}"))
+                elif col == "auth_id":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} UUID"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_users_auth_id ON {table}({col})"))
                 elif col in ts_cols:
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TIMESTAMP"))

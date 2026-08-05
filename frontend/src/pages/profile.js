@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
-import { getMe, updateMe, changePassword, resendVerification, setup2fa, enable2fa, disable2fa } from '../services/api'
+import { supabase } from '../lib/supabase'
+import { updateMe } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
 import BottomNav from '../components/BottomNav'
 import {
   ArrowLeft, UserRound, Shield, Mail, Check, LogOut, Eye, EyeOff,
-  KeyRound, Loader2, Copy, ScanLine, Lock, Wallet, BadgeCheck, X,
+  KeyRound, Loader2, Copy, Lock, Wallet, BadgeCheck, X,
 } from 'lucide-react'
 
 const AVATARS = ['🦁', '🐘', '🐆', '🦓', '🦅', '🐬', '🌴', '🔥', '⚡', '💎', '🐊', '🦜', '🐢', '🦩', '🪙', '📈']
@@ -23,22 +24,19 @@ function passwordScore(p) {
   return Math.min(5, s)
 }
 
-function extractDetail(err) {
-  const d = err?.response?.data?.detail
-  if (typeof d === 'string') return d
-  if (d && typeof d === 'object') return d.message
-  return null
-}
-
 function Spinner() {
   return <Loader2 size={15} className="spin" />
+}
+
+function errMsg(err, fallback) {
+  return err?.message || err?.error_description || fallback
 }
 
 const STRENGTH_COLORS = ['#ff4d4f', '#ff8c42', '#ffd166', '#a6e22e', '#00C853']
 
 export default function ProfilePage() {
   const router = useRouter()
-  const { user, loading, logout, updateUser } = useAuth()
+  const { user, loading, logout, updateUser, refreshProfile, resendVerification } = useAuth()
   const [lang, setLang] = useState('fr')
 
   const [name, setName] = useState('')
@@ -54,8 +52,6 @@ export default function ProfilePage() {
   const [copied, setCopied] = useState(false)
   // 2FA désactivation
   const [disableOpen, setDisableOpen] = useState(false)
-  const [disableCode, setDisableCode] = useState('')
-  const [disableRecovery, setDisableRecovery] = useState(false)
 
   // mot de passe
   const [curPwd, setCurPwd] = useState('')
@@ -83,7 +79,7 @@ export default function ProfilePage() {
   }, [loading, user])
 
   const banner = (err, inf) => { setError(err); setInfo(inf) }
-  const refetchMe = () => getMe().then(r => updateUser(r.data)).catch(() => {})
+  const refetchMe = () => refreshProfile().catch(() => {})
 
   const submitProfile = async (e) => {
     e.preventDefault()
@@ -93,7 +89,7 @@ export default function ProfilePage() {
       updateUser(r.data)
       banner(null, t(lang, 'pfSaved'))
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setSaveBusy(false)
     }
@@ -105,7 +101,7 @@ export default function ProfilePage() {
       await resendVerification(user.email)
       banner(null, t(lang, 'pfCodeSent'))
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setResendBusy(false)
     }
@@ -114,23 +110,33 @@ export default function ProfilePage() {
   const startSetup = async () => {
     banner(null, null)
     try {
-      const r = await setup2fa()
-      setSetupData(r.data)
+      const { data: enroll, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' })
+      if (error || !enroll) throw error || new Error(t(lang, 'authError'))
+      setSetupData({
+        provisioning_uri: enroll.totp.uri || enroll.totp.qr_code,
+        secret: enroll.totp.secret,
+        factorId: enroll.id,
+      })
       setSetupCode('')
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     }
   }
 
   const confirmSetup = async (code) => {
     setSaveBusy(true); banner(null, null)
     try {
-      const r = await enable2fa(code)
-      setRecoveryCodes(r.data.recovery_codes || [])
+      const ch = await supabase.auth.mfa.challenge({ factorId: setupData.factorId })
+      if (ch.error) throw ch.error
+      const vr = await supabase.auth.mfa.verify({ factorId: setupData.factorId, challengeId: ch.data.id, code: code.replace(/\s/g, '') })
+      if (vr.error) throw vr.error
+      const rc = await supabase.auth.mfa.generateRecoveryCodes()
+      if (rc.error) throw rc.error
+      setRecoveryCodes(rc.data?.codes || [])
       setSetupData(null)
       await refetchMe()
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setSaveBusy(false)
     }
@@ -161,13 +167,17 @@ export default function ProfilePage() {
   const confirmDisable = async () => {
     setSaveBusy(true); banner(null, null)
     try {
-      await disable2fa(disableCode.trim(), disableRecovery ? 'recovery' : 'totp')
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      const totp = factors?.all?.find(f => f.type === 'totp' && f.status === 'verified')
+      if (!totp) throw new Error(t(lang, 'authError'))
+      const un = await supabase.auth.mfa.unenroll({ factorId: totp.id })
+      if (un.error) throw un.error
       setDisableOpen(false)
       setDisableCode('')
       await refetchMe()
       banner(null, t(lang, 'pf2faDisabledOk'))
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setSaveBusy(false)
     }
@@ -181,11 +191,14 @@ export default function ProfilePage() {
     }
     setPwdBusy(true); banner(null, null)
     try {
-      await changePassword({ current_password: curPwd, new_password: newPwd })
+      const check = await supabase.auth.signInWithPassword({ email: user.email, password: curPwd })
+      if (check.error) throw check.error
+      const upd = await supabase.auth.updateUser({ password: newPwd })
+      if (upd.error) throw upd.error
       setCurPwd(''); setNewPwd(''); setConfirmPwd('')
       banner(null, t(lang, 'pfPwdChanged'))
     } catch (err) {
-      banner(extractDetail(err) || t(lang, 'authError'), null)
+      banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setPwdBusy(false)
     }
@@ -318,15 +331,11 @@ export default function ProfilePage() {
           {disableOpen && (
             <div className="disable-box">
               <span className="disable-sub">{t(lang, 'pf2faDisableSub')}</span>
-              <input className="auth-input mono" value={disableCode}
-                onChange={e => setDisableCode(e.target.value)}
-                placeholder={disableRecovery ? 'XXXX-XXXX' : '000000'} maxLength={disableRecovery ? 9 : 6} />
               <div className="disable-actions">
-                <button type="button" className="ghost-btn" onClick={() => setDisableRecovery(!disableRecovery)}>
-                  {disableRecovery ? <KeyRound size={14} /> : <ScanLine size={14} />}
-                  {disableRecovery ? t(lang, 'auth2faBack') : t(lang, 'auth2faRecoveryLogin')}
+                <button type="button" className="ghost-btn" onClick={() => setDisableOpen(false)}>
+                  {t(lang, 'auth2faBack')}
                 </button>
-                <button type="button" className="auth-submit small" onClick={confirmDisable} disabled={saveBusy || disableCode.length < 6}>
+                <button type="button" className="auth-submit small" onClick={confirmDisable} disabled={saveBusy}>
                   {saveBusy ? <Spinner /> : t(lang, 'pf2faDisable')}
                 </button>
               </div>

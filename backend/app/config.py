@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     BRVM_BASE_URL: str = "https://www.brvm.org"
     API_BASE_URL: str = "http://localhost:8000"
 
+    # Supabase (auth JWT, storage, admin API)
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_SERVICE_KEY: Optional[str] = None
+    SUPABASE_JWT_REFRESH: int = 300  # cache JWKS (s)
+
     # Sécurité
     ADMIN_TOKEN: Optional[str] = None
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,.bluerock.ai"

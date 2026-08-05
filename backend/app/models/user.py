@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, func
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from ..database import Base
 
@@ -7,6 +8,8 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
+    auth_id = Column(PG_UUID(as_uuid=True), nullable=True, index=True)  # auth.users.id (Supabase)
+    legacy_hash = Column(String, nullable=True)  # hash PBKDF2 avant migration Supabase
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
