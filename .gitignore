@@ -1,0 +1,29 @@
+# Secrets — ne jamais committer
+.env
+*.env.local
+
+# Logs
+*.log
+
+# Uploads / données générées
+backend/app/uploads/
+uploads/
+
+# Bases de données locales
+*.db
+*.sqlite3
+
+# Builds & dépendances
+node_modules/
+.next/
+out/
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store

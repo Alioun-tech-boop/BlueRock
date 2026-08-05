@@ -1,0 +1,76 @@
+/* ===== BLUEROCK - DESIGN "TRADINGVIEW" (traits blancs fins) =====
+   Séparateurs : trait blanc fin entre les lignes d'actions
+   Encadrements : catégories cerclées du même trait
+   (les styles scopés des pages gagnent par spécificité -> !important) */
+
+/* --- Séparateurs entre lignes d'actions --- */
+.stock-row,
+.pf-row,
+.topflop-row,
+.perf-row,
+.row,
+.news-item,
+.line-item,
+.metric-row,
+.result-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.stock-row:last-child,
+.pf-row:last-child,
+.topflop-row:last-child,
+.perf-row:last-child,
+.row:last-child,
+.news-item:last-child,
+.line-item:last-child,
+.metric-row:last-child,
+.result-row:last-child {
+  border-bottom: none !important;
+}
+
+/* --- Encadrements des catégories --- */
+.card-list,
+.topflop-col,
+.index-card,
+.grid-card,
+.card,
+.stmt-block,
+.macro-item,
+.result-grid div,
+.stat-box,
+.q-stat-card,
+.portfolio-card,
+.chart-area,
+.order-section,
+.quick-links,
+.action-btn,
+.hero-card,
+.metrics-card {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* --- Liste de valeurs : cadre global (type tableau TradingView) --- */
+.stock-list {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 16px !important;
+  padding: 0 12px !important;
+}
+
+/* --- Chat : séparation entre la zone de message et la saisie --- */
+.chat-input-bar {
+  border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+/* --- Barre latérale PC : éléments séparés par le même trait --- */
+@media (min-width: 1200px) {
+  .bn-item {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 0 !important;
+  }
+  .bn-item:last-child {
+    border-bottom: none !important;
+  }
+  .bn-item.active {
+    background: rgba(139, 92, 246, 0.14) !important;
+  }
+}

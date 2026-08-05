@@ -1,0 +1,216 @@
+/* ===== BLUEROCK - ADAPTATION AUTOMATIQUE AU TYPE D'ÉCRAN =====
+   Mobile (< 768px) : layout actuel inchangé (navigation en bas)
+   Tablette (768-1199px) : contenu centré, navigation en bas limitée
+   PC (>= 1200px) : contenu centré large + navigation latérale à gauche
+   (les styles scopés des pages gagnent par spécificité -> !important) */
+
+/* ===== MOBILE ===== */
+@media (max-width: 767px) {
+  /* Interface compacte : réduction uniforme de toute l'UI mobile
+     (texte, cartes, navigation, modales) sans modifier le design.
+     Le zoom sur <html> redimensionne le layout viewport : les unités
+     vw/vh et les éléments position:fixed restent parfaitement calés. */
+  html {
+    zoom: 0.87;
+    background: #000;
+  }
+  body {
+    background: #000 !important;
+  }
+  /* Unités dvh : hauteur réelle visible (barre d'adresse mobile masquée).
+     Le zoom 0.87 du <html> réduit le rendu de toute hauteur CSS de 13% :
+     on divise par 0.87 pour que le mobile-root couvre bien 100% de l'écran
+     et qu'aucun vide noir n'apparaisse entre le contenu et la nav fixe. */
+  .mobile-root {
+    height: calc(100vh / 0.87) !important;
+    height: calc(100dvh / 0.87) !important;
+    width: 100% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chat-area {
+    height: calc((100vh - 36px - 16px) / 0.87) !important;
+    height: calc((100dvh - 36px - 16px) / 0.87) !important;
+  }
+  .bottom-nav {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 50 !important;
+    height: calc(60px + env(safe-area-inset-bottom)) !important;
+    padding: 6px 0 env(safe-area-inset-bottom) !important;
+    background: #000 !important;
+    border-top: 1px solid #2a2a2a !important;
+  }
+  .mobile-root {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+  }
+  body {
+    overflow-x: hidden !important;
+  }
+  .safe-area {
+    padding-left: max(14px, env(safe-area-inset-left)) !important;
+    padding-right: max(14px, env(safe-area-inset-right)) !important;
+  }
+}
+
+/* ===== TABLETTE ===== */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .mobile-root {
+    height: 100vh !important;
+    width: 100% !important;
+    overflow-y: auto !important;
+  }
+  .safe-area {
+    max-width: 720px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 20px 8px !important;
+  }
+  .chat-area {
+    max-width: 720px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+  }
+  .bottom-nav {
+    max-width: 720px !important;
+    margin: 0 auto !important;
+  }
+  .indices-strip,
+  .tabs-strip,
+  .chat-suggestions {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+  }
+  .stock-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px 28px !important;
+  }
+}
+
+/* ===== PC / GRAND ÉCRAN ===== */
+@media (min-width: 1200px) {
+  .mobile-root {
+    flex-direction: row !important;
+    width: 100% !important;
+  }
+
+  /* Contenu centré */
+  .safe-area {
+    width: 100% !important;
+    max-width: 1120px !important;
+    margin: 0 auto !important;
+    padding: 12px 32px 28px !important;
+  }
+  .chat-area {
+    width: 100% !important;
+    max-width: 1000px !important;
+    margin: 0 auto !important;
+  }
+
+  /* Navigation latérale */
+  .bottom-nav {
+    width: 230px !important;
+    height: 100% !important;
+    flex-shrink: 0 !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    padding: 18px 12px !important;
+    background: #101010 !important;
+    border-top: none !important;
+    border-right: 1px solid #232323 !important;
+  }
+  .bn-item {
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    gap: 12px !important;
+    width: 100% !important;
+    padding: 12px 14px !important;
+    font-size: 14px !important;
+    border-radius: 12px !important;
+  }
+  .bn-item:hover {
+    background: #1c1c1c !important;
+    color: #fff !important;
+  }
+  .bn-item.active {
+    background: rgba(139, 92, 246, 0.14) !important;
+    color: #fff !important;
+  }
+
+  /* Largeurs de contenu */
+  .grid-2 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .market-stats {
+    grid-template-columns: repeat(4, 1fr) !important;
+    max-width: 720px !important;
+  }
+  .stock-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px 32px !important;
+  }
+  .perf-list {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4px 32px !important;
+  }
+  .macro-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  .result-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+    max-width: 480px !important;
+  }
+  .action-buttons {
+    max-width: 520px !important;
+  }
+  .form-row {
+    max-width: 640px !important;
+  }
+  .dropzone {
+    max-width: 640px !important;
+  }
+  .topflop-section.vertical {
+    flex-direction: row !important;
+    max-width: 720px !important;
+  }
+
+  /* Strips : plus de scroll horizontal */
+  .indices-strip,
+  .tabs-strip,
+  .chat-suggestions {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+  }
+
+  /* Chat plus large */
+  .chat-bubble {
+    max-width: 75% !important;
+  }
+  .chat-messages {
+    padding: 12px 24px !important;
+  }
+  .chat-input-bar {
+    padding: 12px 24px 20px !important;
+  }
+  .chat-input-bar input {
+    height: 48px !important;
+  }
+  .chat-suggestions {
+    padding: 12px 24px !important;
+  }
+
+  /* Titres de page un peu plus grands */
+  .explorer-title,
+  .hm-brand,
+  .mn-brand {
+    font-size: 1.4em !important;
+  }
+}
+/* touch */

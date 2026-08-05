@@ -1,0 +1,89 @@
+{
+ "ran_at": "2026-08-03T06:06:04.204686",
+ "companies": 1,
+ "results": [
+  {
+   "symbol": "ETIT",
+   "name": "Ecobank Transnational Incorporated TOGO",
+   "ingested": [
+    {
+     "year": 2025,
+     "quarter": null,
+     "title": "ETI TG : Etats financiers IFRS - Exercice 2025 Télécharger",
+     "statements": 1,
+     "line_items": 2,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2024,
+     "quarter": null,
+     "title": "ETI TOGO : Etats financiers certifiés par les Commissaires Aux Comptes - Exercic",
+     "statements": 1,
+     "line_items": 2,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2023,
+     "quarter": null,
+     "title": "ETI TOGO : Etats financiers - Exercice 2023 Télécharger",
+     "statements": 2,
+     "line_items": 4,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2021,
+     "quarter": null,
+     "title": "ETI TOGO : États financiers audités exercice 2021 Télécharger",
+     "statements": 1,
+     "line_items": 1,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2019,
+     "quarter": null,
+     "title": "ETI TOGO : Etats financiers exercice 2019 Télécharger",
+     "statements": 1,
+     "line_items": 1,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2016,
+     "quarter": null,
+     "title": "Etats Financiers au 30 Septembre 2016 - ECOBANK TRANS. INCORP. TG Télécharger",
+     "statements": 1,
+     "line_items": 4,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2015,
+     "quarter": null,
+     "title": "Rapport annuel Exercice 2015 ECOBANK TG Télécharger",
+     "statements": 2,
+     "line_items": 6,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2014,
+     "quarter": null,
+     "title": "Etats financiers provisoires - ECOBANK TG - Exercice 2014 Télécharger",
+     "statements": 1,
+     "line_items": 2,
+     "ratios_recomputed": true
+    },
+    {
+     "year": 2026,
+     "quarter": 2,
+     "title": "ETI TG : Rapport d'activités - 1er semestre 2026 Télécharger",
+     "statements": 1,
+     "line_items": 2,
+     "ratios_recomputed": true
+    }
+   ],
+   "skipped": [
+    "2018A: Aucun état financier exploitable détecté (PDF scanné ou mal formaté)",
+    "2017A: Aucun état financier exploitable détecté (PDF scanné ou mal formaté)"
+   ],
+   "errors": []
+  }
+ ]
+}
