@@ -26,14 +26,16 @@ function profileFromSession(sbUser, profile) {
 }
 
 const AuthContext = createContext({
-  user: null, loading: true, supabase,
+  user: null, loading: true, recovery: false, supabase,
   login: async () => {}, register: async () => {}, verifyMfa: async () => {},
   logout: () => {}, updateUser: () => {}, refreshProfile: async () => {},
+  updatePassword: async () => {},
 })
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [recovery, setRecovery] = useState(false)
   const profileRef = useRef(null)
   const busyRef = useRef(false)
 
@@ -71,6 +73,8 @@ export function AuthProvider({ children }) {
     busyRef.current = true
     supabase.auth.getSession().then(({ data }) => syncSession(data.session))
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') setRecovery(true)
+      else if (_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED' || _event === 'SIGNED_OUT') setRecovery(false)
       syncSession(session)
     })
     return () => sub.subscription.unsubscribe()
@@ -126,13 +130,6 @@ export function AuthProvider({ children }) {
     return data.session ? { status: 'ok', user: data.user } : { status: 'pending_verification', email: payload.email }
   }, [])
 
-  const verifyEmail = useCallback(async (email, code) => {
-    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' })
-    if (error) throw error
-    await syncSession(data.session)
-    return { status: 'verified' }
-  }, [syncSession])
-
   const resendVerification = useCallback(async (email) => {
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
     if (error) throw error
@@ -140,28 +137,28 @@ export function AuthProvider({ children }) {
   }, [])
 
   const sendResetCode = useCallback(async (email) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined },
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
     })
     if (error) throw error
     return { status: 'sent' }
   }, [])
-
-  const resetPassword = useCallback(async (email, code, newPassword) => {
-    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' })
-    if (error) throw error
-    const upd = await supabase.auth.updateUser({ password: newPassword })
-    if (upd.error) throw upd.error
-    await syncSession(data.session || upd.data.session)
-    return { status: 'reset' }
-  }, [syncSession])
 
   const logout = useCallback(async () => {
     try { await supabase.auth.signOut() } catch {}
     try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
     profileRef.current = null
     setUser(null)
+  }, [])
+
+  // Mot de passe oublié : l'utilisateur clique le lien de l'email → événement
+  // PASSWORD_RECOVERY → il ne reste qu'à définir le nouveau mot de passe.
+  const updatePassword = useCallback(async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+    setRecovery(false)
+    try { await supabase.auth.signOut() } catch {}
+    return { status: 'reset' }
   }, [])
 
   const updateUser = useCallback((patch) => {
@@ -190,9 +187,9 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, supabase,
-      login, register, verifyEmail, resendVerification, verifyMfa,
-      sendResetCode, resetPassword, logout, updateUser, refreshProfile,
+      user, loading, recovery, supabase,
+      login, register, resendVerification, verifyMfa,
+      sendResetCode, updatePassword, logout, updateUser, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>

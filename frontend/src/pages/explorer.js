@@ -4,7 +4,7 @@ import BottomNav from '../components/BottomNav'
 import NewsThumb from '../components/NewsThumb'
 import { getCompanies, getMarketOverview, getMarketSparklines, getMarketNews, getNewsArticle } from '../services/api'
 import { t, detectLang, fmtPrice, timeAgo } from '../lib/i18n'
-import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Loader2 } from 'lucide-react'
+import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Loader2, Compass } from 'lucide-react'
 
 const sectorInfo = {
   Banque: { icon: BarChart3, color: '#3b82f6' },
@@ -93,7 +93,7 @@ export default function Explorer() {
         setLosers(r.data.losers || [])
       }).catch(() => {}),
       getMarketSparklines(30).then(r => setSparklines(r.data || {})).catch(() => {}),
-      getMarketNews(60).then(r => setNews(r.data.items || [])).catch(() => {}),
+      getMarketNews(500).then(r => setNews(r.data.items || [])).catch(() => {}),
     ]).catch(() => setError(t('loadError'))).finally(() => setLoading(false))
   }
 
@@ -157,6 +157,10 @@ export default function Explorer() {
           <button className="action-btn" onClick={() => router.push('/brokers')}>
             <Briefcase size={24} color="#fff" />
             <span>{t('brokers')}</span>
+          </button>
+          <button className="action-btn plan-btn" onClick={() => router.push('/premium')}>
+            <Compass size={24} color="#00C853" />
+            <span>{t('premiumTitle')}</span>
           </button>
         </div>
 
@@ -513,6 +517,11 @@ export default function Explorer() {
           text-decoration: none;
         }
         .action-btn:hover { background: #333; }
+        .action-btn.plan-btn {
+          background: linear-gradient(160deg, rgba(0,200,83,0.16), rgba(139,92,246,0.12));
+          border: 1px solid rgba(0,200,83,0.35);
+        }
+        .action-btn.plan-btn:hover { background: linear-gradient(160deg, rgba(0,200,83,0.26), rgba(139,92,246,0.2)); }
         .tabs-strip {
           display: flex;
           gap: 8px;

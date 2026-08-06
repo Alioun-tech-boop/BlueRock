@@ -198,14 +198,29 @@ def _ensure_profile(claims: dict, db: Session) -> User:
     user = _resolve_user(claims, db)
     if user:
         return user
+    sub = uuid.UUID(claims["sub"])
+    email = (claims.get("email") or "").lower()
     meta = claims.get("user_metadata") or {}
     account_type = meta.get("account_type") or "demo"
     if account_type not in ("demo", "real"):
         account_type = "demo"
+    # Compte pré-Supabase : un profil public.users existe déjà (même email),
+    # il n'a jamais été lié à l'auth_id — on le rattache pour conserver
+    # positions, ordres et historique.
+    if email:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            existing.auth_id = sub
+            existing.email_verified = True
+            if existing.account_type not in ("demo", "real"):
+                existing.account_type = account_type
+            db.commit()
+            db.refresh(existing)
+            return existing
     user = User(
-        auth_id=uuid.UUID(claims["sub"]),
+        auth_id=sub,
         name=meta.get("full_name") or (claims.get("email") or "Utilisateur"),
-        email=(claims.get("email") or "").lower(),
+        email=email,
         password_hash="",
         account_type=account_type,
         broker_name=meta.get("broker_name") or None,
@@ -241,6 +256,7 @@ class LegacyLoginRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     avatar: str | None = Field(default=None, max_length=16)
+    email_notif_enabled: bool | None = None
 
 
 class UserOut(BaseModel):
@@ -251,6 +267,7 @@ class UserOut(BaseModel):
     broker_name: str | None = None
     broker_account: str | None = None
     avatar: str | None = None
+    email_notif_enabled: bool | None = None
     created_at: datetime | None = None
 
     class Config:
@@ -325,6 +342,8 @@ def update_me(
             raise HTTPException(status_code=422, detail="Avatar invalide (emoji attendu)")
         else:
             user.avatar = avatar
+    if req.email_notif_enabled is not None:
+        user.email_notif_enabled = req.email_notif_enabled
     db.commit()
     db.refresh(user)
     return UserOut.from_orm(user)

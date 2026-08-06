@@ -8,6 +8,58 @@ import { getMarketStatus } from '../lib/market'
 
 const CHAT_KEY = 'bluerock_chat_v1'
 
+function renderInline(text) {
+  const out = []
+  const re = /(\*\*[^*\n]+\*\*|`[^`]+`|\*[^*\n]+\*)/g
+  let last = 0, key = 0, m
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (tok.startsWith('**')) out.push(<strong key={key++}>{tok.slice(2, -2)}</strong>)
+    else if (tok.startsWith('`')) out.push(<code key={key++}>{tok.slice(1, -1)}</code>)
+    else out.push(<em key={key++}>{tok.slice(1, -1)}</em>)
+    last = re.lastIndex
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
+function ChatText({ text }) {
+  const lines = text.split('\n')
+  const blocks = []
+  let list = [], listNum = null, key = 0
+
+  const flushList = () => {
+    if (!list.length) return
+    const items = list
+    blocks.push(
+      <ul key={key++} className={listNum ? 'md-ol' : 'md-ul'}>
+        {items.map((it, i) => <li key={i}>{it}</li>)}
+      </ul>
+    )
+    list = []
+    listNum = null
+  }
+
+  for (const line of lines) {
+    const trim = line.trim()
+    if (!trim) { flushList(); continue }
+    const h3 = trim.match(/^###\s+(.*)/)
+    const h2 = trim.match(/^##\s+(.*)/)
+    const h1 = trim.match(/^#\s+(.*)/)
+    const bullet = trim.match(/^[-*•]\s+(.*)/)
+    const ordered = trim.match(/^\d+[.)]\s+(.*)/)
+    if (h3) { flushList(); blocks.push(<h4 key={key++}>{renderInline(h3[1])}</h4>) }
+    else if (h2) { flushList(); blocks.push(<h3 key={key++}>{renderInline(h2[1])}</h3>) }
+    else if (h1) { flushList(); blocks.push(<h2 key={key++}>{renderInline(h1[1])}</h2>) }
+    else if (bullet) { listNum = listNum === null ? false : listNum; list.push(renderInline(bullet[1])) }
+    else if (ordered) { listNum = true; list.push(renderInline(ordered[1])) }
+    else { flushList(); blocks.push(<p key={key++}>{renderInline(line)}</p>) }
+  }
+  flushList()
+  return <>{blocks}</>
+}
+
 function suggestions() {
   return [
     t('sug1'),
@@ -87,7 +139,9 @@ export default function Analyst() {
         <div className="chat-messages">
           {messages.map((msg, i) => (
             <div key={i} className={`chat-bubble ${msg.role}`}>
-              {msg.content}
+              {msg.role === 'assistant' && !msg.error
+                ? <ChatText text={msg.content} />
+                : msg.content}
               {msg.error && (
                 <button className="retry-msg" onClick={() => sendMessage(msg.question)}>
                   <RefreshCw size={12} /> {t('retry')}
@@ -161,11 +215,26 @@ export default function Analyst() {
         .chat-bubble {
           max-width: 85%; padding: 10px 14px;
           font-size: 14px; line-height: 1.5;
-          white-space: pre-wrap; word-break: break-word;
+          word-break: break-word;
         }
-        .chat-bubble.assistant {
-          align-self: flex-start; background: #1B1B1B; border-radius: 4px 16px 16px 16px;
+        .chat-bubble.assistant { align-self: flex-start; }
+        .chat-bubble p { margin: 0 0 8px; }
+        .chat-bubble p:last-child { margin-bottom: 0; }
+        .chat-bubble h2, .chat-bubble h3, .chat-bubble h4 {
+          margin: 10px 0 6px; line-height: 1.35;
         }
+        .chat-bubble h2 { font-size: 16px; }
+        .chat-bubble h3 { font-size: 15px; }
+        .chat-bubble h4 { font-size: 14px; }
+        .chat-bubble .md-ul, .chat-bubble .md-ol { margin: 0 0 8px; padding-left: 18px; }
+        .chat-bubble .md-ul li, .chat-bubble .md-ol li { margin-bottom: 4px; }
+        .chat-bubble strong { color: #fff; font-weight: 700; }
+        .chat-bubble em { color: #d6d3f0; }
+        .chat-bubble code {
+          background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 6px;
+          padding: 1px 6px; font-size: 12.5px; color: #9be7bd;
+        }
+        .chat-bubble.assistant { align-self: flex-start; background: #1B1B1B; border-radius: 4px 16px 16px 16px; }
         .chat-bubble.user {
           align-self: flex-end; background: #8b5cf6; border-radius: 16px 4px 16px 16px;
         }

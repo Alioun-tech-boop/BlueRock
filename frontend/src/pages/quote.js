@@ -7,6 +7,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, ChevronDown, Search } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtCompact, fmtChange } from '../lib/i18n'
+import { aggregateOhlc } from '../lib/ohlc'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -22,13 +23,13 @@ function saveJSON(key, value) {
 }
 
 const PERIODS = [
-  { id: '1m', label: '1M', days: 31 },
-  { id: '3m', label: '3M', days: 92 },
-  { id: '6m', label: '6M', days: 183 },
-  { id: '1a', label: '1A', days: 366 },
-  { id: '3a', label: '3A', days: 1096 },
-  { id: '5a', label: '5A', days: 99999 },
-  { id: 'max', label: 'MAX', days: 999999 },
+  { id: '1m', label: '1M', kind: '1m' },
+  { id: '3m', label: '3M', kind: '3m' },
+  { id: '6m', label: '6M', kind: '6m' },
+  { id: '1a', label: '1A', kind: '1a' },
+  { id: '3a', label: '3A', kind: '3a' },
+  { id: '5a', label: '5A', kind: '5a' },
+  { id: 'max', label: 'MAX', kind: 'max' },
 ]
 
 export default function Quote() {
@@ -45,6 +46,11 @@ export default function Quote() {
   const [isFav, setIsFav] = useState(false)
   const [orderModal, setOrderModal] = useState(null) // 'buy' | 'sell' | null
   const [orderQty, setOrderQty] = useState('100')
+  const [orderType, setOrderType] = useState('market') // 'market' | 'limit'
+  const [orderLimit, setOrderLimit] = useState('')
+  const [tp, setTp] = useState('')
+  const [sl, setSl] = useState('')
+  const [orderErr, setOrderErr] = useState('')
   const [flash, setFlash] = useState(null)
   const [liveInfo, setLiveInfo] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -204,8 +210,7 @@ export default function Quote() {
   }, [symbols, query])
 
   const periodCfg = useMemo(() => PERIODS.find(p => p.id === period) || PERIODS[3], [period])
-  const cutoff = useMemo(() => new Date(Date.now() - periodCfg.days * 86400000), [periodCfg])
-  const data = useMemo(() => allData.filter(d => new Date(d.date) >= cutoff), [allData, cutoff])
+  const data = useMemo(() => aggregateOhlc(allData, periodCfg.kind), [allData, periodCfg])
   const sorted = useMemo(() => [...data].sort((a, b) => new Date(a.date) - new Date(b.date)), [data])
 
   const last = sorted.length ? sorted[sorted.length - 1] : null
@@ -243,14 +248,14 @@ export default function Quote() {
       .sort((a, b) => a.time.localeCompare(b.time))
   }, [orders, symbol, sorted])
   const isLive = liveInfo?.status === 'LIVE' && company?.current_price != null
-  const price = isLive ? company.current_price : last?.close_price ?? company?.current_price ?? null
-  const periodChange = first ? price - first.close_price : 0
-  const periodChangePct = first?.close_price ? (periodChange / first.close_price) * 100 : null
+  const price = isLive ? company.current_price : last?.close ?? company?.current_price ?? null
+  const periodChange = first ? price - first.close : 0
+  const periodChangePct = first?.close ? (periodChange / first.close) * 100 : null
   const up = (periodChangePct ?? 0) >= 0
   const dayChange = company?.change_percent ?? last?.change_percent ?? 0
 
-  const highP = useMemo(() => sorted.length ? Math.max(...sorted.map(d => d.high_price ?? d.close_price)) : null, [sorted])
-  const lowP = useMemo(() => sorted.length ? Math.min(...sorted.map(d => d.low_price ?? d.close_price)) : null, [sorted])
+  const highP = useMemo(() => sorted.length ? Math.max(...sorted.map(d => d.high ?? d.close)) : null, [sorted])
+  const lowP = useMemo(() => sorted.length ? Math.min(...sorted.map(d => d.low ?? d.close)) : null, [sorted])
   const yearCutoff = useMemo(() => new Date(Date.now() - 366 * 86400000), [])
   const yearData = useMemo(() => allData.filter(d => new Date(d.date) >= yearCutoff), [allData, yearCutoff])
   const yearHigh = useMemo(() => yearData.length ? Math.max(...yearData.map(d => d.high_price ?? d.close_price)) : null, [yearData])
@@ -264,22 +269,47 @@ export default function Quote() {
     }
     const qty = parseFloat(orderQty)
     if (!qty || qty <= 0 || !company || !price) return
+    const execPx = orderType === 'limit' ? parseFloat(orderLimit) : price
+    if (orderType === 'limit' && (!execPx || execPx <= 0)) {
+      setOrderErr(t(lang, 'limitPriceErr'))
+      return
+    }
+    const tpV = tp.trim() ? parseFloat(tp) : null
+    const slV = sl.trim() ? parseFloat(sl) : null
+    if ((tpV != null && !(tpV > execPx)) || (slV != null && !(slV < execPx))) {
+      setOrderErr(t(lang, 'tpslErr'))
+      return
+    }
+    setOrderErr('')
     setBusy(true)
     try {
-      const res = await placeOrder({ symbol, side: orderModal, qty, price })
-      setPosition(res.data.position.qty > 0 ? res.data.position : null)
+      const res = await placeOrder({
+        symbol,
+        side: orderModal,
+        qty,
+        price: execPx,
+        order_type: orderType,
+        limit_price: orderType === 'limit' ? execPx : null,
+        take_profit: tpV,
+        stop_loss: slV,
+      })
+      if (res.data.position && res.data.position.qty > 0) setPosition(res.data.position)
       try {
         const pf = await getPortfolio()
         if (mounted.current) setOrders(pf.data?.orders || [])
       } catch {}
       setOrderModal(null)
       setOrderQty('100')
+      setOrderLimit('')
+      setTp('')
+      setSl('')
+      setOrderType('market')
+      setOrderErr('')
       setFlash(orderModal === 'buy' ? 'up' : 'down')
       setTimeout(() => setFlash(null), 1500)
     } catch (err) {
       const d = err?.response?.data?.detail
-      setFlash(d ? 'down' : 'down')
-      setOrderModal(null)
+      setOrderErr(d || err?.message || t(lang, 'tradeFailed'))
     } finally {
       setBusy(false)
     }
@@ -347,7 +377,7 @@ export default function Quote() {
             <div className="q-stats">
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'open')}</span>
-                <span className="qs-value">{fmtPrice(lang, last?.open_price ?? first?.close_price)}</span>
+                <span className="qs-value">{fmtPrice(lang, last?.open ?? first?.close)}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'prevClose')}</span>
@@ -386,6 +416,7 @@ export default function Quote() {
                 lang={lang}
                 statusText={statusText}
                 markers={orderMarkers}
+                symbol={company?.symbol}
               />
             </div>
 
@@ -412,12 +443,12 @@ export default function Quote() {
             </div>
 
             <div className="order-section">
-              <div className="order-box buy" onClick={() => { if (!user) { router.push(`/login?next=${encodeURIComponent(router.asPath)}`); return } setOrderQty('100'); setOrderModal('buy') }}>
+              <div className="order-box buy" onClick={() => { if (!user) { router.push(`/login?next=${encodeURIComponent(router.asPath)}`); return } setOrderQty('100'); setOrderErr(''); setOrderModal('buy') }}>
                 <span className="order-label">{t(lang, 'buy')}</span>
                 <span className="order-val">+{fmtPrice(lang, price)}</span>
               </div>
               {position && position.qty > 0 && (
-                <div className="order-box sell" onClick={() => { setOrderQty(String(position?.qty ?? 1)); setOrderModal('sell') }}>
+                <div className="order-box sell" onClick={() => { setOrderQty(String(position?.qty ?? 1)); setOrderErr(''); setOrderModal('sell') }}>
                   <span className="order-label">{t(lang, 'sell')} · {position.qty} {t(lang, 'shares')}</span>
                   <span className="order-val">−{fmtPrice(lang, price)}</span>
                 </div>
@@ -475,6 +506,54 @@ export default function Quote() {
               <span className="mp-label">{t(lang, 'price')}</span>
               <span className="mp-val">{fmtPrice(lang, price)} FCFA</span>
             </div>
+            <div className="otype-row">
+              <button
+                className={`otype-btn ${orderType === 'market' ? 'on' : ''}`}
+                onClick={() => setOrderType('market')}
+              >
+                {t(lang, 'orderMarket')}
+              </button>
+              <button
+                className={`otype-btn ${orderType === 'limit' ? 'on' : ''}`}
+                onClick={() => setOrderType('limit')}
+              >
+                {t(lang, 'orderLimit')}
+              </button>
+            </div>
+            {orderType === 'limit' && (
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'limitPrice')} (FCFA)</span>
+                <input
+                  className="tpsl-input mono"
+                  type="number" min="0" step="0.01"
+                  value={orderLimit}
+                  placeholder={String(price ?? '')}
+                  onChange={e => setOrderLimit(e.target.value)}
+                />
+              </div>
+            )}
+            <div className="tpsl-grid">
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'takeProfit')}</span>
+                <input
+                  className="tpsl-input mono"
+                  type="number" min="0" step="0.01"
+                  value={tp}
+                  placeholder={t(lang, 'opt')}
+                  onChange={e => setTp(e.target.value)}
+                />
+              </div>
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'stopLoss')}</span>
+                <input
+                  className="tpsl-input mono"
+                  type="number" min="0" step="0.01"
+                  value={sl}
+                  placeholder={t(lang, 'opt')}
+                  onChange={e => setSl(e.target.value)}
+                />
+              </div>
+            </div>
             <div className="qty-row">
               <button className="qty-btn" onClick={() => setOrderQty(String(Math.max(1, (parseFloat(orderQty) || 100) - 100)))}><Minus size={16} /></button>
               <input
@@ -491,14 +570,15 @@ export default function Quote() {
             </div>
             <div className="modal-total">
               <span>{t(lang, 'total')}</span>
-              <span className="mt-val">{fmtPrice(lang, (parseFloat(orderQty) || 0) * price)} FCFA</span>
+              <span className="mt-val">{fmtPrice(lang, (parseFloat(orderQty) || 0) * (orderType === 'limit' && parseFloat(orderLimit) ? parseFloat(orderLimit) : price))} FCFA</span>
             </div>
+            {orderErr && <div className="order-err">{orderErr}</div>}
             <button
               className={`modal-exec ${orderModal === 'buy' ? 'buy' : 'sell'}`}
               onClick={executeOrder}
-              disabled={!(parseFloat(orderQty) > 0)}
+              disabled={!(parseFloat(orderQty) > 0) || busy}
             >
-              {orderModal === 'buy' ? t(lang, 'confirmBuy') : t(lang, 'confirmSell')}
+              {busy ? '...' : t(lang, 'tradePlace')}
             </button>
           </div>
         </div>
@@ -676,6 +756,27 @@ export default function Quote() {
         }
         .mp-label { font-size: 12px; color: #a3a3a3; }
         .mp-val { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .otype-row { display: flex; gap: 8px; }
+        .otype-btn {
+          flex: 1; height: 38px;
+          background: #1B1B1B; color: #a3a3a3;
+          border: 1px solid #2a2a2a; border-radius: 12px;
+          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+        }
+        .otype-btn.on {
+          background: rgba(0,200,83,0.12); color: #00C853; border-color: rgba(0,200,83,0.4);
+        }
+        .tpsl-grid { display: flex; gap: 10px; }
+        .tpsl-grid .tpsl-row { flex: 1; min-width: 0; }
+        .tpsl-row { display: flex; flex-direction: column; gap: 5px; }
+        .tpsl-label { font-size: 11px; color: #8f8f8f; }
+        .tpsl-input {
+          width: 100%; box-sizing: border-box;
+          background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 10px;
+          color: #fff; font-size: 14px; padding: 9px 12px; outline: none;
+        }
+        .tpsl-input:focus { border-color: rgba(0,200,83,0.5); }
+        .order-err { font-size: 12px; color: #FF4D4F; text-align: center; }
         .qty-row { display: flex; align-items: center; gap: 10px; }
         .qty-btn {
           width: 44px; height: 44px; flex-shrink: 0;

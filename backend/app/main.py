@@ -5,7 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .database import engine, Base
-from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community
+from .models.news import NewsItem
+from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community, challenges, notifications
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
@@ -75,6 +76,8 @@ app.include_router(portfolio.router)
 app.include_router(premium.router)
 app.include_router(brokers.router)
 app.include_router(community.router)
+app.include_router(challenges.router)
+app.include_router(notifications.router)
 
 scheduler = BackgroundScheduler()
 
@@ -91,6 +94,8 @@ def _ensure_schema():
         "market_data": ["is_synthetic"],
         "financial_statements": ["is_synthetic"],
         "dividends": ["is_synthetic"],
+        "positions": ["take_profit", "stop_loss"],
+        "orders": ["order_type", "limit_price", "status", "take_profit", "stop_loss", "executed_at"],
         "users": [
             "avatar",
             "auth_id",
@@ -108,9 +113,30 @@ def _ensure_schema():
             "password_reset_code",
             "password_reset_expires",
             "password_reset_attempts",
+            "email_notif_enabled",
         ],
+        "premium_plans": [
+            "status",
+            "issued_at",
+            "matured_at",
+            "cancelled_at",
+            "completed_at",
+            "allocation_snapshot",
+            "start_value",
+            "last_value",
+            "last_pnl_pct",
+            "last_tracked_at",
+            "last_day_change_pct",
+        ],
+        "notifications": ["email_sent"],
     }
-    ts_cols = {"email_verify_expires", "email_verify_sent_at", "locked_until", "password_reset_expires"}
+    ts_cols = {"email_verify_expires", "email_verify_sent_at", "locked_until", "password_reset_expires", "executed_at",
+               "issued_at", "matured_at", "cancelled_at", "completed_at", "last_tracked_at"}
+    float_cols = {
+        "positions": {"take_profit", "stop_loss"},
+        "orders": {"limit_price", "take_profit", "stop_loss"},
+        "premium_plans": {"start_value", "last_value", "last_pnl_pct", "last_day_change_pct"},
+    }
     with engine.begin() as conn:
         for table, columns in tables.items():
             if table not in insp.get_table_names():
@@ -132,6 +158,21 @@ def _ensure_schema():
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} UUID"))
                     conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_users_auth_id ON {table}({col})"))
+                elif col in float_cols.get(table, set()):
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} DOUBLE PRECISION"))
+                elif col == "status" and table == "premium_plans":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR NOT NULL DEFAULT 'active'"))
+                elif col == "email_notif_enabled" and table == "users":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT TRUE"))
+                elif col == "email_sent" and table == "notifications":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"))
+                elif col == "allocation_snapshot":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TEXT"))
                 elif col in ts_cols:
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TIMESTAMP"))
@@ -158,6 +199,17 @@ def on_startup():
             db.close()
     except Exception as e:
         logger.warning(f"Could not seed community: {e}")
+    try:
+        from .database import SessionLocal
+        from .services.challenge_seed import seed_challenges
+        db = SessionLocal()
+        try:
+            result = seed_challenges(db)
+            logger.info(f"Challenges seed: {result.get('status')} ({result.get('challenges', 0)} défis)")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Could not seed challenges: {e}")
     try:
         from .database import SessionLocal
         from .routers.macro import seed_macro
@@ -206,12 +258,95 @@ def on_startup():
                 live_feed.refresh()
             except Exception as e:
                 logger.warning(f"Live feed job error: {e}")
+            try:
+                from .database import SessionLocal
+                from .services.order_engine import run_order_engine
+                db = SessionLocal()
+                try:
+                    res = run_order_engine(db)
+                    if res["limit"] or res["tp_sl"] or res["cancelled"]:
+                        logger.info(
+                            "Order engine: %d ordres limit exécutés, %d TP/SL déclenchés, %d ordres annulés",
+                            res["limit"], res["tp_sl"], res["cancelled"],
+                        )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"Order engine error: {e}")
 
         scheduler.add_job(_live_job, "interval", seconds=30, id="brvm_live", replace_existing=True)
-        scheduler.start()
         logger.info("BRVM live feed scheduled (every 30s during market hours)")
     except Exception as e:
         logger.warning(f"Could not start live feed scheduler: {e}")
+
+    try:
+        from .scrapers.financial_reports import sync_financials
+
+        _financial_lock = threading.Lock()
+
+        def _financial_sync_job():
+            """Ingère automatiquement les rapports financiers nouvellement publiés
+            sur brvm.org : extraction PDF → stockage → recalcul ratios/scorecard/valorisation."""
+            if not _financial_lock.acquire(blocking=False):
+                return
+            try:
+                from .database import SessionLocal
+                db = SessionLocal()
+                try:
+                    result = sync_financials(db, max_years=2)
+                    ingested = sum(len(r["ingested"]) for r in result["results"])
+                    logger.info(
+                        "Financial sync: %d sociétés analysées, %d rapports ingérés",
+                        result["companies"], ingested,
+                    )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"Financial sync error: {e}")
+            finally:
+                _financial_lock.release()
+
+        from datetime import datetime, timedelta
+        scheduler.add_job(
+            _financial_sync_job, "interval", hours=6, id="financial_reports",
+            replace_existing=True,
+            next_run_time=datetime.now() + timedelta(minutes=2),
+        )
+        logger.info("Financial reports sync scheduled (every 6h, first run in 2 min)")
+    except Exception as e:
+        logger.warning(f"Could not schedule financial reports sync: {e}")
+
+    try:
+        from .database import SessionLocal
+        from .services.premium_tracking import track_all_active
+
+        def _plan_tracking_job():
+            """Suivi quotidien des plans patrimoniaux actifs : valorisation,
+            snapshots journaliers et génération d'alertes."""
+            try:
+                db = SessionLocal()
+                try:
+                    res = track_all_active(db)
+                    if res["plans"]:
+                        logger.info(
+                            "Plan tracking: %d plans suivis, %d snapshots, %d alertes, %d terminés",
+                            res["plans"], res["snapshots"], res["alerts"], res["completed"],
+                        )
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.warning(f"Plan tracking error: {e}")
+
+        scheduler.add_job(_plan_tracking_job, "interval", hours=3, id="premium_tracking",
+                          replace_existing=True)
+        logger.info("Premium plan tracking scheduled (every 3h)")
+    except Exception as e:
+        logger.warning(f"Could not schedule premium tracking: {e}")
+
+    try:
+        scheduler.start()
+    except Exception as e:
+        logger.warning(f"Could not start scheduler: {e}")
 
 @app.on_event("shutdown")
 def on_shutdown():

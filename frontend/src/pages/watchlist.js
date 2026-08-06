@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
 import { supabase } from '../lib/supabase'
-import { Search, Plus, Star, ChevronLeft, X } from 'lucide-react'
+import { Search, Plus, Star, ChevronLeft, X, Wallet } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 
 const FAV_KEY = 'bluerock_favorites_v1'
@@ -249,8 +249,9 @@ export default function Watchlist() {
             <span /><span /><span />
           </button>
           <div className="logo">BlueRock</div>
-          <button className="top-plus" onClick={() => setAddOpen(true)} aria-label="ajouter">
-            <Plus size={24} strokeWidth={2} />
+          <button className="top-wallet" onClick={() => router.push('/portfolio')} aria-label={t(lang, 'portfolio')}>
+            <Wallet size={17} strokeWidth={2.2} />
+            <span>{t(lang, 'portfolio')}</span>
           </button>
         </header>
 
@@ -389,13 +390,15 @@ export default function Watchlist() {
           font-size: 19px; font-weight: 800; letter-spacing: -0.4px;
           color: #fff;
         }
-        .top-plus {
-          width: 36px; height: 36px; border: none; background: none;
+        .top-wallet {
+          height: 34px; padding: 0 14px; border: none;
+          background: #2E2E2E; border-radius: 17px;
           color: #fff; cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
+          display: flex; align-items: center; gap: 7px;
+          font-family: inherit; font-size: 13px; font-weight: 600;
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
-        .top-plus:active { opacity: 0.9; transform: scale(0.98); }
+        .top-wallet:active { opacity: 0.9; transform: scale(0.98); }
 
         .second-bar {
           height: 70px; padding: 0 22px;
@@ -498,11 +501,6 @@ export default function Watchlist() {
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
         .stock-row:active { opacity: 0.9; transform: scale(0.98); }
-        .stock-row::after {
-          content: '';
-          position: absolute; left: 72px; right: 0; bottom: 0;
-          height: 1px; background: #202020;
-        }
         .row-logo {
           width: 42px; height: 42px; border-radius: 50%;
           margin-left: 16px; flex-shrink: 0;

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getPremiumPlan, savePremiumPlan } from '../services/api'
+import { getPremiumPlan, savePremiumPlan, cancelPremiumPlan } from '../services/api'
 import { useAuth } from '../lib/auth'
-import { ChevronLeft, Crown, Sparkles, TrendingUp, ShieldCheck, Target, AlertTriangle, RefreshCw, Info } from 'lucide-react'
+import { ChevronLeft, Compass, Sparkles, TrendingUp, ShieldCheck, Target, AlertTriangle, RefreshCw, Info, Activity, Wallet, Bell, XCircle, CheckCircle2 } from 'lucide-react'
 import { detectLang, t, fmtPrice } from '../lib/i18n'
 
 const RISK_LEVELS = [
@@ -20,6 +20,13 @@ function fmtFCFA(n) {
 function fmtPct(n, digits = 1) {
   if (n == null) return '—'
   return n.toLocaleString('fr-FR', { maximumFractionDigits: digits }) + '%'
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'))
+  if (isNaN(d)) return '—'
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function fmtInput(v) {
@@ -76,6 +83,9 @@ export default function Premium() {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
     }
+    if (plan && plan.status === 'active' && !window.confirm(t(lang, 'planReplaceConfirm'))) {
+      return
+    }
     const amt = parseFCFA(amount)
     if (Number.isNaN(amt) || amt <= 0) {
       setError(t(lang, 'premiumAmountInvalid'))
@@ -101,14 +111,52 @@ export default function Premium() {
     } catch (e) {
       const detail = e.response && e.response.data && e.response.data.detail
       if (mounted.current) {
-        setError(detail === 'no-valuations' ? t(lang, 'premiumNoValuation') : t(lang, 'premiumError'))
+        setError(detail === 'no-valuations' ? t(lang, 'premiumNoValuation') : (detail || t(lang, 'premiumError')))
       }
     } finally {
       if (mounted.current) setLoading(false)
     }
   }
 
+  const handleCancel = async () => {
+    if (!window.confirm(t(lang, 'planCancelConfirm'))) return
+    try {
+      const res = await cancelPremiumPlan(plan.id)
+      if (mounted.current) setPlan(res.data.plan)
+    } catch (e) {
+      if (mounted.current) setError(t(lang, 'premiumError'))
+    }
+  }
+
   const riskLabel = (id) => t(lang, RISK_LEVELS.find(r => r.id === id)?.key || 'riskBalanced')
+
+  const active = plan && plan.status === 'active'
+  const issued = plan && (plan.issued_at || plan.cancelled_at || plan.completed_at)
+
+  const progressPct = (() => {
+    if (!plan || !plan.issued_at || !plan.matured_at) return 0
+    const a = new Date(plan.issued_at.includes('T') ? plan.issued_at : plan.issued_at.replace(' ', 'T'))
+    const b = new Date(plan.matured_at.includes('T') ? plan.matured_at : plan.matured_at.replace(' ', 'T'))
+    if (isNaN(a) || isNaN(b) || b <= a) return 0
+    const pct = ((Date.now() - a.getTime()) / (b.getTime() - a.getTime())) * 100
+    return Math.max(0, Math.min(100, pct))
+  })()
+
+  const curve = (() => {
+    if (!plan || !plan.snapshots || plan.snapshots.length < 2) return null
+    const vals = plan.snapshots.map(s => s.value)
+    const vmin = Math.min(...vals, plan.start_value || 0)
+    const vmax = Math.max(...vals, plan.start_value || 0)
+    const range = (vmax - vmin) || 1
+    const pt = (i, v) => {
+      const x = (i / (vals.length - 1)) * 300
+      const y = 86 - ((v - vmin) / range) * 74
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }
+    const points = vals.map((v, i) => pt(i, v)).join(' ')
+    const startY = pt(0, plan.start_value || vmin).split(',')[1]
+    return { points, startY, vmin, vmax, last: vals[vals.length - 1], first: plan.snapshots[0].date, lastDate: plan.snapshots[plan.snapshots.length - 1].date }
+  })()
 
   return (
     <div className="mobile-root">
@@ -118,13 +166,13 @@ export default function Premium() {
             <ChevronLeft size={22} />
           </button>
           <div className="pg-title-wrap">
-            <div className="pg-title"><Crown size={18} color="#D4A843" /> {t(lang, 'premiumTitle')}</div>
+            <div className="pg-title"><Compass size={18} color="#00C853" /> {t(lang, 'premiumTitle')}</div>
             <div className="pg-sub">{t(lang, 'premiumSub')}</div>
           </div>
         </header>
 
         <div className="hero-card">
-          <Sparkles size={16} color="#D4A843" />
+          <Sparkles size={16} color="#00C853" />
           <span>{t(lang, 'premiumHero')}</span>
         </div>
 
@@ -175,7 +223,7 @@ export default function Premium() {
             {loading ? (
               <><RefreshCw size={16} className="spin" /> {t(lang, 'premiumLoading')}</>
             ) : (
-              <>{plan ? t(lang, 'premiumRegenerate') : t(lang, 'premiumGenerate')} <Sparkles size={16} /></>
+              <>{plan && plan.status === 'active' ? t(lang, 'planReplaceBtn') : (plan ? t(lang, 'planNewEmit') : t(lang, 'premiumGenerate'))} <Sparkles size={16} /></>
             )}
           </button>
           {error && <div className="error-box">{error}</div>}
@@ -184,6 +232,83 @@ export default function Premium() {
         {!user && !loading && !plan && (
           <div className="login-note" onClick={() => router.push(`/login?next=${encodeURIComponent(router.asPath)}`)}>
             {t(lang, 'premiumLogin')}
+          </div>
+        )}
+
+        {issued && (
+          <div className={`status-card ${plan.status}`}>
+            <div className="status-head">
+              {plan.status === 'active' && <div className="status-badge active"><Activity size={12} /> {t(lang, 'planStatusActive')}</div>}
+              {plan.status === 'completed' && <div className="status-badge completed"><CheckCircle2 size={12} /> {t(lang, 'planStatusCompleted')}</div>}
+              {plan.status === 'cancelled' && <div className="status-badge cancelled"><XCircle size={12} /> {t(lang, 'planStatusCancelled')}</div>}
+              <span className="status-id">#{plan.id}</span>
+            </div>
+            <div className="status-dates">
+              {plan.issued_at && <div><span className="stat-l">{t(lang, 'planIssued')}</span><b>{fmtDate(plan.issued_at)}</b></div>}
+              {plan.matured_at && plan.status !== 'cancelled' && <div><span className="stat-l">{t(lang, 'planMaturity')}</span><b>{fmtDate(plan.matured_at)}</b></div>}
+              {(plan.cancelled_at || plan.completed_at) && <div><span className="stat-l">{t(lang, 'planMaturity')}</span><b>{fmtDate(plan.cancelled_at || plan.completed_at)}</b></div>}
+              {active && <div><span className="stat-l">{t(lang, 'planLiveValue')}</span><b className="green">{fmtFCFA(plan.last_value)}</b></div>}
+              {active && <div><span className="stat-l">{t(lang, 'planLivePnl')}</span><b className={(plan.last_pnl_pct || 0) >= 0 ? 'green' : 'red'}>{fmtPct(plan.last_pnl_pct)}</b></div>}
+            </div>
+            {active && (
+              <div className="progress-row">
+                <span className="stat-l">{t(lang, 'planElapsed')}</span>
+                <div className="progress-track"><div className="progress-fill" style={{ width: `${progressPct}%` }} /></div>
+                <span className="progress-txt">{progressPct.toFixed(0)}%</span>
+              </div>
+            )}
+            {plan.status === 'cancelled' && <div className="status-note">{t(lang, 'planCancelledNote').replace('{d}', fmtDate(plan.cancelled_at))}</div>}
+            {plan.status === 'completed' && <div className="status-note">{t(lang, 'planCompletedNote').replace('{d}', fmtDate(plan.completed_at)).replace('{p}', fmtPct(plan.last_pnl_pct))}</div>}
+            {active && <div className="emitted-note"><Sparkles size={12} color="#00C853" /> {t(lang, 'planEmittedBanner')}</div>}
+            {active && (
+              <button className="cancel-btn" onClick={handleCancel}>
+                <XCircle size={14} /> {t(lang, 'planCancelBtn')}
+              </button>
+            )}
+          </div>
+        )}
+
+        {active && curve && (
+          <div className="card">
+            <div className="card-title"><Activity size={15} color="#00C853" /> {t(lang, 'planCurve')}</div>
+            <svg className="curve" viewBox="0 0 300 90" preserveAspectRatio="none">
+              <line x1="0" y1={curve.startY} x2="300" y2={curve.startY} className="curve-base" />
+              <polyline points={curve.points} className="curve-line" fill="none" />
+              <polyline points={`0,90 ${curve.points} 300,90`} className="curve-fill" />
+            </svg>
+            <div className="curve-axis">
+              <span>{fmtDate(curve.first)}</span>
+              <span>{fmtDate(curve.lastDate)} · {fmtFCFA(curve.last)}</span>
+            </div>
+            <div className="curve-hint">{t(lang, 'planCurveHint')}</div>
+          </div>
+        )}
+
+        {active && plan.coverage && (
+          <div className="card">
+            <div className="card-title"><Wallet size={15} color="#4ea8ff" /> {t(lang, 'planCoverage')}</div>
+            <div className="coverage-bar"><div className="coverage-fill" style={{ width: `${Math.min(100, plan.coverage.coverage_pct)}%` }} /></div>
+            <div className="coverage-val">
+              <b className={plan.coverage.coverage_pct >= 60 ? 'green' : 'red'}>{fmtPct(plan.coverage.coverage_pct, 0)}</b>
+              <span className="coverage-hint">{t(lang, 'planCoverageHint')}</span>
+            </div>
+          </div>
+        )}
+
+        {active && (
+          <div className="card">
+            <div className="card-title"><Bell size={15} color="#ffd166" /> {t(lang, 'planAlerts')}</div>
+            {plan.alerts && plan.alerts.length > 0 ? (
+              plan.alerts.slice(0, 6).map((a, i) => (
+                <div key={i} className="alert-row">
+                  <div className="alert-title">{a.title}</div>
+                  {a.body && <div className="alert-body">{a.body}</div>}
+                  <div className="alert-date">{a.created_at}</div>
+                </div>
+              ))
+            ) : (
+              <div className="plan-no-alerts">{t(lang, 'planNoAlerts')}</div>
+            )}
           </div>
         )}
 
@@ -218,7 +343,7 @@ export default function Premium() {
             )}
 
             <div className="card-title-inline">
-              <Target size={16} color="#D4A843" /> {t(lang, 'premiumAllocation')}
+              <Target size={16} color="#00C853" /> {t(lang, 'premiumAllocation')}
               <span className="uni-badge">{plan.allocation.length} {t(lang, 'premiumUniverse')}</span>
             </div>
 
@@ -248,6 +373,17 @@ export default function Premium() {
                   <div className="kv"><span>{t(lang, 'premiumShares')}</span><b>{a.shares}</b></div>
                   <div className="kv"><span>{t(lang, 'premiumProjectedValue')}</span><b>{fmtFCFA(a.projected_value)}</b></div>
                 </div>
+                {active && plan.coverage && plan.coverage.lines && plan.coverage.lines.find(l => l.symbol === a.symbol) && (
+                  (() => {
+                    const line = plan.coverage.lines.find(l => l.symbol === a.symbol)
+                    return (
+                      <div className="align-row">
+                        <span><Wallet size={12} /> {t(lang, 'planCoverage')} · {line.held_qty || 0}/{line.target_shares || 0} {t(lang, 'premiumShares')}</span>
+                        <b className={line.aligned_pct >= 60 ? 'green' : 'red'}>{fmtPct(line.aligned_pct, 0)}</b>
+                      </div>
+                    )
+                  })()
+                )}
                 <div className="tranche-row">
                   <span className="tranche-label"><Info size={13} /> {t(lang, 'premiumTranches')}</span>
                   {a.tranches ? a.tranches.map((tr, i) => (
@@ -262,13 +398,26 @@ export default function Premium() {
                   <div className="lvl"><span className="lvl-l">{t(lang, 'premiumStopLoss')}</span><b className="red">{fmtPrice(lang, a.stop_loss, 0)}</b></div>
                 </div>
                 <div className="rationale">{a.rationale}</div>
+                {a.ai_note && (
+                  <div className="ai-note"><Sparkles size={12} color="#00C853" /> <span>{a.ai_note}</span></div>
+                )}
               </div>
             ))}
 
             {plan.advice && (
               <div className="card advice">
-                <div className="card-title"><TrendingUp size={15} color="#00C853" /> {t(lang, 'premiumAdvice')}</div>
+                <div className="card-title">
+                  <TrendingUp size={15} color="#00C853" /> {t(lang, 'premiumAdvice')}
+                  {plan.ai_used && <span className="ai-badge">IA</span>}
+                </div>
                 <p>{plan.advice}</p>
+                {plan.highlights && plan.highlights.length > 0 && (
+                  <div className="ai-highlights">
+                    {plan.highlights.map((h, i) => (
+                      <div key={i} className="ai-hl"><Sparkles size={12} color="#00C853" /> {h}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -297,7 +446,7 @@ export default function Premium() {
               </div>
             )}
 
-            <div className="reinvest-note"><Sparkles size={14} color="#D4A843" /> {t(lang, 'premiumDividendsReinvest')}</div>
+            <div className="reinvest-note"><Sparkles size={14} color="#00C853" /> {t(lang, 'premiumDividendsReinvest')}</div>
             <div className="disclaimer">{t(lang, 'premiumDisclaimer')}</div>
           </>
         )}
@@ -325,10 +474,10 @@ export default function Premium() {
         .pg-sub { font-size: 11px; color: #a3a3a3; }
         .hero-card {
           display: flex; gap: 8px; align-items: flex-start;
-          background: linear-gradient(135deg, rgba(212,168,67,0.16), rgba(212,168,67,0.04));
-          border: 1px solid rgba(212,168,67,0.35);
+          background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(139,92,246,0.08));
+          border: 1px solid rgba(0,200,83,0.35);
           border-radius: 16px; padding: 12px 14px; margin-bottom: 14px;
-          font-size: 12px; line-height: 1.5; color: #e8d9b0;
+          font-size: 12px; line-height: 1.5; color: #d9f7e3;
         }
         .card {
           background: #141414; border-radius: 18px;
@@ -350,17 +499,17 @@ export default function Premium() {
           background: #0d0d0d; border: 1px solid #262626; border-radius: 12px;
           color: #fff; font-size: 15px; font-weight: 600; padding: 12px 14px; outline: none;
         }
-        .f-input:focus { border-color: #D4A843; }
+        .f-input:focus { border-color: #00C853; }
         .chips { display: flex; gap: 8px; flex-wrap: wrap; }
         .chip {
           padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
           background: #0d0d0d; color: #a3a3a3; border: 1px solid #262626; cursor: pointer;
         }
-        .chip.active { background: rgba(212,168,67,0.15); color: #D4A843; border-color: #D4A843; }
+        .chip.active { background: rgba(0,200,83,0.14); color: #00C853; border-color: #00C853; }
         .gen-btn {
           width: 100%; margin-top: 16px; padding: 14px; border-radius: 14px; border: none; cursor: pointer;
           display: flex; align-items: center; justify-content: center; gap: 8px;
-          background: linear-gradient(135deg, #D4A843, #b98a2e); color: #000;
+          background: linear-gradient(135deg, #00C853, #8b5cf6); color: #000;
           font-size: 15px; font-weight: 800;
         }
         .gen-btn:disabled { opacity: 0.6; cursor: default; }
@@ -372,7 +521,7 @@ export default function Premium() {
         }
         .login-note {
           text-align: center; padding: 16px; border-radius: 16px;
-          border: 1px dashed #262626; color: #D4A843; font-size: 13px; font-weight: 600; cursor: pointer;
+          border: 1px dashed #00C85355; color: #00C853; font-size: 13px; font-weight: 600; cursor: pointer;
         }
         .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
         .sum-hint { font-size: 10.5px; color: #666; text-align: center; margin: -6px 4px 14px; line-height: 1.5; }
@@ -380,10 +529,10 @@ export default function Premium() {
           background: #141414; border-radius: 16px; padding: 12px 14px;
           display: flex; flex-direction: column; gap: 4px;
         }
-        .stat.gold { background: linear-gradient(135deg, rgba(212,168,67,0.22), rgba(212,168,67,0.06)); border: 1px solid rgba(212,168,67,0.4); }
+        .stat.gold { background: linear-gradient(135deg, rgba(0,200,83,0.2), rgba(139,92,246,0.08)); border: 1px solid rgba(0,200,83,0.4); }
         .stat-l { font-size: 11px; color: #a3a3a3; }
         .stat-v { font-size: 15px; font-weight: 800; }
-        .stat.gold .stat-v { color: #D4A843; font-size: 16px; }
+        .stat.gold .stat-v { color: #00C853; font-size: 16px; }
         .stat.up .stat-v { color: #00C853; }
         .bars { display: flex; align-items: flex-end; gap: 8px; height: 130px; padding-top: 16px; }
         .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
@@ -391,7 +540,7 @@ export default function Premium() {
         .bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; background: transparent; }
         .bar-fill {
           width: 100%; border-radius: 6px 6px 2px 2px;
-          background: linear-gradient(180deg, #D4A843, #8a6a1f);
+          background: linear-gradient(180deg, #00C853, #1d8f48);
         }
         .bar-year { font-size: 10px; color: #666; }
         .alloc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -401,7 +550,7 @@ export default function Premium() {
         }
         .alloc-logo.placeholder {
           display: flex; align-items: center; justify-content: center;
-          color: #D4A843; font-weight: 800; font-size: 13px; border: 1px solid #262626;
+          color: #00C853; font-weight: 800; font-size: 13px; border: 1px solid #262626;
         }
         .alloc-info { flex: 1; min-width: 0; }
         .alloc-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -424,8 +573,8 @@ export default function Premium() {
         .tranche-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
         .tranche-label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #a3a3a3; width: 100%; margin-bottom: 2px; }
         .tranche-chip {
-          font-size: 11px; font-weight: 600; color: #D4A843;
-          background: rgba(212,168,67,0.1); border: 1px solid rgba(212,168,67,0.25);
+          font-size: 11px; font-weight: 600; color: #00C853;
+          background: rgba(0,200,83,0.1); border: 1px solid rgba(0,200,83,0.25);
           padding: 4px 10px; border-radius: 999px;
         }
         .level-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
@@ -436,6 +585,23 @@ export default function Premium() {
         .lvl-l { font-size: 10px; color: #a3a3a3; }
         .lvl b { font-size: 12px; font-weight: 700; }
         .rationale { font-size: 11.5px; line-height: 1.55; color: #c9c9c9; background: #0d0d0d; border-radius: 12px; padding: 10px 12px; }
+        .ai-note {
+          display: flex; gap: 6px; align-items: flex-start;
+          font-size: 11.5px; line-height: 1.55; color: #d9f7e3;
+          background: rgba(0,200,83,0.07); border: 1px solid rgba(0,200,83,0.18);
+          border-radius: 12px; padding: 10px 12px; margin-top: 8px;
+        }
+        .ai-badge {
+          margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+          color: #00C853; background: rgba(0,200,83,0.12);
+          border: 1px solid rgba(0,200,83,0.35); border-radius: 8px; padding: 2px 8px;
+        }
+        .ai-highlights { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+        .ai-hl {
+          display: flex; gap: 6px; align-items: flex-start;
+          font-size: 11.5px; line-height: 1.5; color: #c9c9c9;
+        }
+        .ai-hl svg { flex-shrink: 0; margin-top: 1px; }
         .advice p { font-size: 12.5px; line-height: 1.6; color: #d9d9d9; margin: 0; }
         .pos-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #1f1f1f; font-size: 12px; }
         .pos-row:last-child { border-bottom: none; }
@@ -443,14 +609,73 @@ export default function Premium() {
         .pos-why { color: #a3a3a3; flex: 1; }
         .trig-row { padding: 9px 0; border-bottom: 1px solid #1f1f1f; }
         .trig-row:last-child { border-bottom: none; }
-        .trig-row b { display: block; font-size: 12.5px; color: #ffd166; margin-bottom: 3px; }
+        .trig-row b { display: block; font-size: 12.5px; color: #00C853; margin-bottom: 3px; }
         .trig-row span { font-size: 12px; color: #a3a3a3; line-height: 1.5; }
         .reinvest-note {
           display: flex; align-items: center; gap: 8px;
-          font-size: 12px; color: #e8d9b0; background: rgba(212,168,67,0.08);
-          border: 1px dashed rgba(212,168,67,0.4); border-radius: 14px; padding: 11px 14px; margin-bottom: 12px;
+          font-size: 12px; color: #d9f7e3; background: rgba(0,200,83,0.08);
+          border: 1px dashed rgba(0,200,83,0.4); border-radius: 14px; padding: 11px 14px; margin-bottom: 12px;
         }
         .disclaimer { font-size: 10.5px; color: #666; line-height: 1.5; margin-bottom: 14px; }
+        .status-card {
+          background: linear-gradient(135deg, rgba(0,200,83,0.14), rgba(139,92,246,0.06));
+          border: 1px solid rgba(0,200,83,0.35); border-radius: 18px;
+          padding: 14px 16px; margin-bottom: 14px;
+        }
+        .status-card.cancelled { background: rgba(255,77,79,0.07); border-color: rgba(255,77,79,0.35); }
+        .status-card.completed { background: rgba(255,209,102,0.06); border-color: rgba(255,209,102,0.3); }
+        .status-head { display: flex; align-items: center; margin-bottom: 12px; }
+        .status-badge {
+          display: flex; align-items: center; gap: 5px;
+          font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 999px;
+        }
+        .status-badge.active { color: #00C853; background: rgba(0,200,83,0.14); }
+        .status-badge.completed { color: #ffd166; background: rgba(255,209,102,0.12); }
+        .status-badge.cancelled { color: #FF6B6B; background: rgba(255,77,79,0.12); }
+        .status-id { margin-left: auto; font-size: 10px; color: #666; font-weight: 700; }
+        .status-dates { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
+        .status-dates > div { display: flex; flex-direction: column; gap: 2px; }
+        .status-dates b { font-size: 12.5px; }
+        .status-note { font-size: 12px; color: #c9c9c9; line-height: 1.55; margin-top: 10px; }
+        .emitted-note {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 11px; color: #d9f7e3; margin-top: 10px; line-height: 1.5;
+        }
+        .progress-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+        .progress-row .stat-l { flex-shrink: 0; }
+        .progress-track { flex: 1; height: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #00C853, #8b5cf6); border-radius: 999px; transition: width .4s; }
+        .progress-txt { font-size: 11px; font-weight: 800; color: #00C853; width: 38px; text-align: right; }
+        .cancel-btn {
+          width: 100%; margin-top: 12px; padding: 11px; border-radius: 12px;
+          border: 1px solid rgba(255,77,79,0.4); background: rgba(255,77,79,0.08);
+          color: #FF6B6B; font-size: 13px; font-weight: 700; cursor: pointer;
+          display: flex; align-items: center; justify-content: center; gap: 7px;
+        }
+        .curve { width: 100%; height: 90px; display: block; }
+        .curve-line { stroke: #00C853; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+        .curve-fill { fill: rgba(0,200,83,0.12); }
+        .curve-base { stroke: rgba(255,255,255,0.15); stroke-width: 1; stroke-dasharray: 4 4; }
+        .curve-axis { display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 6px; }
+        .curve-hint { font-size: 10.5px; color: #666; line-height: 1.5; margin-top: 6px; }
+        .coverage-bar { height: 10px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; margin-bottom: 8px; }
+        .coverage-fill { height: 100%; background: linear-gradient(90deg, #4ea8ff, #00C853); border-radius: 999px; }
+        .coverage-val { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+        .coverage-hint { color: #a3a3a3; font-size: 10.5px; line-height: 1.4; }
+        .alert-row { padding: 10px 0; border-bottom: 1px solid #1f1f1f; }
+        .alert-row:last-child { border-bottom: none; }
+        .alert-title { font-size: 12.5px; font-weight: 700; color: #ffd166; }
+        .alert-body { font-size: 11.5px; color: #c9c9c9; line-height: 1.55; margin-top: 3px; }
+        .alert-date { font-size: 10px; color: #666; margin-top: 4px; }
+        .plan-no-alerts { font-size: 12px; color: #a3a3a3; text-align: center; padding: 8px 0; }
+        .align-row {
+          display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          font-size: 11.5px; color: #a3a3a3;
+          background: rgba(78,168,255,0.07); border: 1px solid rgba(78,168,255,0.18);
+          border-radius: 10px; padding: 7px 10px; margin-bottom: 12px;
+        }
+        .align-row span { display: flex; align-items: center; gap: 5px; }
+        .align-row b { font-weight: 800; }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 12px 0; }
       `}</style>
     </div>

@@ -5,10 +5,27 @@ import { getCompanies, getMarketSparklines, getPortfolio, placeOrder } from '../
 import { useAuth } from '../lib/auth'
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Sparkles, ArrowUpRight, ArrowDownRight, UserRound,
+  Trophy, Target, Activity, Layers,
 } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 
 const PORT_KEY = 'bluerock_portfolio_v1'
+
+const PERIODS = [
+  { id: '1W', days: 7 },
+  { id: '1M', days: 30 },
+  { id: '3M', days: 90 },
+  { id: '6M', days: 180 },
+  { id: '1A', days: 365 },
+]
+
+function downsample(arr, max = 64) {
+  if (arr.length <= max) return arr
+  const step = (arr.length - 1) / (max - 1)
+  const out = []
+  for (let i = 0; i < max; i++) out.push(arr[Math.round(i * step)])
+  return out
+}
 
 function loadJSON(key, fallback) {
   try {
@@ -99,6 +116,8 @@ export default function Portfolio() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [migrated, setMigrated] = useState(false)
+  const [period, setPeriod] = useState('1M')
+  const [demoCap, setDemoCap] = useState(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -123,6 +142,9 @@ export default function Portfolio() {
         ;(res.data.positions || []).forEach(p => { pos[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
         setPositions(pos)
         setOrders(res.data.orders || [])
+        if (res.data.demo_limit != null) {
+          setDemoCap({ limit: res.data.demo_limit, used: res.data.demo_used, remaining: res.data.demo_remaining })
+        }
         const local = loadJSON(PORT_KEY, {})
         const localEntries = Object.entries(local).filter(([, p]) => p.qty > 0)
         if (localEntries.length && (!res.data.positions || !res.data.positions.length) && !migrated) {
@@ -152,7 +174,7 @@ export default function Portfolio() {
   useEffect(() => {
     Promise.all([
       getCompanies({ limit: 47 }).then(r => r.data.companies || []).catch(() => []),
-      getMarketSparklines(30).then(r => r.data || {}).catch(() => ({})),
+      getMarketSparklines(400).then(r => r.data || {}).catch(() => ({})),
     ]).then(([list, sp]) => {
       if (!mounted.current) return
       setStocks(list)
@@ -187,22 +209,67 @@ export default function Portfolio() {
   }, [positionList])
 
   const series = useMemo(() => {
-    const n = 23
+    const days = (PERIODS.find(p => p.id === period) || PERIODS[1]).days
+    const n = Math.min(days, 64)
     const out = new Array(n).fill(0)
     positionList.forEach(p => {
       const points = spark[p.id]
       if (points && points.length >= 2) {
         const last = points[points.length - 1]
         const ratio = p.price ? last / p.price : 1
-        for (let i = 0; i < n; i++) {
-          const idx = Math.max(0, points.length - n + i)
-          out[i] += (points[idx] || last) * ratio * p.qty
-        }
+        const win = downsample(points.slice(-days), n)
+        for (let i = 0; i < n; i++) out[i] += (win[i] || last) * ratio * p.qty
       } else {
         for (let i = 0; i < n; i++) out[i] += p.value
       }
     })
     return out
+  }, [positionList, spark, period])
+
+  const periodPerf = useMemo(() => {
+    if (series.length < 2) return { chg: 0, pl: 0, high: null, low: null }
+    const first = series[0]
+    const last = series[series.length - 1]
+    const chg = first ? ((last - first) / first) * 100 : 0
+    return { chg, pl: last - first, high: Math.max(...series), low: Math.min(...series) }
+  }, [series])
+
+  const maxPlPct = Math.max(...positionList.map(p => Math.abs(p.plPct)), 0.01)
+
+  const movers = useMemo(() => {
+    const sorted = [...positionList].sort((a, b) => b.chg - a.chg)
+    const maxAbs = Math.max(...positionList.map(p => Math.abs(p.chg)), 0.01)
+    return {
+      gainers: sorted.filter(p => p.chg > 0).slice(0, 3).map(p => ({ ...p, barW: (p.chg / maxAbs) * 100 })),
+      losers: sorted.slice().reverse().filter(p => p.chg < 0).slice(0, 3).map(p => ({ ...p, barW: (Math.abs(p.chg) / maxAbs) * 100 })),
+    }
+  }, [positionList])
+
+  const allocation = useMemo(() => {
+    const total = totals.value || 1
+    const list = positionList
+      .map(p => ({ ...p, weight: (p.value / total) * 100 }))
+      .sort((a, b) => b.weight - a.weight)
+    return { list, maxW: list.length ? list[0].weight : 1 }
+  }, [positionList, totals.value])
+
+  const volatility = useMemo(() => {
+    const vols = positionList.map(p => {
+      const pts = spark[p.id]
+      if (!pts || pts.length < 4) return null
+      const win = pts.slice(-31)
+      let prev = null
+      let sum = 0
+      let n = 0
+      for (const v of win) {
+        if (prev != null && prev > 0) { sum += ((v - prev) / prev) ** 2; n++ }
+        prev = v
+      }
+      if (!n) return null
+      return (Math.sqrt(sum / n) * Math.sqrt(252)) * 100
+    }).filter(v => v != null)
+    if (!vols.length) return null
+    return vols.reduce((s, v) => s + v, 0) / vols.length
   }, [positionList, spark])
 
   const sectorPie = useMemo(() => {
@@ -261,6 +328,20 @@ export default function Portfolio() {
           </button>
         </header>
 
+        {demoCap && (
+          <div className="demo-cap">
+            <div className="dc-row">
+              <span className="dc-label"><Sparkles size={11} /> {t(lang, 'ctDemoBadge')} · {t(lang, 'ctDemoTitle')}</span>
+              <span className="dc-pct">{((demoCap.used / demoCap.limit) * 100).toFixed(1)}%</span>
+            </div>
+            <div className="dc-track"><div className="dc-fill" style={{ width: `${Math.min((demoCap.used / demoCap.limit) * 100, 100)}%` }} /></div>
+            <div className="dc-row sub">
+              <span>{fmtMoney(demoCap.used)} / {fmtMoney(demoCap.limit)} FCFA</span>
+              <span className="dc-left">{t(lang, 'ctDemoRemaining')} : {fmtMoney(demoCap.remaining)}</span>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="loading-row"><div className="spinner" /></div>
         ) : !user ? (
@@ -288,19 +369,34 @@ export default function Portfolio() {
               </div>
             )}
             <section className="value-card">
-              <span className="vc-label">{t(lang, 'pfTotalValue')}</span>
+              <div className="vc-top">
+                <span className="vc-label">{t(lang, 'pfTotalValue')}</span>
+                <div className="vc-periods">
+                  {PERIODS.map(pp => (
+                    <button
+                      key={pp.id}
+                      className={`vc-period ${period === pp.id ? 'active' : ''}`}
+                      onClick={() => setPeriod(pp.id)}
+                    >{pp.id}</button>
+                  ))}
+                </div>
+              </div>
               <div className="vc-value">{fmtMoney(totals.value)} FCFA</div>
               <div className="vc-meta">
                 <span className={`vc-day ${totals.dayPl >= 0 ? 'up' : 'down'}`}>
                   {totals.dayPl >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
                   {fmtPlPct(totals.dayPlPct)} {t(lang, 'today')}
                 </span>
-                <span className="vc-total">
-                  {fmtPlPct(totals.totalPlPct)} {t(lang, 'allTime')}
+                <span className={`vc-total ${periodPerf.chg >= 0 ? 'up' : 'down'}`}>
+                  {fmtPlPct(periodPerf.chg)} {t(lang, 'pfPeriodPerf')}
                 </span>
               </div>
               <div className="vc-chart">
                 <AreaChart data={series} />
+              </div>
+              <div className="vc-stats">
+                <span className="vc-minmax"><i className="dot down" /> {t(lang, 'pfPeriodLow')} · {fmtMoney(periodPerf.low)}</span>
+                <span className="vc-minmax"><i className="dot up" /> {t(lang, 'pfPeriodHigh')} · {fmtMoney(periodPerf.high)}</span>
               </div>
             </section>
 
@@ -342,6 +438,48 @@ export default function Portfolio() {
               </div>
             </section>
 
+            <section className="movers-card">
+              <div className="card-title"><Trophy size={15} className="ct-ico" /> {t(lang, 'pfTopMovers')}</div>
+              <div className="movers-grid">
+                <div className="mover-col">
+                  <div className="mover-head gainers"><TrendingUp size={12} /> {t(lang, 'pfGainers')}</div>
+                  {movers.gainers.length ? movers.gainers.map(p => (
+                    <div key={p.symbol} className="mover-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
+                      <span className="mover-sym">{p.symbol}</span>
+                      <div className="mover-track"><div className="mover-fill up" style={{ width: `${p.barW}%` }} /></div>
+                      <span className="mover-chg up mono">+{p.chg.toFixed(2)}%</span>
+                    </div>
+                  )) : <div className="mover-empty">—</div>}
+                </div>
+                <div className="mover-col">
+                  <div className="mover-head losers"><TrendingDown size={12} /> {t(lang, 'pfLosers')}</div>
+                  {movers.losers.length ? movers.losers.map(p => (
+                    <div key={p.symbol} className="mover-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
+                      <span className="mover-sym">{p.symbol}</span>
+                      <div className="mover-track"><div className="mover-fill down" style={{ width: `${p.barW}%` }} /></div>
+                      <span className="mover-chg down mono">{p.chg.toFixed(2)}%</span>
+                    </div>
+                  )) : <div className="mover-empty">—</div>}
+                </div>
+              </div>
+            </section>
+
+            <section className="alloc-card">
+              <div className="card-title"><Layers size={15} className="ct-ico" /> {t(lang, 'pfAllocation')}</div>
+              {allocation.list.map(p => (
+                <div key={p.symbol} className="alloc-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
+                  <span className="alloc-sym">{p.symbol}</span>
+                  <div className="alloc-track"><div className="alloc-fill" style={{ width: `${(p.weight / allocation.maxW) * 100}%` }} /></div>
+                  <span className="alloc-pct mono">{p.weight.toFixed(1)}%</span>
+                </div>
+              ))}
+              {allocation.list[0] && (
+                <div className="alloc-top">
+                  <Target size={12} /> {t(lang, 'pfHeaviest')} <b className="mono">{allocation.list[0].symbol}</b> · {allocation.list[0].weight.toFixed(1)}%
+                </div>
+              )}
+            </section>
+
             <section className="positions-card">
               <div className="card-title">{t(lang, 'pfPositions')}</div>
               {positionList.map(p => {
@@ -353,13 +491,20 @@ export default function Portfolio() {
                     </div>
                     <div className="pos-info">
                       <div className="pos-name">{p.stock?.name || p.symbol}</div>
-                      <div className="pos-sub">{p.symbol} · {p.qty} {t(lang, 'shares')}</div>
+                      <div className="pos-sub">
+                        {p.symbol} · {p.qty} {t(lang, 'shares')}
+                        {p.take_profit != null && <span className="pos-tpsl up">TP {fmtMoney(p.take_profit)}</span>}
+                        {p.stop_loss != null && <span className="pos-tpsl down">SL {fmtMoney(p.stop_loss)}</span>}
+                      </div>
                     </div>
                     <div className="pos-right">
                       <div className="pos-value mono">{fmtMoney(p.value)}</div>
                       <div className={`pos-pl mono ${up ? 'up' : 'down'}`}>
                         {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
                         {fmtPlPct(p.plPct)}
+                      </div>
+                      <div className="pos-bar">
+                        <div className={`pos-bar-fill ${up ? 'up' : 'down'}`} style={{ width: `${Math.min(100, (Math.abs(p.plPct) / maxPlPct) * 100)}%` }} />
                       </div>
                     </div>
                   </div>
@@ -392,6 +537,10 @@ export default function Portfolio() {
                   <span className="ai-stat-label">{t(lang, 'pfGrowthProj')}</span>
                   <span className="ai-stat-value">{totals.totalPlPct >= 0 ? '+' : ''}{totals.totalPlPct.toFixed(1)}%</span>
                 </div>
+                <div className="ai-stat">
+                  <span className="ai-stat-label"><Activity size={11} className="ai-ico" /> {t(lang, 'pfVolatility')}</span>
+                  <span className="ai-stat-value">{volatility != null ? `${volatility.toFixed(1)}%` : '—'}</span>
+                </div>
               </div>
               <div className="ai-recos">
                 <div className="reco-title">{t(lang, 'aiRecommendations')}</div>
@@ -416,11 +565,16 @@ export default function Portfolio() {
                   {orders.map(o => {
                     const buy = o.side === 'buy'
                     const when = o.created_at ? new Date(o.created_at) : null
+                    const typeKey = o.order_type === 'limit' ? 'orderLimit' : o.order_type === 'take_profit' ? 'takeProfit' : o.order_type === 'stop_loss' ? 'stopLoss' : 'orderMarket'
+                    const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
                     return (
                       <div key={o.id} className="order-row">
                         <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
                         <span className="order-sym mono">{o.symbol}</span>
-                        <span className="order-detail">{when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price)}</span>
+                        <span className="order-detail">
+                          {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price)}
+                          <span className={`order-status ${o.status}`}>{t(lang, typeKey)} · {t(lang, stKey)}</span>
+                        </span>
                         <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0))} FCFA</span>
                       </div>
                     )
@@ -432,7 +586,7 @@ export default function Portfolio() {
         )}
       </div>
 
-      <BottomNav active="portfolio" />
+      <BottomNav active="menu" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
@@ -445,6 +599,19 @@ export default function Portfolio() {
         .pf-title-col { display: flex; flex-direction: column; gap: 2px; }
         .pf-title { font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.3px; }
         .pf-sub { font-size: 12px; color: #8f8f8f; }
+        .demo-cap {
+          margin: 10px 0 4px; padding: 11px 13px;
+          background: #15170f; border: 1px solid #3a3a24; border-radius: 14px;
+          display: flex; flex-direction: column; gap: 7px;
+        }
+        .dc-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #b89a55; }
+        .dc-label { display: flex; align-items: center; gap: 5px; color: #f0d28a; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
+        .dc-pct { font-family: 'JetBrains Mono', monospace; color: #D4A843; font-weight: 700; }
+        .dc-row.sub { color: #8a8a8a; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+        .dc-row.sub span { white-space: nowrap; }
+        .dc-left { color: #d6d6d6; }
+        .dc-track { height: 6px; border-radius: 4px; background: #23231a; overflow: hidden; }
+        .dc-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #D4A843, #b8922f); transition: width 0.4s ease; }
         .icon-btn {
           width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
           background: #1E1E1E; border: none; color: #fff; cursor: pointer; border-radius: 50%;
@@ -474,10 +641,23 @@ export default function Portfolio() {
           border-radius: 18px; padding: 18px; margin: 10px 0 12px;
         }
         .vc-label { font-size: 12px; color: #8f8f8f; }
+        .vc-top { display: flex; align-items: center; justify-content: space-between; }
+        .vc-periods { display: flex; gap: 3px; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 2px; }
+        .vc-period {
+          border: none; background: none; color: #8f8f8f; font-size: 9.5px; font-weight: 700;
+          padding: 3px 7px; border-radius: 6px; cursor: pointer; font-family: inherit;
+          transition: background 120ms ease-out, color 120ms ease-out;
+        }
+        .vc-period.active { background: #00C853; color: #00130a; }
         .vc-value { font-size: 30px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin: 4px 0 8px; }
         .vc-meta { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
         .vc-day { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .vc-total { font-size: 12px; color: #a3a3a3; font-family: 'JetBrains Mono', monospace; }
+        .vc-total { font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .vc-stats { display: flex; justify-content: space-between; margin-top: 6px; }
+        .vc-minmax { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
+        .vc-minmax .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .dot.up { background: #00C853; }
+        .dot.down { background: #FF4D4F; }
         .up { color: #00C853; }
         .down { color: #FF4D4F; }
         .warn { color: #facc15; }
@@ -513,11 +693,57 @@ export default function Portfolio() {
         .pos-logo img { width: 100%; height: 100%; object-fit: cover; }
         .pos-info { flex: 1; min-width: 0; }
         .pos-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pos-sub { font-size: 11px; color: #8f8f8f; }
+        .pos-sub { font-size: 11px; color: #8f8f8f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pos-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
         .pos-value { font-size: 13px; font-weight: 700; }
         .pos-pl { display: flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 700; }
+        .pos-bar { width: 100%; height: 3px; border-radius: 2px; background: #2a2a2a; overflow: hidden; margin-top: 3px; }
+        .pos-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+        .pos-bar-fill.up { background: #00C853; }
+        .pos-bar-fill.down { background: #FF4D4F; }
         .mono { font-family: 'JetBrains Mono', monospace; }
+        .ct-ico { color: #a78bfa; }
+        .movers-card, .alloc-card {
+          background: #1E1E1E; border-radius: 18px; padding: 16px; margin-bottom: 12px;
+        }
+        .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .mover-head {
+          display: flex; align-items: center; gap: 5px;
+          font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+          margin-bottom: 8px; text-transform: uppercase;
+        }
+        .mover-head.gainers { color: #00C853; }
+        .mover-head.losers { color: #FF4D4F; }
+        .mover-row {
+          display: flex; align-items: center; gap: 6px;
+          padding: 5px 0; cursor: pointer;
+        }
+        .mover-sym { font-size: 11px; font-weight: 700; color: #fff; width: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mover-track { flex: 1; height: 4px; border-radius: 2px; background: #26262f; overflow: hidden; }
+        .mover-fill { height: 100%; border-radius: 2px; }
+        .mover-fill.up { background: rgba(0,200,83,0.75); }
+        .mover-fill.down { background: rgba(255,77,79,0.75); }
+        .mover-chg { font-size: 10px; font-weight: 700; min-width: 44px; text-align: right; }
+        .mover-empty { color: #555; font-size: 11px; padding: 6px 0; }
+        .alloc-row {
+          display: flex; align-items: center; gap: 8px;
+          padding: 5px 0; cursor: pointer;
+        }
+        .alloc-sym { font-size: 11px; font-weight: 700; color: #fff; width: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .alloc-track { flex: 1; height: 7px; border-radius: 4px; background: #26262f; overflow: hidden; }
+        .alloc-fill {
+          height: 100%; border-radius: 4px;
+          background: linear-gradient(90deg, #7266D9, #00C853);
+          transition: width 0.3s;
+        }
+        .alloc-pct { font-size: 10px; font-weight: 700; color: #a3a3a3; min-width: 40px; text-align: right; }
+        .alloc-top {
+          display: flex; align-items: center; gap: 6px;
+          margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2a2a;
+          font-size: 11px; color: #a3a3a3;
+        }
+        .alloc-top b { color: #fff; }
+        .ai-ico { vertical-align: -1px; color: #a78bfa; margin-right: 3px; }
         .ai-card {
           background: linear-gradient(160deg, #181a24, #101018);
           border: 1px solid rgba(114,102,217,0.25);
@@ -579,6 +805,13 @@ export default function Portfolio() {
         .order-side.sell { background: rgba(255,77,79,0.15); color: #FF4D4F; }
         .order-sym { font-weight: 700; color: #fff; }
         .order-detail { flex: 1; min-width: 0; color: #8f8f8f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .order-status { margin-left: 6px; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 6px; }
+        .order-status.executed { background: rgba(0,200,83,0.12); color: #00C853; }
+        .order-status.pending { background: rgba(255,209,102,0.12); color: #ffd166; }
+        .order-status.cancelled { background: rgba(255,77,79,0.12); color: #FF4D4F; }
+        .pos-tpsl { margin-left: 8px; font-size: 9px; font-weight: 700; }
+        .pos-tpsl.up { color: #00C853; }
+        .pos-tpsl.down { color: #FF4D4F; }
         .order-total { color: #fff; font-weight: 600; }
         .footnote { text-align: center; font-size: 10px; color: #555; padding: 8px 0 4px; }
       `}</style>

@@ -62,7 +62,14 @@ export const analystChat = (data) => api.post('/api/analysis/ask', data)
 export const getCompanyDetail = (id) => api.get(`/api/companies/${id}`)
 export const getScreen = (params) => api.get('/api/analysis/screen', { params })
 export const getCompanyPrediction = (id) => api.get(`/api/analysis/companies/${id}/predict`)
-export const ingestPdf = (formData) => api.post('/api/ingestion/pdf', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+export const ingestPdf = (formData, adminToken) => api.post('/api/ingestion/pdf', formData, {
+  headers: { 'Content-Type': 'multipart/form-data', ...(adminToken ? { 'X-Admin-Token': adminToken } : {}) },
+})
+export const fetchFinancials = (symbols, maxYears, adminToken) => api.post('/api/ingestion/fetch',
+  new URLSearchParams({ symbols: symbols || '', max_years: String(maxYears || 2) }),
+  { headers: adminToken ? { 'X-Admin-Token': adminToken } : {} },
+)
+export const getFetchStatus = () => api.get('/api/ingestion/fetch/status')
 export const getIngestionStatements = (companyId, fiscalYear) => api.get('/api/ingestion/statements', { params: { company_id: companyId, fiscal_year: fiscalYear } })
 export const getIngestionSummary = () => api.get('/api/ingestion/summary')
 export const getMacroLatest = () => api.get('/api/macro/latest')
@@ -76,7 +83,14 @@ export const getPosition = (symbol) => api.get(`/api/portfolio/positions/${symbo
 export const placeOrder = (payload) => api.post('/api/portfolio/orders', payload)
 export const getPremiumPlan = () => api.get('/api/premium/plan')
 export const savePremiumPlan = (payload) => api.post('/api/premium/plan', payload)
+export const cancelPremiumPlan = (id) => api.post(`/api/premium/plan/${id}/cancel`)
+export const trackPremiumPlan = (id) => api.post(`/api/premium/plan/${id}/track`)
+export const getNotifications = (limit = 50) => api.get('/api/notifications', { params: { limit } })
+export const getUnreadCount = () => api.get('/api/notifications/unread-count')
+export const markNotificationRead = (id) => api.post(`/api/notifications/${id}/read`)
+export const markAllNotificationsRead = () => api.post('/api/notifications/read-all')
 export const openBrokerAccount = (payload) => api.post('/api/brokers/accounts', payload)
+export const activateDemoAccount = () => api.post('/api/portfolio/demo-activate')
 export const getBrokerAccounts = () => api.get('/api/brokers/accounts')
 export const getCommunityPosts = (tab = 'forYou', limit = 20) => api.get('/api/community/posts', { params: { tab, limit } })
 export const getCommunityUsers = (search = '', limit = 30) => api.get('/api/community/users', { params: { search, limit } })
@@ -86,5 +100,9 @@ export const createCommunityPost = (payload) => api.post('/api/community/posts',
 export const rocketCommunityPost = (id) => api.post(`/api/community/posts/${id}/rocket`)
 export const getCommunityComments = (id) => api.get(`/api/community/posts/${id}/comments`)
 export const addCommunityComment = (id, content) => api.post(`/api/community/posts/${id}/comments`, { content })
+export const getChallenges = () => api.get('/api/community/challenges')
+export const joinChallenge = (id) => api.post(`/api/community/challenges/${id}/join`)
+export const leaveChallenge = (id) => api.delete(`/api/community/challenges/${id}/join`)
+export const getChallengeLeaderboard = (id) => api.get(`/api/community/challenges/${id}/leaderboard`)
 
 export default api

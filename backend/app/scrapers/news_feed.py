@@ -333,6 +333,11 @@ class NewsFeed:
             self.presse = presse
             self.societes = societes
             self._fetched_at = now
+
+        try:
+            _persist(items)
+        except Exception as e:
+            _log.warning("News persist failed: %s", e)
         _log.info("News feed: %d items (%d sociétés, %d BRVM, %d presse)", len(self._items), len(self.societes), len(self.brvm), len(self.presse))
 
 
@@ -361,4 +366,109 @@ def company_news(symbol: str, name: str = "", limit: int = 10) -> list:
         title_key = re.sub(r"[^a-z0-9]+", "", (it.get("title") or "").lower())
         if name_key in title_key:
             loose.append(it)
+    seen = {it.get("url_real") or it.get("url") for it in exact + loose}
+    if symbol:
+        try:
+            from ..database import SessionLocal
+            from ..models.news import NewsItem
+            db = SessionLocal()
+            try:
+                rows = (
+                    db.query(NewsItem)
+                    .filter(NewsItem.symbol == symbol)
+                    .order_by(NewsItem.published_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+            finally:
+                db.close()
+            exact.extend(r for r in map(_to_dict, rows) if r["url_real"] not in seen)
+        except Exception as e:
+            _log.warning("Company news DB fallback failed: %s", e)
     return (exact + loose)[:limit]
+
+
+def _to_dict(row) -> dict:
+    return {
+        "id": row.id,
+        "title": row.title,
+        "url": row.url,
+        "url_real": row.url_real,
+        "date": (row.published_at.isoformat() if row.published_at else row.created_at.isoformat()),
+        "source": row.source,
+        "category": row.category,
+        "image": row.image or "",
+        "symbol": row.symbol,
+    }
+
+
+def _persist(items: list) -> int:
+    """Upsert des items agrégés en base (clé : url_real). Retourne le nombre
+    de nouvelles entrées."""
+    from ..database import SessionLocal
+    from ..models.news import NewsItem
+    db = SessionLocal()
+    n_new = 0
+    try:
+        for it in items:
+            url_real = it.get("url_real") or it.get("url")
+            if not url_real or len(url_real) > 600:
+                continue
+            existing = db.query(NewsItem).filter(NewsItem.url_real == url_real).first()
+            if existing:
+                continue
+            try:
+                published = datetime.fromisoformat(it["date"]) if it.get("date") else None
+                if published and published.tzinfo is not None:
+                    published = published.astimezone(timezone.utc).replace(tzinfo=None)
+            except Exception:
+                published = None
+            db.add(NewsItem(
+                url_real=url_real,
+                url=it.get("url") or url_real,
+                title=(it.get("title") or "")[:300],
+                source=(it.get("source") or "")[:100],
+                category=(it.get("category") or "")[:50],
+                image=(it.get("image") or "")[:600],
+                symbol=(it.get("symbol") or "")[:20] or None,
+                published_at=published,
+            ))
+            n_new += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+    return n_new
+
+
+def history(limit: int = 200, since: datetime = None) -> list:
+    """Items persistés (année en cours par défaut) fusionnés avec le cache
+    mémoire frais : les news ne disparaissent plus entre deux refresh."""
+    from ..database import SessionLocal
+    from ..models.news import NewsItem
+    since = since or datetime(now_utc().year, 1, 1, tzinfo=timezone.utc)
+    since_naive = since.astimezone(timezone.utc).replace(tzinfo=None)
+    cached = news_feed.refresh()
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(NewsItem)
+            .filter(NewsItem.published_at >= since_naive)
+            .order_by(NewsItem.published_at.desc())
+            .limit(500)
+            .all()
+        )
+    finally:
+        db.close()
+    merged = {it.get("url_real") or it.get("url"): it for it in cached}
+    for row in rows:
+        merged.setdefault(row.url_real, _to_dict(row))
+    items = list(merged.values())
+    items.sort(key=lambda x: x.get("date") or "", reverse=True)
+    return items[:limit]
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)

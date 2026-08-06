@@ -4,19 +4,19 @@ import {
   ColorType, CrosshairMode, LineStyle, createSeriesMarkers,
 } from 'lightweight-charts'
 import { fmtPrice, fmtCompact } from '../lib/i18n'
+import {
+  MousePointer2, TrendingUp, Minus, GitBranch, Square, Type, Eraser,
+  Plus, RotateCcw, Scan, Hand, Maximize, Minimize,
+} from 'lucide-react'
 
 const C = {
   bg: '#0B0F19',
-  major: 'rgba(255,255,255,0.07)',
-  minor: 'rgba(255,255,255,0.025)',
   upBody: 'rgba(34,197,94,0.97)',
   upBorder: 'rgba(22,163,74,0.97)',
   downBody: 'rgba(239,68,68,0.97)',
   downBorder: 'rgba(220,38,38,0.97)',
   text: '#8B93A7',
   axis: '#5B6472',
-  crosshair: 'rgba(255,255,255,0.18)',
-  labelBg: '#1E293B',
   ema: { 20: '#3B82F6', 50: '#FACC15', 200: '#A855F7' },
   tipBg: '#141A26',
   tipBorder: '#2A3448',
@@ -25,11 +25,28 @@ const C = {
   rsi: '#A78BFA',
   macdLine: '#2196F3',
   macdSignal: '#FF9800',
+  draw: '#4EA8FF',
+  drawDraft: 'rgba(78,168,255,0.6)',
+  fibo: ['#EF4444', '#F97316', '#FACC15', '#84CC16', '#10B981', '#06B6D4', '#3B82F6', '#8B5CF6'],
 }
 
 const EMAS = [20, 50, 200]
 
-const BAR_SPAN = { '1m': 22, '3m': 65, '6m': 128, '1a': 252, '3a': 756, '5a': 0 }
+const BAR_SPAN = {
+  '1j': 45, '5j': 45, '1m': 36, '3m': 32, '6m': 28, '1a': 20, '3a': 16, '5a': 14, 'max': 0, 'all': 0,
+}
+
+const FIBO_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
+
+const DRAW_TOOLS = [
+  { id: 'cursor', icon: MousePointer2, title: 'Cursor' },
+  { id: 'trend', icon: TrendingUp, title: 'Trendline' },
+  { id: 'hline', icon: Minus, title: 'Support / Resistance' },
+  { id: 'fibo', icon: GitBranch, title: 'Fibonacci' },
+  { id: 'rect', icon: Square, title: 'Rectangle' },
+  { id: 'text', icon: Type, title: 'Label' },
+  { id: 'erase', icon: Eraser, title: 'Erase' },
+]
 
 function ema(values, period) {
   const out = new Array(values.length).fill(null)
@@ -146,17 +163,73 @@ function computeMACD(values) {
   return { line, signal, hist }
 }
 
-export default function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [] }) {
+function fmtShort(n) {
+  if (n == null || Number.isNaN(n)) return '—'
+  if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'k'
+  return n.toFixed(0)
+}
+
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return Math.hypot(px - ax, py - ay)
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+}
+
+const IND_ROWS = [
+  { key: 'ema20', k: 20, label: 'EMA20', color: C.ema[20] },
+  { key: 'ema50', k: 50, label: 'EMA50', color: C.ema[50] },
+  { key: 'ema200', k: 200, label: 'EMA200', color: C.ema[200] },
+  { key: 'boll', k: 'boll', label: 'BOLL', color: C.boll },
+  { key: 'vwap', k: 'vwap', label: 'VWAP', color: C.vwap },
+  { key: 'rsi', k: 'rsi', label: 'RSI', color: C.rsi },
+  { key: 'macd', k: 'macd', label: 'MACD', color: C.macdLine },
+]
+
+export default function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [], symbol = '' }) {
   const rootRef = useRef(null)
-  const gridRef = useRef(null)
   const chartElRef = useRef(null)
+  const wrapRef = useRef(null)
+  const svgRef = useRef(null)
   const lineRef = useRef(null)
   const tagRef = useRef(null)
   const tipRef = useRef(null)
   const stateRef = useRef(null)
+  const redrawRef = useRef(() => {})
+  const drawingsRef = useRef([])
+  const draftRef = useRef(null)
+  const dragRef = useRef(null)
+  const legRefs = useRef({})
+  const indRefs = useRef({})
   const [emasOn, setEmasOn] = useState({ 20: true, 50: true, 200: true })
   const [inds, setInds] = useState({ boll: false, vwap: false, rsi: false, macd: false })
-  const [hovering, setHovering] = useState(false)
+  const hoveringRef = useRef(false)
+  const [tool, setTool] = useState('cursor')
+  const [full, setFull] = useState(false)
+  const [drawings, setDrawingsState] = useState([])
+  const [textDraft, setTextDraft] = useState('')
+
+  const setDrawings = (next) => {
+    drawingsRef.current = next
+    setDrawingsState(next)
+    try {
+      localStorage.setItem(`bluerock_drawings_v1_${symbol || 'global'}`, JSON.stringify(next))
+    } catch {}
+  }
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`bluerock_drawings_v1_${symbol || 'global'}`)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        drawingsRef.current = Array.isArray(parsed) ? parsed : []
+        setDrawingsState(drawingsRef.current)
+      }
+    } catch {}
+  }, [symbol])
 
   const rows = useMemo(() => {
     const seen = {}
@@ -191,26 +264,31 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         fontFamily: 'Inter, -apple-system, sans-serif',
         fontSize: 11,
       },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      grid: {
+        vertLines: { color: 'rgba(148,163,184,0.055)', style: LineStyle.Solid },
+        horzLines: { color: 'rgba(148,163,184,0.055)', style: LineStyle.Solid },
+      },
       rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { top: 0.06, bottom: 0.22 },
+        borderVisible: true,
+        borderColor: 'rgba(255,255,255,0.07)',
+        scaleMargins: { top: 0.08, bottom: 0.22 },
         textColor: C.axis,
       },
       timeScale: {
-        borderVisible: false,
+        borderVisible: true,
+        borderColor: 'rgba(255,255,255,0.07)',
         barSpacing: 13,
         minBarSpacing: 2.5,
         maxBarSpacing: 40,
         rightOffset: 1,
-        textColor: C.axis,
+        textColor: 'transparent',
         timeVisible: false,
         secondsVisible: false,
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: C.crosshair, width: 1, style: LineStyle.Solid, labelBackgroundColor: C.labelBg },
-        horzLine: { color: C.crosshair, width: 1, style: LineStyle.Solid, labelBackgroundColor: C.labelBg },
+        vertLine: { color: 'rgba(148,163,184,0.32)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#1E293B', labelTextColor: '#E2E8F0' },
+        horzLine: { color: 'rgba(148,163,184,0.32)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#1E293B', labelTextColor: '#E2E8F0' },
       },
       localization: {
         priceFormatter: v => fmtPrice(lang, v, 0),
@@ -282,43 +360,13 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       st.emas[p].setData(rows.map((r, i) => ({ time: r.time, value: ema(closes, p)[i] })).filter(pt => pt.value != null))
     }
 
-    const paintGrid = () => {
-      const cv = gridRef.current
-      if (!cv) return
-      const rect = cv.parentElement.getBoundingClientRect()
-      if (!rect.width || !rect.height) return
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      cv.width = Math.round(rect.width * dpr)
-      cv.height = Math.round(rect.height * dpr)
-      const ctx = cv.getContext('2d')
-      ctx.scale(dpr, dpr)
-      ctx.clearRect(0, 0, rect.width, rect.height)
-      ctx.fillStyle = C.bg
-      ctx.fillRect(0, 0, rect.width, rect.height)
-      const paint = (spacing, color, w) => {
-        ctx.strokeStyle = color
-        ctx.lineWidth = w
-        ctx.beginPath()
-        for (let x = spacing; x < rect.width; x += spacing) {
-          ctx.moveTo(x + 0.5, 0)
-          ctx.lineTo(x + 0.5, rect.height)
-        }
-        for (let y = spacing; y < rect.height; y += spacing) {
-          ctx.moveTo(0, y + 0.5)
-          ctx.lineTo(rect.width, y + 0.5)
-        }
-        ctx.stroke()
-      }
-      paint(24, C.minor, 1)
-      paint(96, C.major, 1)
-    }
-
     const updatePriceLine = () => {
-      const last = rows[rows.length - 1]
       const line = lineRef.current
       const tag = tagRef.current
       if (!line || !tag) return
-      if (!last || hovering) {
+      const all = st.candle.data()
+      const last = all.length ? all[all.length - 1] : null
+      if (!last || hoveringRef.current) {
         line.style.opacity = '0'
         tag.style.opacity = '0'
         return
@@ -339,16 +387,87 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       tag.textContent = fmtPrice(lang, last.close, 0)
     }
 
+    const LEG_KEYS = ['ema20', 'ema50', 'ema200', 'boll', 'vwap', 'rsi', 'macd']
+
+    const setLeg = (i) => {
+      const leg = legRefs.current
+      const all = st.candle.data()
+      const len = all.length
+      const last = len ? len - 1 : null
+      const idx = i != null && i >= 0 && i < len ? i : last
+      if (idx == null) {
+        if (leg.price) leg.price.textContent = '—'
+        if (leg.ohlc) leg.ohlc.textContent = ''
+        if (leg.date) leg.date.textContent = ''
+        if (leg.chg) { leg.chg.textContent = ''; leg.chg.style.background = 'transparent' }
+        for (const k of LEG_KEYS) {
+          const el = indRefs.current[k]
+          if (el) el.textContent = '—'
+        }
+        return
+      }
+      const bar = st.candle.dataByIndex(idx)
+      const prev = idx > 0 ? st.candle.dataByIndex(idx - 1) : null
+      if (!bar) return
+      const up = bar.close >= bar.open
+      const col = up ? '#22C55E' : '#EF4444'
+      if (leg.price) {
+        leg.price.textContent = fmtPrice(lang, bar.close, 0)
+        leg.price.style.color = col
+      }
+      if (leg.chg) {
+        const pct = prev && prev.close ? ((bar.close - prev.close) / prev.close) * 100 : null
+        if (pct == null) {
+          leg.chg.textContent = ''
+          leg.chg.style.background = 'transparent'
+        } else {
+          const pos = pct >= 0
+          leg.chg.textContent = `${pos ? '+' : ''}${pct.toFixed(2)}%`
+          leg.chg.style.background = pos ? 'rgba(34,197,94,0.16)' : 'rgba(239,68,68,0.16)'
+          leg.chg.style.color = pos ? '#22C55E' : '#EF4444'
+        }
+      }
+      if (leg.ohlc) {
+        const vbar = st.vol.dataByIndex(idx)
+        const vol = vbar && vbar.value != null ? vbar.value : 0
+        leg.ohlc.textContent =
+          `O ${fmtPrice(lang, bar.open, 0)}  H ${fmtPrice(lang, bar.high, 0)}  ` +
+          `L ${fmtPrice(lang, bar.low, 0)}  C ${fmtPrice(lang, bar.close, 0)}  ` +
+          `Vol ${fmtCompact(lang, vol)}`
+      }
+      if (leg.date) {
+        const [y, m, dd] = String(bar.time).slice(0, 10).split('-')
+        leg.date.textContent = lang === 'en' ? `${m}/${dd}/${y}` : `${dd}/${m}/${y}`
+      }
+      const A = st.leg || {}
+      for (const k of LEG_KEYS) {
+        const el = indRefs.current[k]
+        if (!el) continue
+        const arr = A[k]
+        const v = arr && arr[idx] != null ? arr[idx] : null
+        el.textContent = v == null ? '—' : fmtPrice(lang, v, k === 'rsi' || k === 'macd' ? 2 : 0)
+      }
+    }
+
+    st.setLeg = setLeg
+    st.updatePriceLine = updatePriceLine
+
     const onCrosshair = param => {
       const tip = tipRef.current
       const seriesData = param.seriesData
-      const d = seriesData.get(st.candle)
-      if (!d || !param.point) {
+      const d = seriesData ? seriesData.get(st.candle) : null
+      const idx = param.logical != null && Number.isFinite(param.logical) ? Math.round(param.logical) : null
+      if (!d || !param.point || idx == null) {
         if (tip) tip.style.opacity = '0'
-        setHovering(false)
+        st.setLeg(null)
+        hoveringRef.current = false
+        updatePriceLine()
         return
       }
-      setHovering(true)
+      hoveringRef.current = true
+      if (lineRef.current) lineRef.current.style.opacity = '0'
+      if (tagRef.current) tagRef.current.style.opacity = '0'
+      st.setLeg(idx)
       if (!tip) return
       const wrap = tip.parentElement.getBoundingClientRect()
       const px = param.point.x
@@ -361,8 +480,8 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       if (tx < 4) tx = 4
       if (ty < 4) ty = py + 14
       if (ty + h > wrap.height - 4) ty = wrap.height - h - 4
-      const prevIdx = param.logical != null ? Math.max(0, param.logical - 1) : null
-      const prevClose = prevIdx != null && rows[prevIdx] ? rows[prevIdx].close : null
+      const prev = idx > 0 ? st.candle.dataByIndex(idx - 1) : null
+      const prevClose = prev ? prev.close : null
       const chg = prevClose ? ((d.close - prevClose) / prevClose) * 100 : null
       const up = d.close >= d.open
       const dateStr = (() => {
@@ -385,25 +504,29 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     }
 
     st.chart.subscribeCrosshairMove(onCrosshair)
+    const onRangeChange = () => redrawRef.current()
+    st.chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange)
+    st.chart.timeScale().subscribeVisibleTimeRangeChange(onRangeChange)
 
     const ro = new ResizeObserver(() => {
       const r = chartEl.parentElement.getBoundingClientRect()
       if (r.width && r.height) {
         st.chart.resize(r.width, r.height)
-        paintGrid()
         updatePriceLine()
+        redrawRef.current()
       }
     })
     ro.observe(chartEl)
 
     fit()
-    paintGrid()
     updatePriceLine()
     requestAnimationFrame(updatePriceLine)
 
     return () => {
       ro.disconnect()
       st.chart.unsubscribeCrosshairMove(onCrosshair)
+      st.chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange)
+      st.chart.timeScale().unsubscribeVisibleTimeRangeChange(onRangeChange)
       st.markersPlugin.detach()
       st.chart.remove()
       stateRef.current = null
@@ -423,6 +546,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       const closes = rows.map(r => r.close)
       st.emas[p].setData(rows.map((r, i) => ({ time: r.time, value: ema(closes, p)[i] })).filter(pt => pt.value != null))
     }
+    if (st.updatePriceLine) st.updatePriceLine()
   }, [rows])
 
   useEffect(() => {
@@ -433,6 +557,17 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     const vwapArr = computeVWAP(rows)
     const rsiArr = computeRSI(closes, 14)
     const macdArr = computeMACD(closes)
+
+    st.leg = {
+      ema20: ema(closes, 20),
+      ema50: ema(closes, 50),
+      ema200: ema(closes, 200),
+      boll: inds.boll ? boll.mid : null,
+      vwap: inds.vwap ? vwapArr : null,
+      rsi: inds.rsi ? rsiArr : null,
+      macd: inds.macd ? macdArr.line : null,
+    }
+    if (st.setLeg) st.setLeg(null)
 
     for (const k of ['bollU', 'bollL', 'vwap', 'rsi', 'macdH', 'macdL', 'macdS']) {
       if (st[k]) { st.chart.removeSeries(st[k]); st[k] = null }
@@ -516,17 +651,38 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     st.markersPlugin.setMarkers(markers || [])
   }, [markers])
 
+  useEffect(() => { redraw() }, [drawings, tool, inds])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const onWheel = (e) => {
+      const st = stateRef.current
+      if (!st) return
+      e.preventDefault()
+      const dir = -e.deltaY
+      const range = st.chart.timeScale().getVisibleLogicalRange()
+      if (!range) return
+      const factor = 2 ** (dir / 480)
+      const { from, to } = range
+      const center = (from + to) / 2
+      st.chart.timeScale().setVisibleLogicalRange({
+        from: center + (from - center) * factor,
+        to: center + (to - center) * factor,
+      })
+    }
+    wrap.addEventListener('wheel', onWheel, { passive: false })
+    return () => wrap.removeEventListener('wheel', onWheel)
+  }, [])
+
   const toggleEma = p => setEmasOn(prev => ({ ...prev, [p]: !prev[p] }))
   const toggleInd = k => setInds(prev => ({ ...prev, [k]: !prev[k] }))
 
-  const onWheel = (e) => {
+  const zoomBy = (factor) => {
     const st = stateRef.current
-    if (!st || !e.ctrlKey && !e.metaKey) return
-    e.preventDefault()
-    const dir = -e.deltaY
+    if (!st) return
     const range = st.chart.timeScale().getVisibleLogicalRange()
     if (!range) return
-    const factor = 2 ** (dir / 480)
     const { from, to } = range
     const center = (from + to) / 2
     st.chart.timeScale().setVisibleLogicalRange({
@@ -535,18 +691,393 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     })
   }
 
-  const CHIPS = [
-    { k: 20, label: 'EMA20', color: C.ema[20] },
-    { k: 50, label: 'EMA50', color: C.ema[50] },
-    { k: 200, label: 'EMA200', color: C.ema[200] },
-    { k: 'boll', label: 'BOLL', color: C.boll },
-    { k: 'vwap', label: 'VWAP', color: C.vwap },
-    { k: 'rsi', label: 'RSI', color: C.rsi },
-    { k: 'macd', label: 'MACD', color: C.macdLine },
-  ]
+  const zoomReset = () => {
+    const st = stateRef.current
+    if (!st) return
+    const len = rows.length
+    if (!len) return
+    const span = BAR_SPAN[period] || 0
+    if (span && len > span) {
+      st.chart.timeScale().setVisibleLogicalRange({ from: len - span, to: len - 1 })
+    } else {
+      st.chart.timeScale().fitContent()
+    }
+  }
+
+  const toggleFull = () => {
+    setFull(v => {
+      const next = !v
+      requestAnimationFrame(() => {
+        const st = stateRef.current
+        if (!st || !wrapRef.current) return
+        const r = wrapRef.current.getBoundingClientRect()
+        if (r.width && r.height) st.chart.resize(r.width, r.height)
+      })
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (!full) return
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFull(false)
+    }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [full])
+
+  const getPoint = (e) => {
+    const wrap = wrapRef.current
+    if (!wrap) return { x: 0, y: 0 }
+    const rect = wrap.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  const pointToData = (p) => {
+    const st = stateRef.current
+    if (!st) return { time: null, price: null }
+    const time = st.chart.timeScale().coordinateToTime(p.x)
+    const price = st.candle.coordinateToPrice(p.y)
+    return { time, price: price == null ? null : Math.round(price * 100) / 100 }
+  }
+
+  const pickDrawing = (p) => {
+    const st = stateRef.current
+    if (!st) return -1
+    let bestI = -1
+    let bestD = 12
+    drawingsRef.current.forEach((d, i) => {
+      const x1 = d.t1 != null ? st.chart.timeScale().timeToCoordinate(d.t1) : null
+      const y1 = d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null
+      const x2 = d.t2 != null ? st.chart.timeScale().timeToCoordinate(d.t2) : null
+      const y2 = d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null
+      let dd = 999
+      if (d.tool === 'hline') {
+        if (y1 != null) dd = Math.abs(p.y - y1)
+      } else if (d.tool === 'rect' && x1 != null && y1 != null && x2 != null && y2 != null) {
+        const xl = Math.min(x1, x2), xr = Math.max(x1, x2)
+        const yt = Math.min(y1, y2), yb = Math.max(y1, y2)
+        if (p.x >= xl && p.x <= xr && p.y >= yt && p.y <= yb) dd = 0
+        else dd = Math.min(
+          Math.hypot(p.x - xl, p.y - yt), Math.hypot(p.x - xr, p.y - yt),
+          Math.hypot(p.x - xl, p.y - yb), Math.hypot(p.x - xr, p.y - yb),
+        )
+      } else if (d.tool === 'text' && x1 != null && y1 != null) {
+        dd = Math.hypot(p.x - x1, p.y - y1)
+      } else if (d.tool === 'fibo' && x1 != null && x2 != null && y1 != null && y2 != null) {
+        dd = distToSegment(p.x, p.y, x1, y1, x2, y2)
+        for (const lv of FIBO_LEVELS) {
+          const yl = y1 + (y2 - y1) * lv
+          dd = Math.min(dd, Math.abs(p.y - yl))
+        }
+      } else if (x1 != null && y1 != null && x2 != null && y2 != null) {
+        dd = distToSegment(p.x, p.y, x1, y1, x2, y2)
+      }
+      if (dd < bestD) { bestD = dd; bestI = i }
+    })
+    return bestI
+  }
+
+  const onSvgPointerDown = (e) => {
+    const st = stateRef.current
+    if (!st) return
+    const p = getPoint(e)
+    if (tool === 'erase') {
+      const i = pickDrawing(p)
+      if (i >= 0) setDrawings(drawingsRef.current.filter((_, k) => k !== i))
+      return
+    }
+    if (tool === 'cursor') {
+      const i = pickDrawing(p)
+      if (i >= 0) {
+        const d = drawingsRef.current[i]
+        const x1 = d.t1 != null ? st.chart.timeScale().timeToCoordinate(d.t1) : null
+        const y1 = d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null
+        const x2 = d.t2 != null ? st.chart.timeScale().timeToCoordinate(d.t2) : null
+        const y2 = d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null
+        const grips = []
+        if (d.tool === 'hline' && y1 != null && d.t1 != null) grips.push({ key: 'p1', x: st.chart.timeScale().timeToCoordinate(d.t1), y: y1, dx: 0, dy: 0 })
+        else if (d.tool === 'text' && x1 != null && y1 != null) grips.push({ key: 'p1', x: x1, y: y1, dx: 0, dy: 0 })
+        else {
+          if (x1 != null && y1 != null) grips.push({ key: 'p1', x: x1, y: y1, dx: 0, dy: 0 })
+          if (x2 != null && y2 != null) grips.push({ key: 'p2', x: x2, y: y2, dx: 0, dy: 0 })
+        }
+        for (const g of grips) {
+          if (Math.hypot(p.x - g.x, p.y - g.y) <= 14) {
+            e.stopPropagation()
+            const move = (ev) => {
+              const pt = getPoint(ev)
+              const nd = pointToData(pt)
+              if (!nd.time && nd.price == null) return
+              const next = drawingsRef.current.slice()
+              const cur = { ...next[i] }
+              if (g.key === 'p1') {
+                if (cur.tool === 'hline') cur.p1 = pt.y == null ? cur.p1 : (st.candle.coordinateToPrice(pt.y) ?? cur.p1)
+                else { if (nd.time) cur.t1 = nd.time; if (nd.price != null) cur.p1 = nd.price }
+              } else {
+                if (nd.time) cur.t2 = nd.time
+                if (nd.price != null) cur.p2 = nd.price
+              }
+              next[i] = cur
+              drawingsRef.current = next
+              setDrawingsState(next)
+            }
+            const up = () => {
+              window.removeEventListener('pointermove', move)
+              window.removeEventListener('pointerup', up)
+              try {
+                localStorage.setItem(`bluerock_drawings_v1_${symbol || 'global'}`, JSON.stringify(drawingsRef.current))
+              } catch {}
+            }
+            window.addEventListener('pointermove', move)
+            window.addEventListener('pointerup', up)
+            return
+          }
+        }
+      }
+      return
+    }
+    if (tool === 'scan') {
+      e.stopPropagation()
+      const start = { ...p }
+      draftRef.current = { tool: 'scan', x1: p.x, y1: p.y, x2: p.x, y2: p.y }
+      redraw()
+      const move = (ev) => {
+        const pt = getPoint(ev)
+        draftRef.current = { ...draftRef.current, x2: pt.x, y2: pt.y }
+        redraw()
+      }
+      const up = () => {
+        const d = draftRef.current
+        draftRef.current = null
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        setTool('cursor')
+        if (!d || Math.abs(d.x2 - d.x1) < 8 || Math.abs(d.y2 - d.y1) < 8) return
+        const t1 = st.chart.timeScale().coordinateToTime(Math.min(d.x1, d.x2))
+        const t2 = st.chart.timeScale().coordinateToTime(Math.max(d.x1, d.x2))
+        if (t1 && t2 && t1 !== t2) {
+          st.chart.timeScale().setVisibleRange({ from: t1, to: t2 })
+        }
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+      return
+    }
+    e.stopPropagation()
+    const data = pointToData(p)
+    if (data.price == null) return
+    const d = { tool, t1: data.time, p1: data.price, t2: data.time, p2: data.price, text: '' }
+    draftRef.current = d
+    redraw()
+    const move = (ev) => {
+      const pt = getPoint(ev)
+      const nd = pointToData(pt)
+      const cur = draftRef.current
+      if (!cur || !nd.time) return
+      cur.t2 = nd.time
+      if (nd.price != null) cur.p2 = nd.price
+      redraw()
+    }
+    const up = (ev) => {
+      const cur = draftRef.current
+      draftRef.current = null
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      redraw()
+      if (!cur) return
+      if (cur.tool === 'text') {
+        const txt = window.prompt('Label')
+        if (!txt) return
+        cur.text = txt.slice(0, 80)
+      } else if (cur.t1 === cur.t2 || cur.p1 === cur.p2) {
+        if (cur.tool === 'hline') {
+          cur.t2 = null
+          cur.p2 = null
+        } else {
+          return
+        }
+      }
+      if (cur.tool === 'hline') {
+        cur.t2 = null
+        cur.p2 = null
+        cur.t1 = st.chart.timeScale().coordinateToTime(st.chart.timeScale().getVisibleLogicalRange().from)
+        cur.p1 = Math.round(cur.p1 * 100) / 100
+      } else {
+        cur.p1 = Math.round(cur.p1 * 100) / 100
+        cur.p2 = Math.round(cur.p2 * 100) / 100
+      }
+      setDrawings([...drawingsRef.current, cur])
+      setTool('cursor')
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const redraw = () => {
+    const st = stateRef.current
+    const svg = svgRef.current
+    if (!st || !svg) return
+    const parts = []
+    const gripR = 4
+    const ns = 'http://www.w3.org/2000/svg'
+
+    const tx = (t) => (t != null ? st.chart.timeScale().timeToCoordinate(t) : null)
+
+    const toXY = (d) => ({
+      x1: tx(d.t1),
+      y1: d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null,
+      x2: d.t2 != null ? tx(d.t2) : null,
+      y2: d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null,
+    })
+
+    const paint = (d, dashed) => {
+      const { x1, y1, x2, y2 } = toXY(d)
+      const color = dashed ? C.drawDraft : C.draw
+      if (d.tool === 'hline') {
+        if (y1 == null) return
+        parts.push(
+          <line key={d.id} x1="0" y1={y1} x2="100%" y2={y1} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} />
+        )
+        parts.push(
+          <text key={`${d.id}l`} x={4} y={y1 - 5} fill="#9DB4D8" fontSize="10" fontWeight="600">{fmtShort(d.p1)}</text>
+        )
+      } else if (d.tool === 'fibo') {
+        if (x1 == null || x2 == null || y1 == null || y2 == null) return
+        parts.push(
+          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '2 3'} />
+        )
+        FIBO_LEVELS.forEach((lv, i) => {
+          const yl = y1 + (y2 - y1) * lv
+          const xl = x1 + (x2 - x1) * lv
+          parts.push(
+            <line key={`${d.id}f${i}`} x1={x1} y1={yl} x2={x2} y2={yl} stroke={C.fibo[i % C.fibo.length]} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '4 4'} opacity="0.85" />
+          )
+          parts.push(
+            <text key={`${d.id}t${i}`} x={xl + 4} y={yl - 3} fill={C.fibo[i % C.fibo.length]} fontSize="9.5" fontWeight="600">
+              {Math.round(lv * 1000) / 10}% · {fmtShort(d.p1 + (d.p2 - d.p1) * lv)}
+            </text>
+          )
+        })
+      } else if (d.tool === 'rect') {
+        if (x1 == null || x2 == null || y1 == null || y2 == null) return
+        const xl = Math.min(x1, x2), yt = Math.min(y1, y2)
+        parts.push(
+          <rect key={d.id} x={xl} y={yt} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)}
+            fill={dashed ? 'rgba(78,168,255,0.08)' : 'rgba(78,168,255,0.1)'} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} />
+        )
+      } else if (d.tool === 'text') {
+        if (x1 == null || y1 == null) return
+        parts.push(
+          <g key={d.id}>
+            <rect x={x1 - 3} y={y1 - 14} width={Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)} height="18" rx="4" fill="#141A26" stroke={color} strokeWidth="1" />
+            <text x={x1} y={y1 + 1} fill="#E2E8F0" fontSize="11" fontWeight="600">{d.text || '...'}</text>
+          </g>
+        )
+      } else {
+        if (x1 == null || y1 == null || x2 == null || y2 == null) return
+        parts.push(
+          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.4" strokeDasharray={dashed ? '6 4' : undefined} />
+        )
+      }
+    }
+
+    drawingsRef.current.forEach(d => paint(d, false))
+    if (draftRef.current) paint({ ...draftRef.current, id: 'draft' }, true)
+
+    const grips = []
+    if (tool === 'cursor') {
+      drawingsRef.current.forEach((d, i) => {
+        const { x1, y1, x2, y2 } = toXY(d)
+        if (d.tool === 'hline') {
+          if (y1 != null) grips.push(<circle key={`g${i}`} data-idx={i} cx={x1} cy={y1} r={gripR + 1.5} fill="none" stroke={C.draw} strokeWidth="1.5" pointerEvents="auto" />)
+        } else if (d.tool === 'text') {
+          if (x1 != null && y1 != null) grips.push(<circle key={`g${i}`} data-idx={i} cx={x1} cy={y1} r={gripR + 1.5} fill="none" stroke={C.draw} strokeWidth="1.5" pointerEvents="auto" />)
+        } else {
+          if (x1 != null && y1 != null) grips.push(<circle key={`g${i}a`} data-idx={i} cx={x1} cy={y1} r={gripR + 1.5} fill="none" stroke={C.draw} strokeWidth="1.5" pointerEvents="auto" />)
+          if (x2 != null && y2 != null) grips.push(<circle key={`g${i}b`} data-idx={i} cx={x2} cy={y2} r={gripR + 1.5} fill="none" stroke={C.draw} strokeWidth="1.5" pointerEvents="auto" />)
+        }
+      })
+    }
+
+    svg.innerHTML = ''
+    const append = (node, parent) => {
+      if (node == null) return
+      if (Array.isArray(node)) { node.forEach(n => append(n, parent)); return }
+      if (typeof node === 'string' || typeof node === 'number') {
+        if (parent) parent.textContent = String(node)
+        return
+      }
+      const el = document.createElementNS(ns, node.type)
+      for (const [k, v] of Object.entries(node.props || {})) {
+        if (k === 'children' || k === 'pointerEvents') continue
+        el.setAttribute(k, String(v))
+      }
+      if (node.props && node.props.pointerEvents) el.style.pointerEvents = node.props.pointerEvents
+      const kids = node.props && node.props.children
+      if (Array.isArray(kids)) kids.forEach(k => append(k, el))
+      else if (kids != null && typeof kids !== 'boolean') append(kids, el)
+      ;(parent || svg).appendChild(el)
+    }
+
+    const timeLabels = []
+    const svgRect = svg.getBoundingClientRect()
+    const visRange = st.chart.timeScale().getVisibleLogicalRange()
+    const barSpacing = st.chart.timeScale().options().barSpacing
+    const daily = period === '1j' || period === '5j' || period === 'max' || period === 'all'
+    const yearly = period === '1a' || period === '3a' || period === '5a'
+    const steps = daily ? [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90, 180, 365]
+      : yearly ? [1, 2, 5, 10]
+      : [1, 2, 3, 4, 6, 12, 24]
+    let step = steps[steps.length - 1]
+    for (const s of steps) {
+      if (barSpacing * s >= 64) { step = s; break }
+    }
+    if (visRange && rows.length) {
+      const from = Math.max(0, Math.floor(visRange.from))
+      const to = Math.min(rows.length - 1, Math.ceil(visRange.to))
+      const yBottom = svgRect.height - 8
+      const monthIntl = new Intl.DateTimeFormat(lang === 'en' ? 'en-US' : 'fr-FR', { month: 'short', year: '2-digit' })
+      for (let i = from; i <= to; i++) {
+        if ((i - from) % step !== 0) continue
+        const x = st.chart.timeScale().timeToCoordinate(rows[i].time)
+        if (x == null || x < -16 || x > svgRect.width + 16) continue
+        const [y, m, d] = rows[i].time.split('-').map(Number)
+        const mm = m < 10 ? `0${m}` : `${m}`
+        const dd = d < 10 ? `0${d}` : `${d}`
+        let label
+        if (daily) {
+          label = step >= 90 || m === 1 ? `${dd}/${mm}/${String(y).slice(2)}` : `${dd}/${mm}`
+        } else if (yearly) {
+          label = String(y)
+        } else {
+          label = step >= 12 ? String(y) : monthIntl.format(new Date(y, m - 1, 1)).replace(/\./g, '')
+        }
+        timeLabels.push({
+          type: 'text',
+          props: { x: Math.round(x), y: yBottom, fill: C.axis, fontSize: 10, textAnchor: 'middle', children: label },
+        })
+      }
+    }
+
+    append(parts, svg)
+    append(grips, svg)
+    append(timeLabels, svg)
+  }
+
+  redrawRef.current = redraw
+
+  const svgPointerEvents = tool === 'cursor' ? 'none' : 'auto'
+
+  const CHIPS = IND_ROWS
 
   return (
-    <div className="mc-root" ref={rootRef}>
+    <div className={`mc-root${full ? ' fullscreen' : ''}`} ref={rootRef}>
       <div className="mc-toolbar">
         {CHIPS.map(c => {
           const on = typeof c.k === 'number' ? emasOn[c.k] : inds[c.k]
@@ -561,9 +1092,67 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         })}
         {statusText && <span className="mc-status">{statusText}</span>}
       </div>
-      <div className="mc-wrap" onWheel={onWheel}>
-        <canvas ref={gridRef} className="mc-grid" />
+      <div className="mc-dtoolbar">
+        <span className="mc-dgroup">
+          {DRAW_TOOLS.map(ct => {
+            const Icon = ct.icon
+            const active = tool === ct.id
+            return (
+              <button
+                key={ct.id}
+                className={`mc-dbtn ${active ? 'active' : ''}`}
+                title={ct.title}
+                onClick={() => setTool(active ? 'cursor' : ct.id)}
+              >
+                <Icon size={15} />
+              </button>
+            )
+          })}
+        </span>
+        <span className="mc-dgroup right">
+          <button className="mc-dbtn" title="Zoom in" onClick={() => zoomBy(1 / 1.35)}><Plus size={15} /></button>
+          <button className="mc-dbtn" title="Zoom out" onClick={() => zoomBy(1.35)}><Minus size={15} /></button>
+          <button className={`mc-dbtn ${tool === 'scan' ? 'active' : ''}`} title="Zoom box" onClick={() => setTool(tool === 'scan' ? 'cursor' : 'scan')}><Scan size={15} /></button>
+          <button className="mc-dbtn" title="Reset view" onClick={zoomReset}><RotateCcw size={15} /></button>
+          <button className={`mc-dbtn ${full ? 'active' : ''}`} title={full ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFull}>
+            {full ? <Minimize size={15} /> : <Maximize size={15} />}
+          </button>
+        </span>
+        {tool !== 'cursor' && (
+          <span className="mc-dhint"><Hand size={11} /> {tool === 'erase' ? 'Click a drawing to delete' : 'Drag on chart to draw'}</span>
+        )}
+      </div>
+      <div className="mc-wrap" ref={wrapRef}>
+        {symbol && <div className="mc-watermark">{symbol}</div>}
         <div ref={chartElRef} className="mc-chart" />
+        <svg
+          ref={svgRef}
+          className="mc-overlay"
+          style={{ pointerEvents: svgPointerEvents }}
+          onPointerDown={onSvgPointerDown}
+        />
+        <div className="mc-legend">
+          <div className="mc-lg-row1">
+            <span className="mc-lg-sym">{symbol || '—'}</span>
+            <span ref={el => { legRefs.current.price = el }} className="mc-lg-price">—</span>
+            <span ref={el => { legRefs.current.chg = el }} className="mc-lg-chg">—</span>
+          </div>
+          <div ref={el => { legRefs.current.ohlc = el }} className="mc-lg-ohlc" />
+          <div ref={el => { legRefs.current.date = el }} className="mc-lg-date" />
+          <div className="mc-lg-inds">
+            {IND_ROWS.map(r => {
+              const on = typeof r.k === 'number' ? emasOn[r.k] : inds[r.k]
+              if (!on) return null
+              return (
+                <div className="mc-lg-ind" key={r.key}>
+                  <i className="mc-lg-dot" style={{ background: r.color }} />
+                  <span className="mc-lg-ind-name">{r.label}</span>
+                  <b ref={el => { indRefs.current[r.key] = el }}>—</b>
+                </div>
+              )
+            })}
+          </div>
+        </div>
         <div ref={lineRef} className="mc-pline" />
         <div ref={tagRef} className="mc-ptag" />
         <div ref={tipRef} className="mc-tip" />
@@ -577,29 +1166,89 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           background: ${C.bg}; color: ${C.text};
           font-family: Inter, -apple-system, sans-serif;
         }
+        .mc-root.fullscreen {
+          position: fixed; inset: 0; z-index: 1000; height: 100vh;
+          padding: 14px 14px 6px;
+        }
+        .mc-root.fullscreen .mc-wrap { border-radius: 14px; overflow: hidden; }
+        .mc-root.fullscreen .mc-toolbar { padding-left: 2px; }
+        .mc-root.fullscreen .mc-dtoolbar { padding-left: 2px; }
         .mc-toolbar {
-          display: flex; align-items: center; gap: 6px; padding: 0 8px 6px;
-          flex-wrap: wrap;
+          display: flex; align-items: center; gap: 6px; padding: 0 8px 8px;
+          flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.05);
         }
         .mc-chip {
-          font-size: 10px; font-weight: 600; padding: 3px 9px; border-radius: 9px;
-          background: #1B1B1B; color: #666; cursor: pointer; user-select: none;
-          transition: background 120ms ease-out, color 120ms ease-out;
+          display: flex; align-items: center; gap: 5px;
+          font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
+          background: #141A26; border: 1px solid #20283A; color: #7B8496;
+          cursor: pointer; user-select: none;
+          transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
         }
+        .mc-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.4; }
+        .mc-chip.on::before { opacity: 1; }
         .mc-status { margin-left: auto; font-size: 10px; color: #666; white-space: nowrap; }
+        .mc-dtoolbar {
+          display: flex; align-items: center; gap: 8px;
+          padding: 0 8px 6px;
+        }
+        .mc-dgroup { display: flex; align-items: center; gap: 2px; background: #151A26; border-radius: 9px; padding: 2px; }
+        .mc-dgroup.right { margin-left: auto; }
+        .mc-dbtn {
+          width: 26px; height: 26px; border: none; border-radius: 7px;
+          background: none; color: #8B93A7; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
+        }
+        .mc-dbtn:hover { background: #1E2637; color: #E2E8F0; }
+        .mc-dbtn.active { background: rgba(0,200,83,0.18); color: #00C853; }
+        .mc-dhint {
+          display: flex; align-items: center; gap: 4px;
+          font-size: 10px; color: #5B6472; white-space: nowrap;
+        }
         .mc-wrap {
           flex: 1; min-height: 0; position: relative;
           border-radius: 6px; overflow: hidden;
         }
-        .mc-grid { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
         .mc-chart { position: absolute; inset: 0; z-index: 2; }
+        .mc-watermark {
+          position: absolute; inset: 0; z-index: 2;
+          pointer-events: none; user-select: none;
+          display: flex; align-items: center; justify-content: center;
+          font-size: clamp(56px, 9vw, 110px); font-weight: 800; letter-spacing: 3px;
+          color: rgba(255,255,255,0.028); font-variant-numeric: tabular-nums;
+        }
+        .mc-overlay { position: absolute; inset: 0; z-index: 3; touch-action: none; }
+        .mc-legend {
+          position: absolute; top: 10px; left: 10px; z-index: 5;
+          background: rgba(11,15,25,0.84); border: 1px solid #20283A;
+          border-radius: 10px; padding: 8px 12px 9px;
+          font-size: 10.5px; pointer-events: none; user-select: none;
+          min-width: 208px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+        }
+        .mc-lg-row1 { display: flex; align-items: center; gap: 8px; }
+        .mc-lg-sym { font-weight: 800; color: #E2E8F0; font-size: 12px; }
+        .mc-lg-price { font-weight: 700; font-variant-numeric: tabular-nums; transition: color 80ms ease-out; }
+        .mc-lg-chg {
+          font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 5px;
+          color: #8B93A7; font-variant-numeric: tabular-nums;
+        }
+        .mc-lg-ohlc { margin-top: 5px; color: #8B93A7; font-variant-numeric: tabular-nums; letter-spacing: 0.2px; white-space: nowrap; }
+        .mc-lg-date { color: #5B6472; margin-top: 2px; font-size: 9.5px; }
+        .mc-lg-inds {
+          margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06);
+          padding-top: 5px; display: flex; flex-direction: column; gap: 3px;
+        }
+        .mc-lg-ind { display: flex; align-items: center; gap: 6px; color: #8B93A7; }
+        .mc-lg-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+        .mc-lg-ind-name { font-size: 10px; }
+        .mc-lg-ind b { margin-left: auto; font-weight: 600; color: #E2E8F0; font-variant-numeric: tabular-nums; }
         .mc-pline {
-          position: absolute; left: 0; right: 0; height: 1px; z-index: 3;
+          position: absolute; left: 0; right: 0; height: 1px; z-index: 4;
           transition: top 150ms ease-out, opacity 120ms ease-out;
           pointer-events: none;
         }
         .mc-ptag {
-          position: absolute; right: 0; z-index: 3;
+          position: absolute; right: 0; z-index: 4;
           transform: translateY(-50%);
           color: #fff; font-family: Inter, sans-serif;
           font-weight: 600; font-size: 12px;
@@ -608,10 +1257,11 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           pointer-events: none;
         }
         .mc-tip {
-          position: absolute; z-index: 4; width: 150px;
+          position: absolute; z-index: 6; width: 150px;
           background: ${C.tipBg}; border: 1px solid ${C.tipBorder};
           border-radius: 8px; padding: 8px 10px;
           opacity: 0; transition: opacity 100ms ease-out;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.35);
           pointer-events: none;
         }
         .mc-tip-title { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }

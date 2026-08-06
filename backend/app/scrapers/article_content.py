@@ -249,7 +249,7 @@ def _domain_label(host: str) -> str:
 
 def summarize_article(title: str, content: list, lang: str = "fr") -> str:
     """Résumé IA (best-effort) — si aucun LLM dispo, on renvoie un extrait."""
-    from ..config import settings
+    from ..services.llm import call_llm
 
     text = " ".join(content)
     prompt_lang = "en" if lang == "en" else "fr"
@@ -258,22 +258,14 @@ def summarize_article(title: str, content: list, lang: str = "fr") -> str:
         "of the article in 2-3 sentences, factual and neutral."
     )
     try:
-        if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "your-openai-api-key":
-            import openai
-
-            client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": f"Titre: {title}\n\n{text[:6000]}"},
-                ],
-                temperature=0.3,
-                max_tokens=200,
-            )
-            summ = (resp.choices[0].message.content or "").strip()
-            if summ:
-                return summ
+        summ, _ = call_llm(
+            system,
+            f"Titre: {title}\n\n{text[:6000]}",
+            max_tokens=1000,
+            temperature=0.3,
+        )
+        if summ:
+            return summ.strip()
     except Exception as e:
         _log.warning("Summarization failed: %s", e)
     return " ".join(content[:2])[:600]

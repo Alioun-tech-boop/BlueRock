@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 import json
 import os
@@ -7,16 +7,17 @@ from ..models.ratios import FinancialRatio
 from ..models.analysis import AnalysisReport, ScoreCard, Valuation
 from ..models.financial import FinancialStatement, FinancialLineItem, StatementType
 from ..config import settings
+from ..services.llm import call_llm
 
 class AIAnalyst:
     """
     AI-powered financial analyst that answers questions about companies.
-    Uses OpenAI by default, but can work with any LLM provider.
+    Uses Google Gemini (free tier) by default, OpenAI as fallback,
+    and a rule-based engine when no LLM key is configured.
     """
     
     def __init__(self, db: Session):
         self.db = db
-        self.openai_api_key = settings.OPENAI_API_KEY
     
     def _get_company_context(self, company_id: int) -> str:
         company = self.db.query(Company).filter(Company.id == company_id).first()
@@ -87,25 +88,11 @@ Valuation:
 """
         return context
     
-    def _get_llm_response(self, system_prompt: str, user_message: str, question: str = "") -> str:
-        if self.openai_api_key and self.openai_api_key != "your-openai-api-key":
-            try:
-                import openai
-                client = openai.OpenAI(api_key=self.openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message}
-                    ],
-                    temperature=0.3,
-                    max_tokens=2000
-                )
-                return response.choices[0].message.content
-            except Exception:
-                return self._rule_based_response(question or user_message)
-        else:
-            return self._rule_based_response(question or user_message)
+    def _get_llm_response(self, system_prompt: str, user_message: str, question: str = "") -> Tuple[str, str]:
+        text, provider = call_llm(system_prompt, user_message, max_tokens=2500, temperature=0.2)
+        if text:
+            return text.strip(), provider
+        return self._rule_based_response(question or user_message), ""
     
     def _rule_based_response(self, question: str) -> str:
         question_lower = question.lower()
@@ -254,34 +241,33 @@ Je peux répondre à plusieurs types de questions :
 
 Posez votre question en français ou en anglais. Pour une analyse précise, mentionnez le nom de l'entreprise et l'indicateur souhaité.
 
-💡 **Conseil** : Pour des réponses plus précises, configurez votre clé API OpenAI dans le fichier .env pour activer l'analyse IA avancée."""
+💡 **Conseil** : Pour des réponses plus précises, configurez votre clé API Gemini (gratuite) dans le fichier .env pour activer l'analyse IA avancée."""
     
     def ask_question(self, company_id: int, question: str, company_name: Optional[str] = None) -> Dict[str, Any]:
         context = self._get_company_context(company_id) if company_id else ""
+        
+        system_prompt = """Tu es un analyste financier expert de la BRVM. Tu réponds en français.
 
-        has_key = bool(self.openai_api_key and self.openai_api_key != "your-openai-api-key")
+Style exigé (priorité absolue) :
+1. Phrases courtes et directes. Jamais de formule d'intro du type « En tant qu'analyste... », « Voici l'analyse... » ni de conclusion de remplissage.
+2. Commence par un verdict net en une phrase (ACHETER / GARDER / VENDRE / ALERTE + la raison principale en 5 à 8 mots).
+3. Puis 3 à 5 puces factuelles appuyées sur les chiffres fournis (ROE, P/E, marge, décote, rendement, score).
+4. Termine par un conseil actionnable en une phrase.
+5. Aucun autre formatage que : gras **mot court** uniquement pour le verdict, puces « - », un titre « ## » maximum en tête si utile. Pas d'emojis. Pas de tableaux.
+6. Si les données sont insuffisantes, dis-le en une phrase et donne un avis prudent.
+
+Base chaque affirmation sur les données fournies. Ne cite jamais de chiffres absents du contexte."""
         
-        system_prompt = """Tu es un analyste financier expert spécialisé dans la BRVM (Bourse Régionale des Valeurs Mobilières) et les marchés africains. Tu parles français et anglais.
+        user_message = f"""Données de l'entreprise:\n{context}\n\nQuestion de l'investisseur: {question}\n\nRéponds maintenant, dans le style exigé, en restant sous 180 mots."""
         
-Règles:
-1. Réponds de manière concise, professionnelle et factuelle
-2. Base tes réponses sur les données financières fournies
-3. Si les données sont insuffisantes, indique-le clairement
-4. Fournis des perspectives actionnariales claires (ACHEVER, GARDER, VENDRE)
-5. Utilise un ton neutre et objectif
-6. Inclus des ratios et métriques pertinentes dans ton analyse
-7. Sois conscient du contexte BRVM (taille du marché, liquidité, secteurs dominants)"""
-        
-        user_message = f"""Contexte de l'entreprise:\n{context}\n\nQuestion de l'investisseur: {question}\n\nFournis une réponse d'analyste financier experte."""
-        
-        response = self._get_llm_response(system_prompt, user_message, question)
-        used_llm = has_key and not response.startswith("**")
+        response, provider = self._get_llm_response(system_prompt, user_message, question)
+        used_llm = bool(provider)
 
         return {
             "question": question,
             "answer": response,
             "context_used": bool(context and context != "Company not found"),
-            "ai_type": "openai" if used_llm else "rule-based"
+            "ai_type": provider if used_llm else "rule-based"
         }
     
     def generate_full_report(self, company_id: int) -> AnalysisReport:

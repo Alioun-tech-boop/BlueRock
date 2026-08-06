@@ -1,4 +1,5 @@
 import secrets
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 
@@ -11,8 +12,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://bluerock:bluerock123@localhost:5432/bluerock"
     SECRET_KEY: str = secrets.token_hex(32)
     OPENAI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-flash-latest"
     BRVM_BASE_URL: str = "https://www.brvm.org"
     API_BASE_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # Supabase (auth JWT, storage, admin API)
     SUPABASE_URL: Optional[str] = None
@@ -60,7 +64,7 @@ class Settings(BaseSettings):
     SMTP_TIMEOUT: int = 15
 
     class Config:
-        env_file = ".env"
+        env_file = Path(__file__).resolve().parent.parent / ".env"
 
 
 settings = Settings()

@@ -119,11 +119,12 @@ async def ingest_pdf(
     db.commit()
     os.remove(pdf_path)  # ne pas accumuler les fichiers traités
 
-    ratios = None
+    stats = None
     try:
-        calculator = RatioCalculator(db)
-        ratios = calculator.calculate_all_ratios(company.id, fiscal_year, quarter)
+        from ..services.stat_pipeline import recompute_stats
+        stats = recompute_stats(db, company.id, fiscal_year, quarter)
     except Exception as e:
+        logger.warning("recompute stats après ingestion PDF (%s): %s", company.id, e)
         db.rollback()
         db.commit()
 
@@ -144,7 +145,8 @@ async def ingest_pdf(
             "line_items": stored,
         },
         "detected_scale": extracted["metadata"].get("detected_scale"),
-        "ratios_recomputed": ratios is not None,
+        "ratios_recomputed": bool(stats and stats.get("ratios")),
+        "stats_recomputed": stats or None,
         "preview": {
             "income_statement": extracted.get("income_statement", {}),
             "balance_sheet": extracted.get("balance_sheet", {}),
@@ -217,8 +219,9 @@ def get_statements(
             "source_file": s.source_file,
             "currency": s.currency,
             "extracted_at": s.extracted_at.isoformat() if s.extracted_at else None,
-            "source_url": storage_signed_url("uploads", f"pdfs/{s.source_file}")
-            if s.source_file else None,
+            "source_url": (s.source_file if str(s.source_file or "").startswith("http")
+                           else storage_signed_url("uploads", f"pdfs/{s.source_file}")
+                           if s.source_file else None),
             "line_items": [
                 {"account": i.account_name, "value": i.value, "code": i.account_code}
                 for i in s.line_items

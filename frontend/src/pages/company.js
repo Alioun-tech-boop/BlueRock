@@ -1,19 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getCompanyFull, getPosition, placeOrder } from '../services/api'
+import { getCompanyFull, getPosition, placeOrder, ingestPdf, fetchFinancials, getFetchStatus } from '../services/api'
 import { useAuth } from '../lib/auth'
 import {
   ArrowLeft, Star, Share2, Building2, Users, MapPin, Calendar,
   Globe, TrendingUp, TrendingDown, Newspaper, ChevronRight,
-  Check, AlertTriangle, Sparkles, X,
+  Check, AlertTriangle, Sparkles, X, Upload, Database, FileText,
+  RefreshCw, ChevronDown, ExternalLink,
 } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
+import { aggregateOhlc } from '../lib/ohlc'
 import MarketChart from '../components/MarketChart'
 import InfoDot from '../components/InfoDot'
 import NewsThumb from '../components/NewsThumb'
 
 const FAV_KEY = 'bluerock_favorites_v1'
+
+const ADMIN_KEY = 'bluerock_admin_token'
 
 function loadJSON(key, fallback) {
   try {
@@ -36,15 +40,33 @@ function ratingClass(rating) {
   return 'down'
 }
 
+function stmtTypeLabel(type, lang) {
+  if (type === 'Income Statement') return t(lang, 'finIncome')
+  if (type === 'Balance Sheet') return t(lang, 'finBalance')
+  if (type === 'Cash Flow Statement') return t(lang, 'finCashFlow')
+  if (type === 'Notes') return t(lang, 'finNotes')
+  return type
+}
+
+function fmtBig(n, lang) {
+  if (n == null || Number.isNaN(+n)) return '—'
+  const v = +n
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(2)} Md`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(1)} M`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(1)} K`
+  return v.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR')
+}
+
 const PERIODS = [
-  { id: '1J', type: 'last', n: 1 },
-  { id: '5J', type: 'last', n: 5 },
-  { id: '1M', type: 'months', n: 1 },
-  { id: '3M', type: 'months', n: 3 },
-  { id: '6M', type: 'months', n: 6 },
-  { id: '1A', type: 'months', n: 12 },
-  { id: '5A', type: 'months', n: 60 },
-  { id: 'MAX', type: 'all', n: 0 },
+  { id: '1J', kind: '1j' },
+  { id: '5J', kind: '5j' },
+  { id: '1M', kind: '1m' },
+  { id: '3M', kind: '3m' },
+  { id: '6M', kind: '6m' },
+  { id: '1A', kind: '1a' },
+  { id: '5A', kind: '5a' },
+  { id: 'MAX', kind: 'max' },
 ]
 
 function ScoreRing({ score, size = 88, stroke = 9 }) {
@@ -131,6 +153,90 @@ export default function Company() {
     return () => { mounted.current = false }
   }, [id])
 
+  const reloadFull = () => {
+    if (!id) return
+    getCompanyFull(id, 20000)
+      .then(res => { if (mounted.current) setFull(res.data) })
+      .catch(() => {})
+  }
+
+  const [stmtOpen, setStmtOpen] = useState({})
+  const [reportsOpen, setReportsOpen] = useState(false)
+  const [histOpen, setHistOpen] = useState(false)
+  const [histLimit, setHistLimit] = useState(30)
+  const [importOpen, setImportOpen] = useState(false)
+  const [impFile, setImpFile] = useState(null)
+  const [impYear, setImpYear] = useState('')
+  const [impQuarter, setImpQuarter] = useState('')
+  const [impToken, setImpToken] = useState(() => {
+    try { return localStorage.getItem(ADMIN_KEY) || '' } catch { return '' }
+  })
+  const [impBusy, setImpBusy] = useState(false)
+  const [impMsg, setImpMsg] = useState('')
+  const [impErr, setImpErr] = useState('')
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+  const fileRef = useRef(null)
+
+  const doImport = async () => {
+    if (!impFile || !impYear || !impToken) {
+      setImpErr(t(lang, 'finImportRequired'))
+      return
+    }
+    setImpBusy(true)
+    setImpErr('')
+    setImpMsg('')
+    const fd = new FormData()
+    fd.append('file', impFile)
+    fd.append('company_id', company?.id)
+    fd.append('fiscal_year', impYear)
+    if (impQuarter) fd.append('quarter', impQuarter)
+    try {
+      await ingestPdf(fd, impToken)
+      setImpMsg(t(lang, 'finUploadOk'))
+      setImportOpen(false)
+      setImpFile(null)
+      reloadFull()
+    } catch (e) {
+      setImpErr(e.response?.data?.detail || e.message || t(lang, 'ingestError'))
+    } finally {
+      setImpBusy(false)
+    }
+  }
+
+  const doSync = async () => {
+    if (!impToken) {
+      setImpErr(t(lang, 'finImportRequired'))
+      setImportOpen(true)
+      return
+    }
+    setSyncBusy(true)
+    setSyncMsg('')
+    setImpErr('')
+    try {
+      await fetchFinancials(company?.symbol, 2, impToken)
+      setSyncMsg(t(lang, 'finSyncStarted'))
+      const iv = setInterval(async () => {
+        try {
+          const st = (await getFetchStatus()).data
+          if (st?.status === 'done') {
+            clearInterval(iv)
+            setSyncBusy(false)
+            setSyncMsg(t(lang, 'finSyncDone'))
+            reloadFull()
+          } else if (st?.status === 'error') {
+            clearInterval(iv)
+            setSyncBusy(false)
+            setSyncMsg(`${t(lang, 'finSyncError')} : ${st?.error || ''}`)
+          }
+        } catch { /* keep polling */ }
+      }, 5000)
+    } catch (e) {
+      setSyncBusy(false)
+      setImpErr(e.response?.data?.detail || e.message)
+    }
+  }
+
   const toggleFavorite = () => {
     if (!full) return
     const favs = loadJSON(FAV_KEY, [])
@@ -143,6 +249,10 @@ export default function Company() {
   const [trade, setTrade] = useState(null)
   const [tradeQty, setTradeQty] = useState(1)
   const [tradePrice, setTradePrice] = useState('')
+  const [tradeType, setTradeType] = useState('market')
+  const [tradeLimit, setTradeLimit] = useState('')
+  const [tradeTp, setTradeTp] = useState('')
+  const [tradeSl, setTradeSl] = useState('')
   const [owned, setOwned] = useState(0)
   const [sending, setSending] = useState(false)
   const [tradeMsg, setTradeMsg] = useState('')
@@ -157,6 +267,10 @@ export default function Company() {
     setTrade(side)
     setTradeQty(1)
     setTradePrice(price?.current != null ? String(price.current) : '')
+    setTradeType('market')
+    setTradeLimit('')
+    setTradeTp('')
+    setTradeSl('')
     setTradeMsg('')
     setTradeErr('')
     setSending(false)
@@ -174,18 +288,34 @@ export default function Company() {
     const px = Number(tradePrice)
     if (!qty || qty <= 0) { setTradeErr(t(lang, 'tradeQtyErr')); return }
     if (!px || px <= 0) { setTradeErr(t(lang, 'tradePriceErr')); return }
+    const execPx = tradeType === 'limit' ? Number(tradeLimit) : px
+    if (tradeType === 'limit' && (!execPx || execPx <= 0)) { setTradeErr(t(lang, 'limitPriceErr')); return }
+    const tpV = tradeTp.trim() ? Number(tradeTp) : null
+    const slV = tradeSl.trim() ? Number(tradeSl) : null
+    if ((tpV != null && !(tpV > execPx)) || (slV != null && !(slV < execPx))) { setTradeErr(t(lang, 'tpslErr')); return }
     if (trade === 'sell' && qty > owned) { setTradeErr(t(lang, 'tradeInsufficient')); return }
     setSending(true)
     setTradeErr('')
-    placeOrder({ symbol: full.company.symbol, side: trade, qty, price: px })
-      .then(() => {
+    placeOrder({
+      symbol: full.company.symbol,
+      side: trade,
+      qty,
+      price: execPx,
+      order_type: tradeType,
+      limit_price: tradeType === 'limit' ? execPx : null,
+      take_profit: tpV,
+      stop_loss: slV,
+    })
+      .then(res => {
         setSending(false)
-        setTradeMsg(t(lang, 'tradePlaced'))
-        setOwned(o => trade === 'buy' ? o + qty : Math.max(0, o - qty))
+        const pending = res?.data?.status === 'pending'
+        setTradeMsg(t(lang, pending ? 'orderPending' : 'tradePlaced'))
+        if (!pending) setOwned(o => trade === 'buy' ? o + qty : Math.max(0, o - qty))
       })
-      .catch(() => {
+      .catch(err => {
         setSending(false)
-        setTradeErr(t(lang, 'tradeFailed'))
+        const d = err?.response?.data?.detail
+        setTradeErr(d || err?.message || t(lang, 'tradeFailed'))
       })
   }
 
@@ -242,16 +372,7 @@ export default function Company() {
 
   const periodDef = PERIODS.find(p => p.id === period) || PERIODS[5]
   const hist = history || []
-  const lastDate = hist.length ? hist[hist.length - 1].date : null
-  const chartData = (() => {
-    if (!lastDate) return hist
-    if (periodDef.type === 'last') return hist.slice(-periodDef.n)
-    if (periodDef.type === 'all') return hist
-    const cutoff = new Date(lastDate)
-    cutoff.setMonth(cutoff.getMonth() - periodDef.n)
-    cutoff.setDate(1)
-    return hist.filter(d => d.date >= cutoff.toISOString().slice(0, 10))
-  })()
+  const chartData = aggregateOhlc(hist, periodDef.kind)
   const clean = chartData.filter(d => d && d.close != null && !Number.isNaN(+d.close))
   const chartChg = clean.length >= 2 && clean[0].open != null
     ? ((clean[clean.length - 1].close - clean[0].open) / clean[0].open) * 100
@@ -338,6 +459,10 @@ export default function Company() {
   ]
 
   const shares = company.shares_outstanding
+
+  const statements = full?.statements || []
+  const sessions = [...(history || [])].reverse()
+  const visSessions = sessions.slice(0, histLimit)
 
   return (
     <div className="mobile-root">
@@ -436,7 +561,7 @@ export default function Company() {
             </div>
           </div>
           <div className="chart-wrap">
-            <MarketChart data={chartData} period={period.toLowerCase()} lang={lang} />
+            <MarketChart data={chartData} period={period.toLowerCase()} lang={lang} symbol={company?.symbol} />
           </div>
           <div className="chart-legend">
             <span className="lg up"><i className="lg-candle-up" /> {t(lang, 'chartUp')}</span>
@@ -539,6 +664,104 @@ export default function Company() {
                 <span className="mono up">{d.yield_pct != null ? d.yield_pct.toFixed(2) + '%' : '—'}</span>
               </div>
             ))}
+          </section>
+        )}
+
+        <section className="fr-card">
+          <button className={`card-toggle ${reportsOpen ? '' : 'closed'}`} onClick={() => setReportsOpen(o => !o)}>
+            <span className="ct-title"><Database size={16} /> {t(lang, 'finReports')}</span>
+            <ChevronDown size={16} className={`ct-chev ${reportsOpen ? 'open' : ''}`} />
+          </button>
+          {reportsOpen && (
+          <>
+            <div className="fr-actions">
+              <button className="fr-btn" onClick={() => { setImportOpen(true); setImpErr(''); setImpMsg('') }}>
+                <Upload size={13} /> {t(lang, 'finImportPdf')}
+              </button>
+              <button className="fr-btn" onClick={doSync} disabled={syncBusy}>
+                <RefreshCw size={13} className={`fr-spin ${syncBusy ? 'spin' : ''}`} /> {t(lang, 'finSyncReports')}
+              </button>
+            </div>
+            {syncMsg && <div className="fr-msg ok">{syncMsg}</div>}
+            <div className="fr-note">{t(lang, 'finSyncPending')}</div>
+            {statements.length === 0 ? (
+              <p className="info-empty">{t(lang, 'finNoReports')}</p>
+            ) : (
+              statements.map(s => {
+                const open = stmtOpen[s.id]
+                return (
+                  <div key={s.id} className="stmt-block">
+                    <button className="stmt-toggle" onClick={() => setStmtOpen(o => ({ ...o, [s.id]: !o[s.id] }))}>
+                      <span className="stmt-type">{stmtTypeLabel(s.type, lang)}</span>
+                      <span className="stmt-meta">
+                        {s.fiscal_year}{s.quarter ? ` · ${t(lang, 'finPeriod')} ${s.quarter}` : ` · ${t(lang, 'finAnnual')}`} · {s.currency}
+                      </span>
+                      <ChevronDown size={14} className={`stmt-chev ${open ? 'open' : ''}`} />
+                    </button>
+                    {s.source_url && (
+                      <a className="stmt-link" href={s.source_url} target="_blank" rel="noreferrer">
+                        <ExternalLink size={11} /> {t(lang, 'finDownloadPdf')}
+                      </a>
+                    )}
+                    {open && (
+                      <div className="stmt-items">
+                        {s.line_items.map((li, i) => (
+                          <div key={i} className="line-item">
+                            <span className="li-account">{li.account}</span>
+                            <span className="li-val">{fmtBig(li.value, lang)}</span>
+                          </div>
+                        ))}
+                        {s.line_items.length === 0 && <div className="stmt-more">—</div>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </>
+          )}
+        </section>
+
+        {sessions.length > 0 && (
+          <section className="hist-card">
+            <button className={`card-toggle ${histOpen ? '' : 'closed'}`} onClick={() => setHistOpen(o => !o)}>
+              <span className="ct-title"><TrendingUp size={16} /> {t(lang, 'finHistory')}</span>
+              <ChevronDown size={16} className={`ct-chev ${histOpen ? 'open' : ''}`} />
+            </button>
+            {histOpen && (
+            <>
+              <div className="hist-head">
+                <span>{t(lang, 'finDate')}</span>
+                <span>{t(lang, 'finOpen')}</span>
+                <span>{t(lang, 'finHigh')}</span>
+                <span>{t(lang, 'finLow')}</span>
+                <span>{t(lang, 'finClose')}</span>
+                <span>{t(lang, 'finVolume')}</span>
+                <span>{t(lang, 'change')}</span>
+              </div>
+              {visSessions.map((d, i) => {
+                const chg = d.close != null && d.open != null
+                  ? ((d.close - d.open) / d.open) * 100
+                  : null
+                return (
+                  <div key={i} className="hist-row">
+                    <span className="mono hist-date">{String(d.date).slice(0, 10)}</span>
+                    <span className="mono">{fmtPrice(lang, d.open)}</span>
+                    <span className="mono">{fmtPrice(lang, d.high)}</span>
+                    <span className="mono">{fmtPrice(lang, d.low)}</span>
+                    <span className="mono hist-close">{fmtPrice(lang, d.close)}</span>
+                    <span className="mono hist-vol">{fmtVol(d.volume)}</span>
+                    {chg != null && <span className={`mono hist-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>}
+                  </div>
+                )
+              })}
+              {sessions.length > histLimit && (
+                <button className="hist-more" onClick={() => setHistLimit(l => l + 50)}>
+                  {t(lang, 'finSeeMore')} ({sessions.length - histLimit})
+                </button>
+              )}
+            </>
+            )}
           </section>
         )}
 
@@ -694,6 +917,68 @@ export default function Company() {
           )}
         </section>
 
+        {importOpen && (
+          <div className="trade-overlay" onClick={() => setImportOpen(false)}>
+            <div className="trade-modal" onClick={e => e.stopPropagation()}>
+              <div className="tm-head">
+                <span className="tm-side buy"><Upload size={13} /> {t(lang, 'finImportPdf')}</span>
+                <button className="tm-close" onClick={() => setImportOpen(false)} aria-label={t(lang, 'cancel')}><X size={18} /></button>
+              </div>
+              <div className="tm-owned">{company.symbol} — {company.name}</div>
+              <div className="tm-row">
+                <label className="tm-label">PDF</label>
+                <button
+                  className={`imp-drop ${impFile ? 'has-file' : ''}`}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <FileText size={18} />
+                  <span>{impFile ? impFile.name : t(lang, 'dropzone')}</span>
+                  <input
+                    ref={fileRef} type="file" accept="application/pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => setImpFile(e.target.files?.[0] || null)}
+                  />
+                </button>
+              </div>
+              <div className="tm-row imp-row2">
+                <div>
+                  <label className="tm-label">{t(lang, 'year')}</label>
+                  <input
+                    className="tm-input mono"
+                    type="number" min="2000" max="2100" placeholder="2025"
+                    value={impYear} onChange={e => setImpYear(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="tm-label">{t(lang, 'finPeriod')}</label>
+                  <select className="tm-input" value={impQuarter} onChange={e => setImpQuarter(e.target.value)}>
+                    <option value="">{t(lang, 'finAnnual')}</option>
+                    <option value="1">T1</option>
+                    <option value="2">T2</option>
+                    <option value="3">T3</option>
+                    <option value="4">T4</option>
+                  </select>
+                </div>
+              </div>
+              <div className="tm-row">
+                <label className="tm-label">{t(lang, 'finAdminToken')}</label>
+                <input
+                  className="tm-input mono"
+                  type="password"
+                  placeholder={t(lang, 'finAdminTokenHelp')}
+                  value={impToken}
+                  onChange={e => { setImpToken(e.target.value); try { localStorage.setItem(ADMIN_KEY, e.target.value) } catch {} }}
+                />
+              </div>
+              {impErr && <div className="tm-err"><AlertTriangle size={14} /> {impErr}</div>}
+              {impMsg && <div className="imp-ok">{impMsg}</div>}
+              <button className="tm-btn" onClick={doImport} disabled={impBusy || !impFile}>
+                {impBusy ? t(lang, 'extracting') : t(lang, 'extractImport')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {trade && (
           <div className="trade-overlay" onClick={closeTrade}>
             <div className="trade-modal" onClick={e => e.stopPropagation()}>
@@ -717,6 +1002,50 @@ export default function Company() {
                   {trade === 'sell' && (
                     <div className="tm-owned">{t(lang, 'tradeAvailable')} : <b className="mono">{owned}</b></div>
                   )}
+                  <div className="tm-otype">
+                    <button
+                      className={`tm-otype-btn ${tradeType === 'market' ? 'on' : ''}`}
+                      onClick={() => setTradeType('market')}
+                    >
+                      {t(lang, 'orderMarket')}
+                    </button>
+                    <button
+                      className={`tm-otype-btn ${tradeType === 'limit' ? 'on' : ''}`}
+                      onClick={() => setTradeType('limit')}
+                    >
+                      {t(lang, 'orderLimit')}
+                    </button>
+                  </div>
+                  {tradeType === 'limit' && (
+                    <div className="tm-row">
+                      <label className="tm-label">{t(lang, 'limitPrice')} (FCFA)</label>
+                      <input
+                        className="tm-input mono"
+                        type="number" min="0" step="0.01"
+                        value={tradeLimit}
+                        placeholder={tradePrice}
+                        onChange={e => setTradeLimit(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  <div className="tm-row">
+                    <label className="tm-label">{t(lang, 'takeProfit')} (FCFA) — {t(lang, 'opt')}</label>
+                    <input
+                      className="tm-input mono"
+                      type="number" min="0" step="0.01"
+                      value={tradeTp}
+                      onChange={e => setTradeTp(e.target.value)}
+                    />
+                  </div>
+                  <div className="tm-row">
+                    <label className="tm-label">{t(lang, 'stopLoss')} (FCFA) — {t(lang, 'opt')}</label>
+                    <input
+                      className="tm-input mono"
+                      type="number" min="0" step="0.01"
+                      value={tradeSl}
+                      onChange={e => setTradeSl(e.target.value)}
+                    />
+                  </div>
                   <div className="tm-row">
                     <label className="tm-label">{t(lang, 'shares')}</label>
                     <input
@@ -737,7 +1066,7 @@ export default function Company() {
                   </div>
                   <div className="tm-total">
                     <span>{t(lang, 'total')}</span>
-                    <span className="mono">{fmtPrice(lang, (Number(tradeQty) || 0) * (Number(tradePrice) || 0))}</span>
+                    <span className="mono">{fmtPrice(lang, (Number(tradeQty) || 0) * (tradeType === 'limit' && Number(tradeLimit) ? Number(tradeLimit) : Number(tradePrice) || 0))}</span>
                   </div>
                   {tradeErr && <div className="tm-err"><AlertTriangle size={13} /> {tradeErr}</div>}
                   <button className={`tm-btn ${trade}`} onClick={submitTrade} disabled={sending}>
@@ -874,6 +1203,16 @@ export default function Company() {
         .tm-owned b { color: #fff; font-weight: 700; }
         .tm-row { display: flex; flex-direction: column; gap: 6px; }
         .tm-label { font-size: 11px; color: #8f8f8f; font-weight: 600; }
+        .tm-otype { display: flex; gap: 8px; }
+        .tm-otype-btn {
+          flex: 1; height: 38px;
+          background: #1B1B1B; color: #a3a3a3;
+          border: 1px solid #2a2a2a; border-radius: 10px;
+          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+        }
+        .tm-otype-btn.on {
+          background: rgba(0,200,83,0.12); color: #00C853; border-color: rgba(0,200,83,0.4);
+        }
         .tm-input {
           background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 12px;
           color: #fff; font-size: 15px; padding: 12px; outline: none;
@@ -908,13 +1247,118 @@ export default function Company() {
         .tm-done-title { font-size: 15px; font-weight: 800; }
         .tm-done-sub { font-size: 12px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
         .tm-done .tm-btn { width: 100%; margin-top: 6px; }
-        .info-card, .fin-card, .div-card, .sh-card, .news-card {
+        .imp-drop {
+          display: flex; align-items: center; gap: 10px;
+          background: #1B1B1B; border: 1px dashed #3a3a3a; border-radius: 12px;
+          padding: 14px 12px; color: #8f8f8f; font-size: 13px;
+          cursor: pointer; font-family: inherit; text-align: left; width: 100%;
+        }
+        .imp-drop.has-file { border-color: #00C853; color: #00C853; }
+        .imp-drop span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .imp-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .imp-row2 select.tm-input { height: auto; }
+        .imp-ok {
+          font-size: 12px; color: #00C853;
+          background: rgba(0,200,83,0.1); border: 1px solid rgba(0,200,83,0.3);
+          padding: 9px 12px; border-radius: 10px;
+        }
+        .fr-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+        .fr-btn {
+          flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+          height: 40px; border: none; border-radius: 12px; cursor: pointer;
+          background: #2A2A2A; color: #fff; font-size: 12px; font-weight: 600; font-family: inherit;
+        }
+        .fr-btn:active { background: #343434; }
+        .fr-btn:disabled { opacity: 0.6; }
+        .fr-spin.spin { animation: frRotate 1s linear infinite; }
+        @keyframes frRotate { to { transform: rotate(360deg); } }
+        .fr-msg {
+          font-size: 12px; padding: 9px 12px; border-radius: 10px; margin-bottom: 10px;
+        }
+        .fr-msg.ok { color: #00C853; background: rgba(0,200,83,0.1); }
+        .fr-note { font-size: 11px; color: #6f6f6f; margin-bottom: 10px; }
+        .stmt-block {
+          border: 1px solid #2a2a2a; border-radius: 12px; margin-bottom: 8px;
+          overflow: hidden; background: #191919;
+        }
+        .stmt-toggle {
+          display: flex; align-items: center; gap: 8px; width: 100%;
+          background: none; border: none; color: #fff; cursor: pointer;
+          padding: 11px 12px; font-family: inherit; text-align: left;
+        }
+        .stmt-type { font-size: 12px; font-weight: 700; color: #a78bfa; white-space: nowrap; }
+        .stmt-meta {
+          flex: 1; min-width: 0; font-size: 11px; color: #8f8f8f;
+          font-family: 'JetBrains Mono', monospace;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .stmt-chev { color: #6f6f6f; transition: transform 0.2s; flex-shrink: 0; }
+        .stmt-chev.open { transform: rotate(180deg); }
+        .stmt-link {
+          display: inline-flex; align-items: center; gap: 4px;
+          margin: 0 12px 10px; font-size: 11px; color: #a78bfa; text-decoration: none;
+        }
+        .stmt-items {
+          border-top: 1px solid #2a2a2a; padding: 6px 12px 10px;
+          max-height: 260px; overflow-y: auto;
+        }
+        .stmt-items::-webkit-scrollbar { display: none; }
+        .line-item {
+          display: flex; justify-content: space-between; gap: 10px;
+          padding: 6px 0; border-bottom: 1px solid #232323; font-size: 12px;
+        }
+        .line-item:last-child { border-bottom: none; }
+        .li-account { color: #d0d0d0; min-width: 0; }
+        .li-val {
+          font-family: 'JetBrains Mono', monospace; color: #fff; text-align: right;
+          white-space: nowrap; flex-shrink: 0;
+        }
+        .stmt-more { font-size: 11px; color: #666; text-align: center; padding: 8px 0; }
+        .hist-head, .hist-row {
+          display: grid;
+          grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr 1fr 1.1fr;
+          gap: 4px; align-items: center;
+        }
+        .hist-head {
+          font-size: 10px; color: #8f8f8f; font-weight: 600;
+          text-transform: uppercase; letter-spacing: 0.3px;
+          padding: 8px 6px; border-bottom: 1px solid #2a2a2a;
+        }
+        .hist-row {
+          padding: 7px 6px; border-bottom: 1px solid #1e1e1e;
+          font-size: 11px;
+        }
+        .hist-row:last-child { border-bottom: none; }
+        .hist-date { color: #a3a3a3; font-size: 10px; }
+        .hist-close { color: #fff; font-weight: 700; }
+        .hist-vol { color: #8f8f8f; }
+        .hist-chg { text-align: right; }
+        .hist-chg.up { color: #00C853; }
+        .hist-chg.down { color: #FF4D4F; }
+        .hist-more {
+          width: 100%; margin-top: 10px; height: 40px;
+          background: #2A2A2A; border: none; border-radius: 12px;
+          color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+        }
+        .info-card, .fin-card, .div-card, .sh-card, .news-card, .fr-card, .hist-card {
           background: #1E1E1E; border-radius: 18px; padding: 16px; margin-bottom: 12px;
         }
         .card-title {
           display: flex; align-items: center; gap: 7px;
           font-size: 15px; font-weight: 700; margin-bottom: 12px;
         }
+        .card-toggle {
+          display: flex; align-items: center; justify-content: space-between; width: 100%;
+          background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+          margin-bottom: 12px;
+        }
+        .card-toggle.closed { margin-bottom: 0; }
+        .ct-title {
+          display: flex; align-items: center; gap: 7px;
+          font-size: 15px; font-weight: 700; color: #fff;
+        }
+        .ct-chev { color: #6f6f6f; transition: transform 0.2s; flex-shrink: 0; }
+        .ct-chev.open { transform: rotate(180deg); }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .info-item { display: flex; gap: 10px; align-items: flex-start; }
         .ii-icon {

@@ -10,6 +10,7 @@ from ..models.market import MarketData, Dividend
 from ..models.analysis import ScoreCard, Valuation, AnalysisReport
 from ..schemas.company import CompanyResponse, CompanyCreate, CompanyList
 from ..schemas.financial import RatioResponse, ValuationResponse, ScoreCardResponse, FinancialStatementResponse
+from ..core.supabase_auth import storage_signed_url
 from datetime import date
 from sqlalchemy import func
 
@@ -371,6 +372,8 @@ def get_company_market_data(
             "market_cap": m.market_cap,
         })
         prev_close = m.close_price
+    from ..services.split_adjust import adjust_rows
+    out = adjust_rows(out)
     return out
 
 
@@ -480,6 +483,17 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
         })
         prev_close = m.close_price
 
+    from ..services.split_adjust import adjust_rows
+    history_out = adjust_rows(history_out)
+
+    statements = db.query(FinancialStatement).filter(
+        FinancialStatement.company_id == cid,
+    ).order_by(
+        FinancialStatement.fiscal_year.desc(),
+        FinancialStatement.quarter.asc().nulls_last(),
+        FinancialStatement.statement_type,
+    ).all()
+
     return {
         "company": base,
         "price": {
@@ -505,6 +519,26 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
             "raw": raw,
         },
         "history": history_out,
+        "statements": [
+            {
+                "id": s.id,
+                "type": s.statement_type.value,
+                "fiscal_year": s.fiscal_year,
+                "quarter": s.quarter,
+                "currency": s.currency,
+                "is_consolidated": s.is_consolidated,
+                "source_file": s.source_file,
+                "extracted_at": s.extracted_at.isoformat() if s.extracted_at else None,
+                "source_url": (s.source_file if str(s.source_file or "").startswith("http")
+                               else storage_signed_url("uploads", f"pdfs/{s.source_file}")
+                               if s.source_file else None),
+                "line_items": [
+                    {"account": i.account_name, "value": i.value}
+                    for i in s.line_items
+                ],
+            }
+            for s in statements
+        ],
         "dividends": [
             {
                 "fiscal_year": d.fiscal_year,

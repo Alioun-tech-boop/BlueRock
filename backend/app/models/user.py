@@ -17,6 +17,7 @@ class User(Base):
     broker_name = Column(String, nullable=True)
     broker_account = Column(String, nullable=True)
     avatar = Column(String, nullable=True)  # emoji ou initiale custom
+    email_notif_enabled = Column(Boolean, default=True, nullable=False)  # alertes plan par email
     api_token = Column(String, unique=True, index=True, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     last_login = Column(DateTime, nullable=True)
@@ -73,6 +74,8 @@ class Position(Base):
     symbol = Column(String, nullable=False, index=True)
     qty = Column(Float, default=0)
     avg_price = Column(Float, default=0)
+    take_profit = Column(Float, nullable=True)
+    stop_loss = Column(Float, nullable=True)
 
     user = relationship("User", back_populates="positions")
 
@@ -86,6 +89,12 @@ class Order(Base):
     side = Column(String, nullable=False)  # buy | sell
     qty = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
+    order_type = Column(String, nullable=False, default="market")  # market | limit | take_profit | stop_loss
+    limit_price = Column(Float, nullable=True)
+    status = Column(String, nullable=False, default="executed")  # executed | pending | cancelled
+    take_profit = Column(Float, nullable=True)
+    stop_loss = Column(Float, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="orders")

@@ -1,5 +1,5 @@
 ﻿import { useRouter } from 'next/router'
-import { List, CandlestickChart, Compass, Users, Wallet, Menu } from 'lucide-react'
+import { List, CandlestickChart, Compass, Users, Menu } from 'lucide-react'
 import { t } from '../lib/i18n'
 
 const items = [
@@ -7,7 +7,6 @@ const items = [
   { id: 'chart', label: 'chart', icon: CandlestickChart, path: '/quote?symbol=ETIT' },
   { id: 'explorer', label: 'explorer', icon: Compass, path: '/explorer' },
   { id: 'community', label: 'community', icon: Users, path: '/community' },
-  { id: 'portfolio', label: 'portfolio', icon: Wallet, path: '/portfolio' },
   { id: 'menu', label: 'menu', icon: Menu, path: '/menu' },
 ]
 

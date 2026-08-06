@@ -201,12 +201,13 @@ def get_sparklines(days: int = 30, db: Session = Depends(get_db)):
 
 
 @router.get("/news")
-def get_news(limit: int = 60, force: bool = False):
-    """News marché BRVM temps réel : BRVM officiel + presse professionnelle."""
-    from ..scrapers.news_feed import news_feed
-    items = news_feed.refresh(force=force)
+def get_news(limit: int = 500, force: bool = False):
+    """News marché BRVM : cache temps réel + historique persisté de l'année
+    en cours (les news ne disparaissent plus entre deux refresh)."""
+    from ..scrapers.news_feed import news_feed, history
+    items = history(limit=limit, since=None) if not force else news_feed.refresh(force=True)[:limit]
     return {
-        "items": items[:limit],
+        "items": items,
         "brvm": news_feed.brvm,
         "presse": news_feed.presse,
         "societes": news_feed.societes,

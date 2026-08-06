@@ -8,7 +8,8 @@ from ..models.ratios import FinancialRatio
 from ..models.market import MarketData
 from ..models.user import User, Position
 from ..config import settings
-
+from ..services.llm import call_llm
+import json
 RISK_LEVELS = ("conservative", "balanced", "growth")
 
 RISK_LABELS = {
@@ -109,21 +110,87 @@ class PremiumService:
             base += f" Rendement du dividende attractif de {div_yield:.1f}%."
         return base
 
+    def _bulk_latest(self, ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """Dernier ratio/scorecard/valuation par société en 3 requêtes bulk."""
+        from sqlalchemy import text
+
+        ratios: Dict[int, FinancialRatio] = {}
+        rows = self.db.execute(text("""
+            SELECT DISTINCT ON (company_id) company_id, id
+            FROM financial_ratios
+            WHERE company_id = ANY(:ids) AND quarter IS NULL
+            ORDER BY company_id, fiscal_year DESC
+        """), {"ids": ids}).fetchall()
+        rids = [r[1] for r in rows]
+        if rids:
+            for fr in self.db.query(FinancialRatio).filter(FinancialRatio.id.in_(rids)).all():
+                ratios[fr.company_id] = fr
+
+        scorecards: Dict[int, ScoreCard] = {}
+        rows = self.db.execute(text("""
+            SELECT DISTINCT ON (company_id) company_id, id
+            FROM scorecards
+            WHERE company_id = ANY(:ids)
+            ORDER BY company_id, fiscal_year DESC
+        """), {"ids": ids}).fetchall()
+        sids = [r[1] for r in rows]
+        if sids:
+            for sc in self.db.query(ScoreCard).filter(ScoreCard.id.in_(sids)).all():
+                scorecards[sc.company_id] = sc
+
+        valuations: Dict[int, Valuation] = {}
+        rows = self.db.execute(text("""
+            SELECT DISTINCT ON (company_id) company_id, id
+            FROM valuations
+            WHERE company_id = ANY(:ids)
+            ORDER BY company_id, fiscal_year DESC
+        """), {"ids": ids}).fetchall()
+        vids = [r[1] for r in rows]
+        if vids:
+            for v in self.db.query(Valuation).filter(Valuation.id.in_(vids)).all():
+                valuations[v.company_id] = v
+
+        return {"ratios": ratios, "scorecards": scorecards, "valuations": valuations}
+
     def _build_candidates(self, profile: dict, horizon_years: int,
                           holdings: Dict[str, float]) -> List[Dict[str, Any]]:
+        from sqlalchemy import text
+
         sub = self.db.query(
             Valuation.company_id, func.max(Valuation.fiscal_year).label("fy")
         ).group_by(Valuation.company_id).subquery()
         companies = self.db.query(Company).join(sub, sub.c.company_id == Company.id).all()
 
+        ids = [c.id for c in companies]
+        if not ids:
+            return []
+
+        # Dernier cours de toutes les sociétés en une seule requête (évite le N+1)
+        prices: Dict[int, float] = {}
+        rows = self.db.execute(text("""
+            SELECT company_id, close_price FROM (
+                SELECT company_id, close_price,
+                       ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY date DESC) AS rn
+                FROM market_data
+                WHERE company_id = ANY(:ids)
+            ) t WHERE rn = 1
+        """), {"ids": ids}).fetchall()
+        for r in rows:
+            prices[r[0]] = float(r[1])
+
+        bulk = self._bulk_latest(ids)
+        ratios = bulk["ratios"]
+        scorecards = bulk["scorecards"]
+        valuations = bulk["valuations"]
+
         raw = []
         for c in companies:
-            price = self._latest_price(c.id)
+            price = prices.get(c.id)
             if not price or price <= 0:
                 continue
-            ratio = self._latest_ratio(c.id)
-            scorecard = self._latest_scorecard(c.id)
-            valuation = self._latest_valuation(c.id)
+            ratio = ratios.get(c.id)
+            scorecard = scorecards.get(c.id)
+            valuation = valuations.get(c.id)
             if not ratio or not scorecard or not valuation:
                 continue
             discount_raw = valuation.discount_percent or 0
@@ -243,6 +310,115 @@ class PremiumService:
             {"trigger": "Fondamentaux dégradés", "detail": "Réévaluez la ligne à chaque publication des états financiers annuels."},
         ]
 
+    def _ai_plan_intervention(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        """Intervention chirurgicale : l'IA affine le plan calculé sans toucher
+        à l'allocation quantitative (pondérations, montants, calendrier)."""
+        cand = plan.get("allocation") or []
+        positions = plan.get("positions") or []
+
+        def pick(a: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
+            return {k: a.get(k) for k in keys if k in a}
+
+        context = {
+            "objectif": {
+                "montant": plan.get("amount"),
+                "mensuel": plan.get("monthly"),
+                "horizon_ans": plan.get("horizon_years"),
+                "profil_risque": plan.get("risk_level"),
+            },
+            "resultats": {
+                "capital_final_projete": plan.get("projected_final"),
+                "rendement_annuel_pct": self._round2((plan.get("expected_return") or 0) * 100),
+                "gain": plan.get("gain"),
+                "gain_pct": plan.get("gain_pct"),
+            },
+            "allocation": [
+                pick(a, ["symbol", "name", "weight_percent", "allocated_amount", "expected_return",
+                         "action", "entry_limit", "take_profit", "stop_loss", "discount_percent", "rating"])
+                for a in cand
+            ],
+            "positions_actuelles": [
+                pick(p, ["symbol", "qty", "avg_price", "current_price", "pnl_percent", "action"])
+                for p in positions
+            ],
+        }
+
+        system = """Tu es un stratège patrimonial expert de la BRVM. Tu reçois le résultat d'un moteur quantitatif déjà calculé (allocation, pondérations, actions, montants). Ton rôle est CHIRURGICAL : tu ne modifies JAMAIS les chiffres, tu ajoutes du jugement qualitatif précis et actionnable.
+
+Style exigé dans chaque texte : phrases courtes et directes, chiffres intégrés naturellement (ex. « 1,2 M FCFA »), aucun préambule du type « En tant que... », aucune répétition des chiffres déjà affichés par ailleurs. Ton clair et concret, comme un conseiller qui parle à son client.
+
+Réponds UNIQUEMENT en JSON valide, sans balise ni texte hors JSON, avec cette structure exacte :
+{"advice": "verdict stratégique en 2 phrases maximum, avec les 2-3 chiffres les plus parlants du plan", "position_insights": {"SYMBOLE": "une phrase d'action : verdict + chiffre décisif (PnL, pondération, rendement)", "SYMBOLE2": "..."}, "highlights": ["point clé 1", "point clé 2", "point clé 3"], "warnings": ["alerte de risque 1", "alerte de risque 2"], "rationales": {"SYMBOLE": "une phrase : raison d'investissement avec le chiffre décisif (décote, rendement, TP/SL)", "SYMBOLE2": "..."}}
+
+Règles :
+- Les clés de position_insights et rationales utilisent exactement les symboles reçus (ex. BICB).
+- Chaque chaîne : 1 phrase (max 25 mots). Jamais de phrases génériques sans chiffre.
+- Si une catégorie est vide, renvoie un objet ou tableau vide.
+- Ton professionnel, factuel, en français. Ne mentionne jamais que tu es une IA."""
+
+        user_msg = (
+            "Plan déjà calculé (chiffres intangibles, ton jugement n'y change rien) :\n"
+            f"{json.dumps(context, ensure_ascii=False)}\n\n"
+            "Produis l'intervention chirurgicale au format JSON demandé."
+        )
+        text, provider = call_llm(system, user_msg, max_tokens=3000, temperature=0.3)
+        if not text:
+            return {}, ""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip().rstrip("`").strip()
+        try:
+            start = cleaned.index("{")
+            end = cleaned.rindex("}") + 1
+            data = json.loads(cleaned[start:end])
+        except (ValueError, json.JSONDecodeError):
+            return {}, provider
+        if not isinstance(data, dict):
+            return {}, provider
+        return data, provider
+
+    def live_positions(self, user: User, horizon_years: int) -> list[dict]:
+        positions_out = []
+        for p in self.db.query(Position).filter(Position.user_id == user.id, Position.qty > 0).all():
+            company = self._company_by_symbol(p.symbol)
+            price = self._latest_price(company.id) if company else None
+            if not company or not price:
+                continue
+            value_pos = p.qty * price
+            pnl = ((price - p.avg_price) / p.avg_price * 100) if p.avg_price else 0
+            valuation = self._latest_valuation(company.id)
+            rec = (valuation.recommendation or "HOLD").upper() if valuation else "HOLD"
+            ratio = self._latest_ratio(company.id)
+            expected = self._expected_return(
+                price, valuation.target_price if valuation else None,
+                (ratio.dividend_yield or 0) if ratio else 0,
+                (ratio.eps_growth or 0) if ratio else 0,
+                horizon_years,
+            )
+            if rec == "BUY" or rec == "ACCUMULATE":
+                pos_action = "GARDER"
+            elif rec == "SELL":
+                pos_action = "VENDRE"
+            elif rec == "REDUCE":
+                pos_action = "RÉDUIRE"
+            else:
+                pos_action = "SURVEILLER"
+            positions_out.append({
+                "symbol": p.symbol,
+                "name": company.name,
+                "qty": p.qty,
+                "avg_price": self._round2(p.avg_price),
+                "current_price": self._round2(price),
+                "value": round(value_pos, 2),
+                "pnl_percent": self._round2(pnl),
+                "action": pos_action,
+                "projected_value": round(value_pos * (1 + expected) ** horizon_years, 2),
+            })
+        return positions_out
+
     def build_plan(self, user: User, amount: float, monthly: float,
                    horizon_years: int, risk_level: str) -> Dict[str, Any]:
         if risk_level not in RISK_LEVELS:
@@ -315,44 +491,9 @@ class PremiumService:
         gain = projected_final - total_contributions
         gain_pct = (gain / total_contributions * 100) if total_contributions > 0 else 0
 
-        positions_out = []
-        for p in self.db.query(Position).filter(Position.user_id == user.id, Position.qty > 0).all():
-            company = self._company_by_symbol(p.symbol)
-            price = self._latest_price(company.id) if company else None
-            if not company or not price:
-                continue
-            value_pos = p.qty * price
-            pnl = ((price - p.avg_price) / p.avg_price * 100) if p.avg_price else 0
-            valuation = self._latest_valuation(company.id)
-            rec = (valuation.recommendation or "HOLD").upper() if valuation else "HOLD"
-            ratio = self._latest_ratio(company.id)
-            expected = self._expected_return(
-                price, valuation.target_price if valuation else None,
-                (ratio.dividend_yield or 0) if ratio else 0,
-                (ratio.eps_growth or 0) if ratio else 0,
-                horizon_years,
-            )
-            if rec == "BUY" or rec == "ACCUMULATE":
-                pos_action = "GARDER"
-            elif rec == "SELL":
-                pos_action = "VENDRE"
-            elif rec == "REDUCE":
-                pos_action = "RÉDUIRE"
-            else:
-                pos_action = "SURVEILLER"
-            positions_out.append({
-                "symbol": p.symbol,
-                "name": company.name,
-                "qty": p.qty,
-                "avg_price": self._round2(p.avg_price),
-                "current_price": self._round2(price),
-                "value": round(value_pos, 2),
-                "pnl_percent": self._round2(pnl),
-                "action": pos_action,
-                "projected_value": round(value_pos * (1 + expected) ** horizon_years, 2),
-            })
+        positions_out = self.live_positions(user, horizon_years)
 
-        return {
+        result = {
             "amount": round(amount, 2),
             "monthly": round(monthly, 2),
             "horizon_years": horizon_years,
@@ -372,3 +513,33 @@ class PremiumService:
             "sell_triggers": self._sell_triggers(),
             "universe": len(candidates),
         }
+
+        ai, ai_provider = self._ai_plan_intervention(result)
+        if ai_provider:
+            result["ai_type"] = ai_provider
+            result["ai_used"] = True
+            if isinstance(ai.get("advice"), str) and ai["advice"].strip():
+                result["advice"] = ai["advice"].strip()
+            insights = ai.get("position_insights") or {}
+            if isinstance(insights, dict):
+                for p in result.get("positions", []):
+                    p["reason"] = insights.get(p["symbol"]) or ""
+            rationales = ai.get("rationales") or {}
+            if isinstance(rationales, dict):
+                for c in result.get("allocation", []):
+                    note = rationales.get(c["symbol"])
+                    c["ai_note"] = note if isinstance(note, str) else None
+            warns = ai.get("warnings") or []
+            if isinstance(warns, list) and warns:
+                result["sell_triggers"] = [
+                    {"trigger": "IA", "detail": w} for w in warns if isinstance(w, str)
+                ] + result.get("sell_triggers", [])
+            hl = ai.get("highlights") or []
+            if isinstance(hl, list):
+                result["highlights"] = [h for h in hl if isinstance(h, str)]
+        else:
+            result["ai_used"] = False
+            result["ai_type"] = "rule-based"
+            result["highlights"] = []
+
+        return result

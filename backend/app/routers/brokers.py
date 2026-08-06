@@ -45,25 +45,11 @@ def _account_out(a: BrokerAccount):
 
 @router.post("/accounts")
 def open_account(req: AccountRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if req.broker_name not in BROKERS:
-        raise HTTPException(status_code=422, detail="Courtier inconnu")
-    if req.id_type not in ID_TYPES:
-        raise HTTPException(status_code=422, detail="Type de pièce d'identité invalide")
-
-    account = BrokerAccount(
-        user_id=user.id,
-        broker_name=req.broker_name,
-        broker_category=_broker_category(req.broker_name),
-        full_name=req.full_name.strip(),
-        phone=req.phone.strip(),
-        id_type=req.id_type,
-        id_number=req.id_number.strip(),
-        status="sent",
+    raise HTTPException(
+        status_code=503,
+        detail="Ouverture de compte chez les SGI/SGO indisponible pour le moment. "
+               "Utilisez votre compte démo (100 000 000 FCFA de capacité d'investissement)."
     )
-    db.add(account)
-    db.commit()
-    db.refresh(account)
-    return {"ok": True, "account": _account_out(account)}
 
 
 @router.get("/accounts")

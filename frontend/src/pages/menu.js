@@ -1,12 +1,28 @@
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { useAuth } from '../lib/auth'
-import { Building2, Filter, Sparkles, LayoutGrid, Home, Database, Briefcase, Globe2, UserRound, LogOut, Crown } from 'lucide-react'
+import { getUnreadCount } from '../services/api'
+import { Building2, Filter, Sparkles, LayoutGrid, Home, Database, Briefcase, Globe2, UserRound, LogOut, Compass, Bell } from 'lucide-react'
 import { t } from '../lib/i18n'
 
 export default function Menu() {
   const router = useRouter()
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
+  const [unread, setUnread] = useState(0)
+
+  useEffect(() => {
+    if (!user) return
+    let mounted = true
+    const load = () => {
+      getUnreadCount()
+        .then(r => { if (mounted) setUnread(r.data.unread || 0) })
+        .catch(() => {})
+    }
+    load()
+    const iv = setInterval(load, 60000)
+    return () => { mounted = false; clearInterval(iv) }
+  }, [user])
 
   const sections = [
     {
@@ -21,10 +37,10 @@ export default function Menu() {
     {
       title: t('menuAnalysis'),
       items: [
-        { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Crown, path: '/premium' },
+        { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Compass, path: '/premium' },
         { label: t('aiAnalyst'), desc: t('menuAnalystDesc'), icon: Sparkles, path: '/analyst' },
         { label: t('community'), desc: t('menuCommunityDesc'), icon: LayoutGrid, path: '/community' },
-        { label: t('portfolio'), desc: t('menuPortfolioDesc'), icon: Briefcase, path: '/watchlist' },
+        { label: t('portfolio'), desc: t('menuPortfolioDesc'), icon: Briefcase, path: '/portfolio' },
       ],
     },
     {
@@ -36,6 +52,7 @@ export default function Menu() {
     {
       title: t('pfAccount'),
       items: [
+        { label: t('notifTitle'), desc: t('notifSub'), icon: Bell, path: '/notifications', badge: unread },
         { label: t('pfTitle'), desc: t('pfSecurity'), icon: UserRound, path: '/profile' },
       ],
     },
@@ -86,6 +103,7 @@ export default function Menu() {
                     <span className="row-label">{it.label}</span>
                     <span className="row-desc">{it.desc}</span>
                   </div>
+                  {it.badge > 0 && <span className="row-badge">{it.badge > 99 ? '99+' : it.badge}</span>}
                   <span className="row-arrow">›</span>
                 </div>
               ))}
@@ -127,6 +145,12 @@ export default function Menu() {
         .row-label { font-size: 14px; font-weight: 600; }
         .row-desc { font-size: 12px; color: #a3a3a3; }
         .row-arrow { font-size: 20px; color: #666; }
+        .row-badge {
+          min-width: 20px; height: 20px; border-radius: 999px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          background: rgba(0,200,83,0.15); color: #00C853;
+          font-size: 11px; font-weight: 800; padding: 0 6px;
+        }
         .acct-card {
           display: flex; align-items: center; gap: 12px;
           background: #141414; border-radius: 18px;

@@ -1,19 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
-import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { getBrokers } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
-import { Shield, Wallet, Eye, EyeOff, KeyRound, ScanLine, Copy, Check, ArrowLeft, Lock, Mail, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react'
+import { Shield, Wallet, Eye, EyeOff, KeyRound, Check, ArrowLeft, Lock, Mail, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react'
 
 const STEPS = {
   login: 'login',
   register: 'register',
   verifyEmail: 'verifyEmail',
   login2fa: 'login2fa',
-  setup2fa: 'setup2fa',
-  recoveryCodes: 'recoveryCodes',
   forgot: 'forgot',
   reset: 'reset',
 }
@@ -82,7 +79,7 @@ function Spinner() {
 
 export default function AuthPage() {
   const router = useRouter()
-  const { user, login, register, verifyMfa, verifyEmail, resendVerification, sendResetCode, resetPassword } = useAuth()
+  const { user, login, register, verifyMfa, resendVerification, sendResetCode, recovery, updatePassword } = useAuth()
   const [lang, setLang] = useState('fr')
   const [step, setStep] = useState(STEPS.login)
   const [ready, setReady] = useState(false)
@@ -106,17 +103,10 @@ export default function AuthPage() {
   const [recoveryInput, setRecoveryInput] = useState('')
   const [factorId, setFactorId] = useState(null)
   const [challengeId, setChallengeId] = useState(null)
-  const [resetCode, setResetCode] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNew, setConfirmNew] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-
-  // 2FA setup
-  const [setupData, setSetupData] = useState(null)
-  const [setupCode, setSetupCode] = useState('')
-  const [recoveryCodes, setRecoveryCodes] = useState([])
-  const [copied, setCopied] = useState(false)
 
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
@@ -132,11 +122,16 @@ export default function AuthPage() {
   }, [])
 
   useEffect(() => {
-    if (user && ready && step !== STEPS.setup2fa && step !== STEPS.recoveryCodes) router.replace(next)
+    if (user && ready && !recovery) router.replace(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, ready])
+  }, [user, ready, recovery])
 
-  const go = (s) => { setStep(s); setError(null); setInfo(null); setCode(''); setSetupCode('') }
+  useEffect(() => {
+    if (recovery) go(STEPS.reset)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recovery])
+
+  const go = (s) => { setStep(s); setError(null); setInfo(null); setCode('') }
 
   const submitLogin = async (e) => {
     e.preventDefault()
@@ -187,56 +182,12 @@ export default function AuthPage() {
     } finally { setBusy(false) }
   }
 
-  const submitVerify = async (value) => {
-    if ((value || code).length < 6) return
-    setBusy(true); setError(null)
-    try {
-      await verifyEmail(email.trim(), value || code)
-      setInfo(null)
-      setStep(STEPS.setup2fa)
-      startSetup()
-    } catch (err) {
-      setError(err?.message || t(lang, 'authError'))
-    } finally { setBusy(false) }
-  }
-
   const resend = async () => {
     setBusy(true); setError(null); setInfo(null)
     try {
       await resendVerification(email.trim())
       setCode('')
       setInfo(t(lang, 'authCodeSentAgain'))
-    } catch (err) {
-      setError(err?.message || t(lang, 'authError'))
-    } finally { setBusy(false) }
-  }
-
-  const startSetup = async () => {
-    try {
-      const { data: enroll } = await supabase.auth.mfa.enroll({ factorType: 'totp' })
-      if (!enroll) throw new Error(t(lang, 'authError'))
-      setSetupData({
-        provisioning_uri: enroll.totp.uri || enroll.totp.qr_code,
-        secret: enroll.totp.secret,
-        factorId: enroll.id,
-      })
-    } catch (err) {
-      setError(err?.message || t(lang, 'authError'))
-    }
-  }
-
-  const submit2faSetup = async (value) => {
-    const v = value || setupCode
-    if (v.length < 6 || !setupData) return
-    setBusy(true); setError(null)
-    try {
-      const ch = await supabase.auth.mfa.challenge({ factorId: setupData.factorId })
-      if (ch.error) throw ch.error
-      const vr = await supabase.auth.mfa.verify({ factorId: setupData.factorId, challengeId: ch.data.id, code: v.replace(/\s/g, '') })
-      if (vr.error) throw vr.error
-      const rc = await supabase.auth.mfa.generateRecoveryCodes()
-      setRecoveryCodes(rc.data?.codes || [])
-      setStep(STEPS.recoveryCodes)
     } catch (err) {
       setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
@@ -274,7 +225,6 @@ export default function AuthPage() {
     try {
       await sendResetCode(email.trim())
       setInfo(t(lang, 'authResetSent'))
-      setStep(STEPS.reset)
     } catch (err) {
       setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
@@ -286,34 +236,16 @@ export default function AuthPage() {
     if (newPassword !== confirmNew) { setError(t(lang, 'authPasswordsMismatch')); return }
     setBusy(true)
     try {
-      await resetPassword(email.trim(), resetCode.trim(), newPassword)
+      await updatePassword(newPassword)
       setInfo(t(lang, 'authResetSuccess'))
       setPassword(newPassword)
       setTimeout(() => {
-        setNewPassword(''); setConfirmNew(''); setResetCode('')
+        setNewPassword(''); setConfirmNew('')
         go(STEPS.login)
       }, 1600)
     } catch (err) {
       setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
-  }
-
-  const copyCodes = () => {
-    const txt = recoveryCodes.join('\n')
-    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }).catch(() => {})
-    else {
-      const ta = document.createElement('textarea')
-      ta.value = txt
-      document.body.appendChild(ta)
-      ta.select()
-      try { document.execCommand('copy') } catch {}
-      document.body.removeChild(ta)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
   }
 
   const strength = passwordScore(password)
@@ -340,7 +272,7 @@ export default function AuthPage() {
     <div className="mobile-root">
       <div className="auth-area">
         {step !== STEPS.login && step !== STEPS.register && step !== STEPS.forgot && (
-          <button className="back-btn" onClick={() => go(step === STEPS.reset ? STEPS.forgot : STEPS.login)}>
+          <button className="back-btn" onClick={() => go(STEPS.login)}>
             <ArrowLeft size={16} /> {t(lang, 'authBackLogin')}
           </button>
         )}
@@ -466,14 +398,10 @@ export default function AuthPage() {
             <h2 className="card-title">{t(lang, 'authEmailVerify')}</h2>
             <p className="card-sub">{t(lang, 'authEmailVerifySub')}</p>
             <div className="email-chip">{email}</div>
-            <CodeInput value={code} onChange={setCode} onComplete={submitVerify} />
             {error && <div className="auth-error"><AlertTriangle size={14} /> <span>{error}</span></div>}
             {info && <div className="auth-info"><Check size={14} /> <span>{info}</span></div>}
-            <button className="auth-submit" disabled={busy || code.length < 6} onClick={() => submitVerify()}>
-              {busy ? <Spinner /> : <span>{t(lang, 'authVerifyBtn')}</span>}
-            </button>
             <button className="ghost-btn" disabled={busy} onClick={resend}>
-              {t(lang, 'authResendCode')}
+              {busy ? <Spinner /> : <span>{t(lang, 'authResendCode')}</span>}
             </button>
           </div>
         )}
@@ -516,56 +444,6 @@ export default function AuthPage() {
           </div>
         )}
 
-        {/* ============ 2FA SETUP (QR) ============ */}
-        {step === STEPS.setup2fa && (
-          <div className="auth-card">
-            <div className="card-ico"><ScanLine size={22} color="#00C853" /></div>
-            <h2 className="card-title">{t(lang, 'auth2faSetupTitle')}</h2>
-            <p className="card-sub">{t(lang, 'auth2faSetupSub')}</p>
-            {setupData ? (
-              <>
-                <div className="qr-box">
-                  <QRCodeSVG value={setupData.provisioning_uri} size={172} bgColor="#000000" fgColor="#ffffff" level="M" />
-                </div>
-                <div className="secret-box">
-                  <span className="secret-label">{t(lang, 'auth2faSecret')}</span>
-                  <div className="secret-value">{setupData.secret.match(/.{1,4}/g)?.join(' ')}</div>
-                </div>
-                <CodeInput value={setupCode} onChange={setSetupCode} onComplete={submit2faSetup} />
-                {error && <div className="auth-error"><AlertTriangle size={14} /> <span>{error}</span></div>}
-                <button className="auth-submit" disabled={busy || setupCode.length < 6} onClick={() => submit2faSetup()}>
-                  {busy ? <Spinner /> : <span>{t(lang, 'auth2faEnable')}</span>}
-                </button>
-              </>
-            ) : (
-              <div className="loading-inline"><Spinner /> <span>{t(lang, 'loading')}</span></div>
-            )}
-          </div>
-        )}
-
-        {/* ============ CODES DE SECOURS ============ */}
-        {step === STEPS.recoveryCodes && (
-          <div className="auth-card">
-            <div className="card-ico"><Shield size={22} color="#00C853" /></div>
-            <h2 className="card-title">{t(lang, 'auth2faEnabled')}</h2>
-            <p className="card-sub">{t(lang, 'auth2faEnabledSub')}</p>
-            <div className="codes-grid">
-              {recoveryCodes.map((c, i) => (
-                <div key={i} className="code-chip">{c}</div>
-              ))}
-            </div>
-            <button className="ghost-btn copy" onClick={copyCodes}>
-              {copied ? <Check size={14} color="#00C853" /> : <Copy size={14} />} <span>{t(lang, 'auth2faCopied')}</span>
-            </button>
-            <button className="auth-submit" onClick={() => router.replace(next)}>
-              <span>{t(lang, 'auth2faNow')}</span>
-            </button>
-            <button className="ghost-btn" onClick={() => router.replace(next)}>
-              {t(lang, 'auth2faLater')}
-            </button>
-          </div>
-        )}
-
         {/* ============ MOT DE PASSE OUBLIÉ ============ */}
         {step === STEPS.forgot && (
           <div className="auth-card">
@@ -593,7 +471,6 @@ export default function AuthPage() {
             <p className="card-sub">{t(lang, 'authPasswordResetSub')}</p>
             {info && <div className="auth-info"><Check size={14} /> <span>{info}</span></div>}
             <form onSubmit={submitReset} className="auth-form">
-              <CodeInput value={resetCode} onChange={setResetCode} />
               <div className="input-wrap">
                 <Lock size={16} className="input-ico" />
                 <input className="auth-input" type={showNew ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t(lang, 'authNewPassword')} required autoComplete="new-password" />
@@ -757,25 +634,6 @@ export default function AuthPage() {
           outline: none;
         }
         .code-cell:focus { border-color: #00C853; }
-        .qr-box {
-          padding: 14px; background: #141414; border: 1px solid #262626;
-          border-radius: 16px; margin: 6px 0;
-        }
-        .secret-box { text-align: center; margin-bottom: 4px; }
-        .secret-label { font-size: 10.5px; color: #666; }
-        .secret-value {
-          font-size: 12.5px; font-family: 'JetBrains Mono', monospace; color: #bbb;
-          letter-spacing: 2px; margin-top: 4px;
-        }
-        .codes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; margin: 6px 0; }
-        .code-chip {
-          background: #141414; border: 1px solid #262626; border-radius: 10px;
-          padding: 9px 6px; text-align: center; font-family: 'JetBrains Mono', monospace;
-          font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #e8e8e8;
-        }
-        .loading-inline {
-          display: flex; align-items: center; gap: 8px; color: #888; font-size: 13px; padding: 20px 0;
-        }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>

@@ -191,7 +191,6 @@ def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2,
     from ..models.company import Company
     from ..models.financial import StatementType
     from ..services.financial_store import cleanup_existing, store_statement
-    from ..services.ratio_calculator import RatioCalculator
 
     companies = db.query(Company).all()
     if symbols:
@@ -266,12 +265,12 @@ def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2,
 
                 db.commit()
 
-                ratios = None
+                stats = None
                 try:
-                    calculator = RatioCalculator(db)
-                    ratios = calculator.calculate_all_ratios(company.id, rep["year"], rep["quarter"])
+                    from ..services.stat_pipeline import recompute_stats
+                    stats = recompute_stats(db, company.id, rep["year"], rep["quarter"])
                 except Exception as e:
-                    _log.warning("[%s] ratios %s: %s", company.symbol, key, e)
+                    _log.warning("[%s] stats %s: %s", company.symbol, key, e)
                     db.rollback()
                     db.commit()
 
@@ -284,11 +283,12 @@ def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2,
                     "title": rep["title"][:80],
                     "statements": sum(1 for s in (stmt_income, stmt_balance, stmt_cf) if s),
                     "line_items": n_items,
-                    "ratios_recomputed": ratios is not None,
+                    "ratios_recomputed": bool(stats and stats.get("ratios")),
+                    "stats_recomputed": stats or None,
                 })
                 db.commit()
-                _log.info("[%s] ingéré %s (%d lignes, ratios=%s)",
-                          company.symbol, key, n_items, ratios is not None)
+                _log.info("[%s] ingéré %s (%d lignes, stats=%s)",
+                          company.symbol, key, n_items, bool(stats and stats.get("ratios")))
                 time.sleep(POLITE_DELAY)
         except Exception as e:
             _log.error("[%s] erreur traitement: %s", company.symbol, e)

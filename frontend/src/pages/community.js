@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import ChallengesSection from '../components/ChallengesSection'
 import { Search, MessageCircle, MoreHorizontal, BadgeCheck, X, Send, ChevronLeft, Loader2, TrendingUp, TrendingDown } from 'lucide-react'
 import { t, detectLang, timeAgo } from '../lib/i18n'
 import { getCommunityPosts, getCommunityUsers, getCommunityUser, followCommunityUser, rocketCommunityPost, getCommunityComments, addCommunityComment, createCommunityPost, getCompanies } from '../services/api'
+import { useAuth } from '../lib/auth'
 
-const TABS = ['forYou', 'editorsPick', 'following']
+const TABS = ['forYou', 'editorsPick', 'following', 'challenges']
 
 function fmtPriceValue(n, lang) {
   if (n == null) return '—'
@@ -91,7 +93,7 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
   )
 }
 
-function PostCard({ post, lang, onComment, onAuthor }) {
+function PostCard({ post, lang, onOpen, onAuthor }) {
   const [rockets, setRockets] = useState(post.rockets || 0)
   const [rocketed, setRocketed] = useState(!!post.rocketed)
   const [busy, setBusy] = useState(false)
@@ -110,13 +112,13 @@ function PostCard({ post, lang, onComment, onAuthor }) {
 
   const a = post.author || {}
   return (
-    <div className="post-card">
-      <div className="post-head" onClick={() => onAuthor(a.id)}>
+    <div className="post-card" onClick={() => onOpen(post)}>
+      <div className="post-head" onClick={(e) => { e.stopPropagation(); onAuthor(a.id) }}>
         <img src={a.avatar} alt={a.handle} className="post-avatar" />
         <div className="post-user-col">
           <div className="post-name-row">
             <span className="post-name">{a.display_name || a.handle}</span>
-            {a.verified && <BadgeCheck size={15} color="#1DA1F2" />}
+            {a.verified && <BadgeCheck size={13} color="#1DA1F2" />}
           </div>
           <span className="post-date">@{a.handle} · {timeAgo(lang, post.created_at)}</span>
         </div>
@@ -125,7 +127,7 @@ function PostCard({ post, lang, onComment, onAuthor }) {
         )}
       </div>
 
-      <div className="post-chart-wrap" onClick={() => onComment(post)}>
+      <div className="post-chart-wrap">
         <ChartImage
           symbol={post.symbol}
           color={post.color}
@@ -136,9 +138,9 @@ function PostCard({ post, lang, onComment, onAuthor }) {
         />
       </div>
 
-      <div className="post-title" onClick={() => onComment(post)}>{post.title}</div>
+      <div className="post-title">{post.title}</div>
       {post.content && (
-        <div className="post-content" onClick={() => onComment(post)}>{post.content}</div>
+        <div className="post-content">{post.content}</div>
       )}
 
       <div className="post-actions">
@@ -146,77 +148,81 @@ function PostCard({ post, lang, onComment, onAuthor }) {
           <span className="rocket-emoji">🚀</span>
           <span className="rocket-count">{rockets}</span>
         </button>
-        <button className="comment-btn" onClick={(e) => { e.stopPropagation(); onComment(post) }}>
-          <MessageCircle size={19} color="#fff" />
+        <button className="comment-btn" onClick={(e) => { e.stopPropagation(); onOpen(post) }}>
+          <MessageCircle size={17} color="#fff" />
           <span>{post.comments || 0}</span>
         </button>
-        <button className="more-btn" aria-label="plus">
-          <MoreHorizontal size={20} color="#8f8f8f" />
+        <button className="more-btn" aria-label="plus" onClick={(e) => { e.stopPropagation(); onOpen(post) }}>
+          <MoreHorizontal size={18} color="#8f8f8f" />
         </button>
       </div>
 
       <style jsx>{`
         .post-card {
-          background: #1E1E1E; border-radius: 18px; padding: 16px;
+          background: #1E1E1E; border-radius: 14px; padding: 12px;
+          cursor: pointer; transition: transform 0.12s ease;
         }
-        .post-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; cursor: pointer; }
+        .post-card:active { transform: scale(0.985); }
+        .post-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
         .post-avatar {
-          width: 48px; height: 48px; border-radius: 50%; object-fit: cover;
+          width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
         }
-        .post-user-col { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-        .post-name-row { display: flex; align-items: center; gap: 5px; }
-        .post-name { font-size: 17px; font-weight: 700; }
-        .post-date { font-size: 12px; color: #8f8f8f; }
+        .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+        .post-name-row { display: flex; align-items: center; gap: 4px; }
+        .post-name { font-size: 14px; font-weight: 700; }
+        .post-date { font-size: 11px; color: #8f8f8f; }
         .editor-badge {
-          font-size: 10px; font-weight: 700; color: #D4A843;
-          background: rgba(212,168,67,0.14); padding: 3px 9px; border-radius: 10px;
+          font-size: 9px; font-weight: 700; color: #D4A843;
+          background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
           white-space: nowrap;
         }
         .post-chart-wrap {
-          border-radius: 12px; overflow: hidden; height: 310px;
-          background: #101014; cursor: pointer;
+          border-radius: 10px; overflow: hidden; height: 150px;
+          background: #101014;
         }
-        .post-title { font-size: 18px; font-weight: 800; margin-top: 12px; cursor: pointer; }
+        .post-title { font-size: 15px; font-weight: 800; margin-top: 10px; line-height: 1.35; }
         .post-content {
-          font-size: 13.5px; color: #c9c9c9; line-height: 1.55;
-          margin-top: 6px; display: -webkit-box;
-          -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-          cursor: pointer;
+          font-size: 12.5px; color: #c9c9c9; line-height: 1.5;
+          margin-top: 5px; display: -webkit-box;
+          -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
         .post-actions {
-          display: flex; align-items: center; gap: 12px;
-          margin-top: 14px;
+          display: flex; align-items: center; gap: 10px;
+          margin-top: 10px;
         }
         .rocket-btn {
-          display: flex; align-items: center; gap: 7px;
-          height: 34px; padding: 0 14px;
-          background: #2A2A2A; border: 1px solid #3a3a3a; border-radius: 17px;
+          display: flex; align-items: center; gap: 6px;
+          height: 30px; padding: 0 12px;
+          background: #2A2A2A; border: 1px solid #3a3a3a; border-radius: 15px;
           cursor: pointer; font-family: inherit;
         }
         .rocket-btn.rocked { background: rgba(0,200,83,0.12); border-color: rgba(0,200,83,0.4); }
-        .rocket-emoji { font-size: 15px; line-height: 1; }
-        .rocket-count { font-size: 14px; font-weight: 600; color: #fff; }
+        .rocket-emoji { font-size: 13px; line-height: 1; }
+        .rocket-count { font-size: 13px; font-weight: 600; color: #fff; }
         .comment-btn {
-          display: flex; align-items: center; gap: 7px;
+          display: flex; align-items: center; gap: 6px;
           background: none; border: none; color: #fff;
-          font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
-          padding: 6px 4px;
+          font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+          padding: 5px 4px;
         }
         .more-btn {
           margin-left: auto; background: none; border: none;
-          cursor: pointer; padding: 6px 4px;
+          cursor: pointer; padding: 5px 4px;
         }
       `}</style>
     </div>
   )
 }
 
-function CommentsSheet({ post, lang, onClose }) {
+function PostDetailSheet({ post, lang, onClose, onAuthor }) {
+  const [rockets, setRockets] = useState(post.rockets || 0)
+  const [rocketed, setRocketed] = useState(!!post.rocketed)
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [notAuthed, setNotAuthed] = useState(false)
+  const [busy, setBusy] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -225,6 +231,17 @@ function CommentsSheet({ post, lang, onClose }) {
       .catch(() => setComments([]))
       .finally(() => setLoading(false))
   }, [post.id])
+
+  const toggleRocket = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await rocketCommunityPost(post.id)
+      const next = !rocketed
+      setRocketed(next)
+      setRockets(r => Math.max(0, r + (next ? 1 : -1)))
+    } catch {} finally { setBusy(false) }
+  }
 
   const send = async () => {
     if (!text.trim() || sending) return
@@ -238,14 +255,56 @@ function CommentsSheet({ post, lang, onClose }) {
     } finally { setSending(false) }
   }
 
+  const a = post.author || {}
   return (
     <div className="sheet-overlay" onClick={onClose}>
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
-          <span className="sheet-title">{t(lang, 'cComments')} <span className="cmt-count">{comments.length}</span></span>
+          <button className="back-btn" onClick={onClose}><ChevronLeft size={20} /></button>
+          <span className="sheet-title">{t(lang, 'cPost')}</span>
           <button className="sheet-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="sheet-body">
+          <div className="detail-head" onClick={() => onAuthor(a.id)}>
+            <img src={a.avatar} alt={a.handle} className="post-avatar" />
+            <div className="post-user-col">
+              <div className="post-name-row">
+                <span className="post-name">{a.display_name || a.handle}</span>
+                {a.verified && <BadgeCheck size={14} color="#1DA1F2" />}
+              </div>
+              <span className="post-date">@{a.handle} · {timeAgo(lang, post.created_at)}</span>
+            </div>
+            {post.is_editor_pick && (
+              <span className="editor-badge">{t(lang, 'cEditorBadge')}</span>
+            )}
+          </div>
+
+          <div className="detail-chart-wrap">
+            <ChartImage
+              symbol={post.symbol}
+              color={post.color}
+              bearish={post.sentiment === 'bearish'}
+              series={post.series}
+              price={post.price}
+              change_percent={post.change_percent}
+            />
+          </div>
+
+          <div className="detail-title">{post.title}</div>
+          {post.content && <div className="detail-content">{post.content}</div>}
+
+          <div className="detail-actions">
+            <button className={`rocket-btn ${rocketed ? 'rocked' : ''}`} onClick={toggleRocket}>
+              <span className="rocket-emoji">🚀</span>
+              <span className="rocket-count">{rockets}</span>
+            </button>
+            <button className="comment-btn">
+              <MessageCircle size={17} color="#fff" />
+              <span>{comments.length}</span>
+            </button>
+          </div>
+
+          <div className="cmts-label">{t(lang, 'cComments')} <span className="cmt-count">{comments.length}</span></div>
           {loading && <div className="sheet-empty"><Loader2 size={18} className="spin" /> {t(lang, 'loading')}</div>}
           {!loading && comments.length === 0 && <div className="sheet-empty">{t(lang, 'cNoComments')}</div>}
           {comments.map(c => (
@@ -286,24 +345,68 @@ function CommentsSheet({ post, lang, onClose }) {
             z-index: 90; display: flex; align-items: flex-end; justify-content: center;
           }
           .sheet {
-            width: 100%; max-width: 480px; max-height: 82vh;
+            width: 100%; max-width: 480px; max-height: 90vh;
             background: #141414; border-radius: 20px 20px 0 0;
             display: flex; flex-direction: column; animation: sheetUp 0.22s ease;
           }
           @keyframes sheetUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
           .sheet-head {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 16px 16px 0;
+            display: flex; align-items: center; gap: 8px;
+            padding: 14px 16px 0;
           }
-          .sheet-title { font-size: 16px; font-weight: 700; }
-          .cmt-count { color: #8f8f8f; font-size: 14px; }
+          .back-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 4px; }
+          .sheet-title { flex: 1; font-size: 16px; font-weight: 700; }
           .sheet-close {
             background: #262626; border: none; border-radius: 50%;
             width: 32px; height: 32px; color: #fff;
             display: flex; align-items: center; justify-content: center; cursor: pointer;
           }
-          .sheet-body { overflow-y: auto; padding: 14px 16px; flex: 1; }
+          .sheet-body { overflow-y: auto; padding: 12px 16px; flex: 1; }
           .sheet-body::-webkit-scrollbar { display: none; }
+          .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; }
+          .post-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+          .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+          .post-name-row { display: flex; align-items: center; gap: 4px; }
+          .post-name { font-size: 15px; font-weight: 700; }
+          .post-date { font-size: 11px; color: #8f8f8f; }
+          .editor-badge {
+            font-size: 9px; font-weight: 700; color: #D4A843;
+            background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
+            white-space: nowrap;
+          }
+          .detail-chart-wrap {
+            border-radius: 12px; overflow: hidden; height: 300px;
+            background: #101014;
+          }
+          .detail-title { font-size: 19px; font-weight: 800; margin-top: 14px; line-height: 1.35; }
+          .detail-content {
+            font-size: 14px; color: #c9c9c9; line-height: 1.6;
+            margin-top: 8px; white-space: pre-wrap; word-break: break-word;
+          }
+          .detail-actions {
+            display: flex; align-items: center; gap: 12px;
+            margin: 16px 0 4px;
+          }
+          .rocket-btn {
+            display: flex; align-items: center; gap: 7px;
+            height: 34px; padding: 0 16px;
+            background: #2A2A2A; border: 1px solid #3a3a3a; border-radius: 17px;
+            cursor: pointer; font-family: inherit;
+          }
+          .rocket-btn.rocked { background: rgba(0,200,83,0.12); border-color: rgba(0,200,83,0.4); }
+          .rocket-emoji { font-size: 15px; line-height: 1; }
+          .rocket-count { font-size: 14px; font-weight: 600; color: #fff; }
+          .comment-btn {
+            display: flex; align-items: center; gap: 7px;
+            background: none; border: none; color: #fff;
+            font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+            padding: 6px 4px;
+          }
+          .cmts-label {
+            font-size: 13px; font-weight: 700; color: #a3a3a3;
+            margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.4px;
+          }
+          .cmt-count { color: #666; font-size: 12px; }
           .sheet-empty {
             display: flex; align-items: center; gap: 8px; justify-content: center;
             color: #666; font-size: 13px; padding: 24px 0;
@@ -668,12 +771,13 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
 
 export default function Community() {
   const router = useRouter()
+  const { user } = useAuth()
   const [lang, setLang] = useState('fr')
   const [tab, setTab] = useState('forYou')
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [commentsPost, setCommentsPost] = useState(null)
+  const [detailPost, setDetailPost] = useState(null)
   const [composerOpen, setComposerOpen] = useState(false)
   const [profileId, setProfileId] = useState(null)
   const [followingEmpty, setFollowingEmpty] = useState(false)
@@ -686,6 +790,10 @@ export default function Community() {
   }, [])
 
   const loadFeed = (activeTab) => {
+    if (activeTab === 'challenges') {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError('')
     getCommunityPosts(activeTab, 25)
@@ -745,7 +853,9 @@ export default function Community() {
           </div>
         )}
 
-        {loading ? (
+        {tab === 'challenges' ? (
+          <ChallengesSection lang={lang} user={user} />
+        ) : loading ? (
           <div className="loading-row"><div className="spinner" /></div>
         ) : posts.length === 0 ? (
           <div className="empty-box">
@@ -759,7 +869,7 @@ export default function Community() {
                 key={post.id}
                 post={post}
                 lang={lang}
-                onComment={setCommentsPost}
+                onOpen={setDetailPost}
                 onAuthor={setProfileId}
               />
             ))}
@@ -767,14 +877,24 @@ export default function Community() {
         )}
       </div>
 
-      {commentsPost && (
-        <CommentsSheet post={commentsPost} lang={lang} onClose={() => setCommentsPost(null)} />
+      {detailPost && (
+        <PostDetailSheet
+          post={detailPost}
+          lang={lang}
+          onClose={() => setDetailPost(null)}
+          onAuthor={setProfileId}
+        />
       )}
       {composerOpen && (
         <ComposerSheet lang={lang} onClose={() => setComposerOpen(false)} onCreated={refresh} />
       )}
       {profileId && (
-        <ProfileSheet userId={profileId} lang={lang} onClose={() => setProfileId(null)} />
+        <ProfileSheet
+          userId={profileId}
+          lang={lang}
+          onClose={() => setProfileId(null)}
+          onFollowed={setDetailPost}
+        />
       )}
 
       <BottomNav active="community" />
