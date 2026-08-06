@@ -374,6 +374,27 @@ export default function Quote() {
               </div>
             </div>
 
+            <div className="chart-timeframes">
+              {PERIODS.map(p => (
+                <button
+                  key={p.id}
+                  className={`tf-btn ${period === p.id ? 'active' : ''}`}
+                  onClick={() => setPeriod(p.id)}
+                >{p.label}</button>
+              ))}
+            </div>
+
+            <div className="chart-area">
+              <MarketChart
+                data={sorted}
+                period={period}
+                lang={lang}
+                statusText={statusText}
+                markers={orderMarkers}
+                symbol={company?.symbol}
+              />
+            </div>
+
             <div className="q-stats">
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'open')}</span>
@@ -407,27 +428,6 @@ export default function Quote() {
                 <span className="qs-label">{t(lang, 'marketCap')}</span>
                 <span className="qs-value">{fmtCompact(lang, company.market_cap)}</span>
               </div>
-            </div>
-
-            <div className="chart-area">
-              <MarketChart
-                data={sorted}
-                period={period}
-                lang={lang}
-                statusText={statusText}
-                markers={orderMarkers}
-                symbol={company?.symbol}
-              />
-            </div>
-
-            <div className="chart-timeframes">
-              {PERIODS.map(p => (
-                <button
-                  key={p.id}
-                  className={`tf-btn ${period === p.id ? 'active' : ''}`}
-                  onClick={() => setPeriod(p.id)}
-                >{p.label}</button>
-              ))}
             </div>
 
             <div className="quick-links">
@@ -667,12 +667,15 @@ export default function Quote() {
         }
         .q-range { font-size: 12px; color: #a3a3a3; margin-top: 2px; }
         .q-stats {
-          display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+          display: flex; gap: 6px; overflow-x: auto;
           margin-bottom: 8px; flex-shrink: 0;
+          scrollbar-width: none; -webkit-overflow-scrolling: touch;
         }
+        .q-stats::-webkit-scrollbar { display: none; }
         .q-stat-card {
           display: flex; flex-direction: column; gap: 3px;
-          padding: 8px 8px; background: #1B1B1B; border-radius: 12px; min-width: 0;
+          padding: 8px 10px; background: #1B1B1B; border-radius: 12px;
+          min-width: 96px; flex: none;
         }
         .qs-label { font-size: 9px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .qs-value {
@@ -684,8 +687,8 @@ export default function Quote() {
         .qs-value.down { color: #FF4D4F; }
         .chart-area {
           display: flex; flex-direction: column;
-          height: clamp(420px, 62vh, 680px);
-          min-height: 420px;
+          height: clamp(480px, 72vh, 760px);
+          min-height: 440px;
           margin: 0 -8px;
         }
         .chart-timeframes {

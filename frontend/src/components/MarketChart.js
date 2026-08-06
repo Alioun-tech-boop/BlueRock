@@ -6,7 +6,7 @@ import {
 import { fmtPrice, fmtCompact } from '../lib/i18n'
 import {
   MousePointer2, TrendingUp, Minus, GitBranch, Square, Type, Eraser,
-  Plus, RotateCcw, Scan, Hand, Maximize, Minimize,
+  Plus, RotateCcw, Scan, Hand, Maximize, Minimize, Sliders, X,
 } from 'lucide-react'
 
 const C = {
@@ -211,6 +211,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
   const [full, setFull] = useState(false)
   const [drawings, setDrawingsState] = useState([])
   const [textDraft, setTextDraft] = useState('')
+  const [uiOpen, setUiOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
 
   const setDrawings = (next) => {
     drawingsRef.current = next
@@ -1078,6 +1079,27 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
 
   return (
     <div className={`mc-root${full ? ' fullscreen' : ''}`} ref={rootRef}>
+      <div className="mc-ctrl">
+        <button
+          className={`mc-ctrl-btn ${uiOpen ? 'active' : ''}`}
+          title={uiOpen ? 'Hide toolbar' : 'Indicators & drawing'}
+          onClick={() => setUiOpen(v => !v)}
+        >
+          {uiOpen ? <X size={14} /> : <Sliders size={14} />}
+        </button>
+        {!uiOpen && (
+          <span className="mc-ctrl-group">
+            <button className="mc-ctrl-btn" title="Zoom in" onClick={() => zoomBy(1 / 1.35)}><Plus size={14} /></button>
+            <button className="mc-ctrl-btn" title="Zoom out" onClick={() => zoomBy(1.35)}><Minus size={14} /></button>
+            <button className="mc-ctrl-btn" title="Reset view" onClick={zoomReset}><RotateCcw size={14} /></button>
+            <button className={`mc-ctrl-btn ${full ? 'active' : ''}`} title={full ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFull}>
+              {full ? <Minimize size={14} /> : <Maximize size={14} />}
+            </button>
+          </span>
+        )}
+      </div>
+      {uiOpen && (
+        <>
       <div className="mc-toolbar">
         {CHIPS.map(c => {
           const on = typeof c.k === 'number' ? emasOn[c.k] : inds[c.k]
@@ -1122,6 +1144,8 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           <span className="mc-dhint"><Hand size={11} /> {tool === 'erase' ? 'Click a drawing to delete' : 'Drag on chart to draw'}</span>
         )}
       </div>
+        </>
+      )}
       <div className="mc-wrap" ref={wrapRef}>
         {symbol && <div className="mc-watermark">{symbol}</div>}
         <div ref={chartElRef} className="mc-chart" />
@@ -1204,6 +1228,35 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         .mc-dhint {
           display: flex; align-items: center; gap: 4px;
           font-size: 10px; color: #5B6472; white-space: nowrap;
+        }
+        .mc-ctrl {
+          display: flex; align-items: center; gap: 4px;
+          padding: 0 8px 6px;
+        }
+        .mc-ctrl-group {
+          display: flex; align-items: center; gap: 2px;
+          background: #151A26; border-radius: 9px; padding: 2px;
+          margin-left: auto;
+        }
+        .mc-ctrl-btn {
+          width: 26px; height: 26px; border: none; border-radius: 7px;
+          background: none; color: #8B93A7; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
+        }
+        .mc-ctrl-btn:hover { background: #1E2637; color: #E2E8F0; }
+        .mc-ctrl-btn.active { background: rgba(0,200,83,0.18); color: #00C853; }
+        @media (min-width: 768px) {
+          .mc-ctrl { display: none; }
+        }
+        @media (max-width: 767px) {
+          .mc-legend {
+            min-width: 0; max-width: calc(100% - 16px);
+            padding: 6px 9px 7px; font-size: 10px; top: 8px; left: 8px;
+          }
+          .mc-lg-sym { font-size: 11px; }
+          .mc-lg-ohlc { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+          .mc-lg-inds { display: none; }
         }
         .mc-wrap {
           flex: 1; min-height: 0; position: relative;
