@@ -4,6 +4,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
+from .core.http_cache import ResponseCacheMiddleware
 from .database import engine, Base
 from .models.news import NewsItem
 from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community, challenges, notifications
@@ -24,6 +25,10 @@ app = FastAPI(
     docs_url="/docs" if docs_enabled else None,
     redoc_url="/redoc" if docs_enabled else None,
     openapi_url="/openapi.json" if docs_enabled else None,
+)
+
+app.add_middleware(
+    ResponseCacheMiddleware,
 )
 
 app.add_middleware(
