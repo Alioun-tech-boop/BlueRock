@@ -12,14 +12,93 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
+const CACHE_TTL_BY_PREFIX = [
+  ['/api/market/overview', 120000],
+  ['/api/market/live', 60000],
+  ['/api/market/sparklines', 300000],
+  ['/api/market/announcements', 120000],
+  ['/api/market/news/article', 120000],
+  ['/api/market/news', 120000],
+  ['/api/market/calendar', 300000],
+  ['/api/market/indices', 300000],
+  ['/api/market/sectors', 300000],
+  ['/api/companies/sectors', 300000],
+  ['/api/companies/top-performers', 60000],
+  ['/api/companies', 300000],
+  ['/api/macro', 300000],
+  ['/api/analysis/screen', 120000],
+  ['/api/analysis/companies', 300000],
+  ['/api/ingestion/summary', 60000],
+]
+const NO_CACHE_PREFIXES = [
+  '/api/auth',
+  '/api/portfolio',
+  '/api/notifications',
+  '/api/premium',
+  '/api/community',
+  '/api/brokers',
+  '/api/seed',
+  '/api/ingestion/pdf',
+  '/api/ingestion/fetch',
+  '/api/market/refresh',
+  '/api/analysis/ask',
+]
+const DEFAULT_TTL = 30000
+const responseCache = new Map()
+
+const cacheKey = (config) => {
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('bluerock_token') : null
+  const params = config.params ? JSON.stringify(config.params) : ''
+  return `${token ? 'u' : 'a'}|${config.url}${params ? `?${params}` : ''}`
+}
+
+const ttlFor = (url) => {
+  for (const [prefix, ttl] of CACHE_TTL_BY_PREFIX) {
+    if (url.startsWith(prefix)) return ttl
+  }
+  return DEFAULT_TTL
+}
+
+const isCacheable = (config) => {
+  if (config.method !== 'get' || config.cache === false) return false
+  return !NO_CACHE_PREFIXES.some((p) => config.url.startsWith(p))
+}
+
 api.interceptors.request.use(config => {
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('bluerock_token') : null
   if (token) config.headers.Authorization = `Bearer ${token}`
+  if (isCacheable(config)) {
+    const key = cacheKey(config)
+    const hit = responseCache.get(key)
+    if (hit && hit.expires > Date.now()) {
+      config.adapter = async () => ({
+        data: hit.data,
+        status: 200,
+        statusText: 'OK',
+        headers: hit.headers,
+        config,
+        request: {},
+      })
+    }
+  }
   return config
 })
 
 api.interceptors.response.use(
-  res => res,
+  res => {
+    if (isCacheable(res.config) && res.status === 200) {
+      const key = cacheKey(res.config)
+      responseCache.set(key, {
+        data: res.data,
+        headers: res.headers,
+        expires: Date.now() + ttlFor(res.config.url),
+      })
+      if (responseCache.size > 400) {
+        responseCache.delete(responseCache.keys().next().value)
+      }
+    }
+    return res
+  },
   err => {
     const { response, config } = err
     const url = config?.url || ''
@@ -104,5 +183,12 @@ export const getChallenges = () => api.get('/api/community/challenges')
 export const joinChallenge = (id) => api.post(`/api/community/challenges/${id}/join`)
 export const leaveChallenge = (id) => api.delete(`/api/community/challenges/${id}/join`)
 export const getChallengeLeaderboard = (id) => api.get(`/api/community/challenges/${id}/leaderboard`)
+
+export const clearApiCache = () => responseCache.clear()
+export const invalidateApiCache = (prefix) => {
+  for (const key of responseCache.keys()) {
+    if (key.includes(prefix)) responseCache.delete(key)
+  }
+}
 
 export default api
