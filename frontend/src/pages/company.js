@@ -1111,32 +1111,32 @@ export default function Company() {
         }
         .hero-logo { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
         .hero-logo-fallback { font-size: 30px; font-weight: 800; color: #8b5cf6; }
-        .hero-name { font-size: 20px; font-weight: 800; text-align: center; margin: 0 0 8px; }
+        .hero-name { font-size: 24px; font-weight: 800; text-align: center; margin: 0 0 8px; }
         .hero-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; }
         .tag {
-          font-size: 11px; font-weight: 600; color: #a3a3a3;
+          font-size: 12px; font-weight: 600; color: #a3a3a3;
           background: #1E1E1E; border: 1px solid #2a2a2a;
-          border-radius: 8px; padding: 4px 10px;
+          border-radius: 8px; padding: 5px 12px;
         }
         .tag.ticker { color: #00C853; background: rgba(0,200,83,0.1); border-color: rgba(0,200,83,0.3); font-family: 'JetBrains Mono', monospace; }
         .tag.synth { color: #ffd166; background: rgba(255,209,102,0.1); border-color: rgba(255,209,102,0.35); }
-        .hero-price-row { display: flex; align-items: center; gap: 10px; }
-        .hero-price { font-size: 32px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
-        .hero-chg { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .hero-chg.up { color: #00C853; }
-        .hero-chg.down { color: #FF4D4F; }
+        .hero-price-row { display: flex; align-items: center; gap: 12px; }
+        .hero-price { font-size: 40px; font-weight: 800; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 18px rgba(255,255,255,0.25), 0 0 44px rgba(255,255,255,0.12); }
+        .hero-chg { font-size: 17px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .hero-chg.up { color: #00C853; text-shadow: 0 0 14px rgba(0,200,83,0.5); }
+        .hero-chg.down { color: #FF4D4F; text-shadow: 0 0 14px rgba(255,77,79,0.5); }
         .hero-chg.flat { color: #8f8f8f; }
         .stats-card {
           display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
           margin-bottom: 12px;
         }
         .stat {
-          background: #1E1E1E; border-radius: 14px;
-          padding: 10px 8px; display: flex; flex-direction: column; gap: 4px;
+          background: #1E1E1E; border-radius: 16px;
+          padding: 12px 10px; display: flex; flex-direction: column; gap: 4px;
           align-items: center;
         }
-        .stat-label { font-size: 10px; color: #8f8f8f; }
-        .stat-value { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .stat-label { font-size: 11px; color: #8f8f8f; }
+        .stat-value { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
         .label-row { display: inline-flex; align-items: center; gap: 4px; }
         .stats-card .label-row { justify-content: center; }
         .chart-card {
@@ -1146,21 +1146,21 @@ export default function Company() {
         }
         @keyframes tvIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
         .chart-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-        .chart-price { font-size: 22px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
-        .chart-chg { font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .chart-chg.up { color: #00C853; }
-        .chart-chg.down { color: #FF4D4F; }
+        .chart-price { font-size: 30px; font-weight: 800; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 16px rgba(255,255,255,0.22), 0 0 40px rgba(255,255,255,0.1); }
+        .chart-chg { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .chart-chg.up { color: #00C853; text-shadow: 0 0 12px rgba(0,200,83,0.5); }
+        .chart-chg.down { color: #FF4D4F; text-shadow: 0 0 12px rgba(255,77,79,0.5); }
         .chart-wrap { display: flex; flex-direction: column; height: clamp(420px, 62vh, 680px); min-height: 420px; }
         .periods { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 150px; }
         .period {
           background: none; border: none; color: #8f8f8f;
-          font-size: 11px; font-weight: 600; padding: 4px 6px;
+          font-size: 13px; font-weight: 600; padding: 6px 10px;
           border-radius: 8px; cursor: pointer; font-family: inherit;
         }
         .period.active { background: #00C853; color: #00130a; font-weight: 700; }
         .chart-empty { color: #555; padding: 60px 0; font-size: 12px; }
         .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 8px; }
-        .lg { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #8f8f8f; }
+        .lg { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8f8f8f; }
         .lg-candle-up { width: 8px; height: 10px; border-radius: 1px; background: #00C853; border-left: 1px solid #00C853; }
         .lg-candle-down { width: 8px; height: 10px; border-radius: 1px; background: #FF4D4F; border-left: 1px solid #FF4D4F; }
         .lg-vol { width: 8px; height: 4px; border-radius: 1px; background: rgba(255,255,255,0.4); }
@@ -1341,11 +1341,11 @@ export default function Company() {
           color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
         .info-card, .fin-card, .div-card, .sh-card, .news-card, .fr-card, .hist-card {
-          background: #1E1E1E; border-radius: 18px; padding: 16px; margin-bottom: 12px;
+          background: #1E1E1E; border-radius: 20px; padding: 20px; margin-bottom: 12px;
         }
         .card-title {
           display: flex; align-items: center; gap: 7px;
-          font-size: 15px; font-weight: 700; margin-bottom: 12px;
+          font-size: 17px; font-weight: 700; margin-bottom: 14px;
         }
         .card-toggle {
           display: flex; align-items: center; justify-content: space-between; width: 100%;
@@ -1362,30 +1362,30 @@ export default function Company() {
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .info-item { display: flex; gap: 10px; align-items: flex-start; }
         .ii-icon {
-          width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px;
+          width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px;
           background: rgba(139,92,246,0.12); color: #a78bfa;
           display: flex; align-items: center; justify-content: center;
         }
-        .ii-label { font-size: 10px; color: #8f8f8f; margin-bottom: 2px; }
-        .ii-value { font-size: 12px; font-weight: 600; word-break: break-word; }
-        .ii-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+        .ii-label { font-size: 11px; color: #8f8f8f; margin-bottom: 2px; }
+        .ii-value { font-size: 14px; font-weight: 600; word-break: break-word; }
+        .ii-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
         .ii-value.link { color: #a78bfa; }
-        .activity { font-size: 12px; color: #a3a3a3; line-height: 1.5; margin: 14px 0 0; }
-        .info-empty { font-size: 12px; color: #8f8f8f; line-height: 1.6; margin: 4px 0; }
+        .activity { font-size: 13px; color: #a3a3a3; line-height: 1.5; margin: 14px 0 0; }
+        .info-empty { font-size: 13px; color: #8f8f8f; line-height: 1.6; margin: 4px 0; }
         .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .fin-item {
-          background: #141414; border-radius: 12px; padding: 10px 12px;
+          background: #141414; border-radius: 14px; padding: 12px 14px;
           display: flex; flex-direction: column; gap: 3px;
         }
-        .fin-label { font-size: 10px; color: #8f8f8f; }
-        .fin-value { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .fin-label { font-size: 11px; color: #8f8f8f; }
+        .fin-value { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
         .div-head, .div-row {
           display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px;
           padding: 8px 0; border-bottom: 1px solid #2a2a2a;
         }
-        .div-head { font-size: 10px; color: #8f8f8f; text-transform: uppercase; letter-spacing: 0.5px; }
+        .div-head { font-size: 11px; color: #8f8f8f; text-transform: uppercase; letter-spacing: 0.5px; }
         .div-head span { display: inline-flex; align-items: center; gap: 3px; }
-        .div-row { font-size: 12px; }
+        .div-row { font-size: 13px; }
         .div-head span:last-child, .div-row span:last-child { text-align: right; }
         .div-head span:nth-child(2), .div-row span:nth-child(2) { text-align: center; }
         .mono { font-family: 'JetBrains Mono', monospace; }

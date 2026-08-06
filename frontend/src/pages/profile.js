@@ -7,22 +7,11 @@ import { updateMe, getCommunityMe } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
 import BottomNav from '../components/BottomNav'
 import {
-  ArrowLeft, UserRound, Shield, Mail, Check, LogOut, Eye, EyeOff,
-  KeyRound, Loader2, Copy, Lock, Wallet, BadgeCheck, X, AtSign, Rocket, Users,
+  ArrowLeft, UserRound, Shield, Mail, Check, LogOut,
+  Loader2, Copy, Wallet, BadgeCheck, X, Rocket, Users,
 } from 'lucide-react'
 
 const AVATARS = ['🦁', '🐘', '🐆', '🦓', '🦅', '🐬', '🌴', '🔥', '⚡', '💎', '🐊', '🦜', '🐢', '🦩', '🪙', '📈']
-
-function passwordScore(p) {
-  if (!p) return 0
-  let s = 0
-  if (p.length >= 8) s++
-  if (p.length >= 12) s++
-  if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++
-  if (/\d/.test(p)) s++
-  if (/[^A-Za-z0-9]/.test(p)) s++
-  return Math.min(5, s)
-}
 
 function Spinner() {
   return <Loader2 size={15} className="spin" />
@@ -31,8 +20,6 @@ function Spinner() {
 function errMsg(err, fallback) {
   return err?.message || err?.error_description || fallback
 }
-
-const STRENGTH_COLORS = ['#ff4d4f', '#ff8c42', '#ffd166', '#a6e22e', '#00C853']
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -52,21 +39,6 @@ export default function ProfilePage() {
   const [copied, setCopied] = useState(false)
   // 2FA désactivation
   const [disableOpen, setDisableOpen] = useState(false)
-
-  // mot de passe
-  const [curPwd, setCurPwd] = useState('')
-  const [newPwd, setNewPwd] = useState('')
-  const [confirmPwd, setConfirmPwd] = useState('')
-  const [showCur, setShowCur] = useState(false)
-  const [showNew, setShowNew] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [pwdBusy, setPwdBusy] = useState(false)
-
-  // e-mail de connexion
-  const [newEmail, setNewEmail] = useState('')
-  const [emailPwd, setEmailPwd] = useState('')
-  const [showEmailPwd, setShowEmailPwd] = useState(false)
-  const [emailBusy, setEmailBusy] = useState(false)
 
   // communauté
   const [community, setCommunity] = useState(null)
@@ -196,61 +168,6 @@ export default function ProfilePage() {
     }
   }
 
-  const submitPwd = async (e) => {
-    e.preventDefault()
-    if (newPwd !== confirmPwd) {
-      banner(t(lang, 'authPasswordsMismatch'), null)
-      return
-    }
-    setPwdBusy(true); banner(null, null)
-    try {
-      const check = await supabase.auth.signInWithPassword({ email: user.email, password: curPwd })
-      if (check.error) throw check.error
-      const upd = await supabase.auth.updateUser({ password: newPwd })
-      if (upd.error) throw upd.error
-      setCurPwd(''); setNewPwd(''); setConfirmPwd('')
-      banner(null, t(lang, 'pfPwdChanged'))
-    } catch (err) {
-      banner(errMsg(err, t(lang, 'authError')), null)
-    } finally {
-      setPwdBusy(false)
-    }
-  }
-
-  const submitEmail = async (e) => {
-    e.preventDefault()
-    const email = newEmail.trim().toLowerCase()
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      banner(t(lang, 'pfEmailInvalid'), null)
-      return
-    }
-    if (email === (user.email || '').toLowerCase()) {
-      setNewEmail('')
-      setEmailPwd('')
-      banner(null, null)
-      return
-    }
-    setEmailBusy(true); banner(null, null)
-    try {
-      const check = await supabase.auth.signInWithPassword({ email: user.email, password: emailPwd })
-      if (check.error) throw check.error
-      const upd = await supabase.auth.updateUser({ email })
-      if (upd.error) throw upd.error
-      await updateMe({ email }).catch(() => {})
-      updateUser({ email })
-      setNewEmail('')
-      setEmailPwd('')
-      banner(null, t(lang, 'pfEmailChanged').replace('{email}', email))
-    } catch (err) {
-      const msg = errMsg(err, '')
-      if (/invalid.*credential|wrong password|incorrect/i.test(msg)) banner(t(lang, 'pfPwdWrong'), null)
-      else if (/already been registered|duplicate|déjà utilisé|exists/i.test(msg)) banner(t(lang, 'pfEmailExists'), null)
-      else banner(errMsg(err, t(lang, 'authError')), null)
-    } finally {
-      setEmailBusy(false)
-    }
-  }
-
   const doLogout = async () => {
     await logout()
     router.replace('/login')
@@ -272,7 +189,6 @@ export default function ProfilePage() {
     )
   }
 
-  const strength = passwordScore(newPwd)
   const memberSince = user.created_at
     ? t(lang, 'pfMemberSince').replace('{date}', new Date(user.created_at).toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR', { year: 'numeric', month: 'long' }))
     : null
@@ -334,34 +250,6 @@ export default function ProfilePage() {
           </div>
           <button className="auth-submit" disabled={saveBusy || !name.trim()}>
             {saveBusy ? <Spinner /> : <Check size={16} />}{t(lang, 'pfSave')}
-          </button>
-        </form>
-
-        {/* ---- E-mail de connexion ---- */}
-        <div className="section-title">{t(lang, 'pfEmailSection')}</div>
-        <form className="card form-card" onSubmit={submitEmail}>
-          <div className="field">
-            <span className="field-label">{t(lang, 'pfNewEmail')}</span>
-            <div className="input-wrap">
-              <AtSign size={16} className="input-ico" />
-              <input className="auth-input" type="email" value={newEmail}
-                onChange={e => setNewEmail(e.target.value)}
-                placeholder={user.email} autoComplete="email" />
-            </div>
-          </div>
-          <div className="field">
-            <span className="field-label">{t(lang, 'pfCurrentPwd')}</span>
-            <div className="input-wrap">
-              <Lock size={16} className="input-ico" />
-              <input className="auth-input" type={showEmailPwd ? 'text' : 'password'} value={emailPwd}
-                onChange={e => setEmailPwd(e.target.value)} autoComplete="current-password" />
-              <button type="button" className="pwd-toggle" onClick={() => setShowEmailPwd(!showEmailPwd)}>
-                {showEmailPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-          <button className="auth-submit" disabled={emailBusy || !newEmail.trim() || !emailPwd}>
-            {emailBusy ? <Spinner /> : <Mail size={15} />}{t(lang, 'pfChangeEmail')}
           </button>
         </form>
 
@@ -452,58 +340,6 @@ export default function ProfilePage() {
             <button className="ghost-btn" onClick={closeRecovery}><X size={14} />OK</button>
           </div>
         )}
-
-        {/* ---- Mot de passe ---- */}
-        <div className="section-title">{t(lang, 'pfPwdSection')}</div>
-        <form className="card form-card" onSubmit={submitPwd}>
-          <label className="field">
-            <span className="field-label">{t(lang, 'pfCurrentPwd')}</span>
-            <div className="input-wrap">
-              <Lock size={16} className="input-ico" />
-              <input className="auth-input" type={showCur ? 'text' : 'password'} value={curPwd}
-                onChange={e => setCurPwd(e.target.value)} autoComplete="current-password" />
-              <button type="button" className="pwd-toggle" onClick={() => setShowCur(!showCur)}>
-                {showCur ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </label>
-          <label className="field">
-            <span className="field-label">{t(lang, 'pfNewPwd')}</span>
-            <div className="input-wrap">
-              <KeyRound size={16} className="input-ico" />
-              <input className="auth-input" type={showNew ? 'text' : 'password'} value={newPwd}
-                onChange={e => setNewPwd(e.target.value)} autoComplete="new-password" />
-              <button type="button" className="pwd-toggle" onClick={() => setShowNew(!showNew)}>
-                {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </label>
-          {newPwd && (
-            <div className="strength-box">
-              <div className="strength-bar">
-                <div className="strength-fill" style={{ width: `${strength * 20}%`, background: STRENGTH_COLORS[strength - 1] }} />
-              </div>
-              <span className="strength-label" style={{ color: STRENGTH_COLORS[strength - 1] }}>
-                {t(lang, 'authPwdStrength')[strength - 1]}
-              </span>
-            </div>
-          )}
-          <label className="field">
-            <span className="field-label">{t(lang, 'pfConfirmNewPwd')}</span>
-            <div className="input-wrap">
-              <Lock size={16} className="input-ico" />
-              <input className="auth-input" type={showConfirm ? 'text' : 'password'} value={confirmPwd}
-                onChange={e => setConfirmPwd(e.target.value)} autoComplete="new-password" />
-              <button type="button" className="pwd-toggle" onClick={() => setShowConfirm(!showConfirm)}>
-                {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </label>
-          <span className="pwd-policy">{t(lang, 'authPwdPolicy')}</span>
-          <button className="auth-submit" disabled={pwdBusy || !curPwd || !newPwd || !confirmPwd}>
-            {pwdBusy ? <Spinner /> : <KeyRound size={15} />}{t(lang, 'pfUpdatePwd')}
-          </button>
-        </form>
 
         {/* ---- Ma communauté ---- */}
         <div className="section-title">{t(lang, 'pfCommunity')}</div>
@@ -597,18 +433,11 @@ export default function ProfilePage() {
         .form-card { display: flex; flex-direction: column; gap: 12px; }
         .field { display: flex; flex-direction: column; gap: 6px; }
         .field-label { font-size: 12px; color: #8f8f8f; font-weight: 600; }
-        .input-wrap { position: relative; display: flex; align-items: center; }
-        .input-ico { position: absolute; left: 13px; color: #555; pointer-events: none; }
-        .pwd-toggle {
-          position: absolute; right: 8px; background: none; border: none;
-          color: #777; cursor: pointer; display: flex; padding: 6px;
-        }
         .auth-input {
           height: 46px; border-radius: 13px; border: 1px solid #262626;
           background: #0d0d0d; color: #fff; padding: 0 14px;
           font-size: 15px; font-family: inherit; outline: none; width: 100%;
         }
-        .input-wrap .auth-input { padding: 0 40px; }
         .auth-input:focus { border-color: #00C853; }
         .auth-input.mono { font-family: 'JetBrains Mono', monospace; text-align: center; letter-spacing: 2px; }
         .auth-submit {
@@ -714,11 +543,6 @@ export default function ProfilePage() {
           padding: 9px 6px; text-align: center; font-family: 'JetBrains Mono', monospace;
           font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #e8e8e8;
         }
-        .pwd-policy { font-size: 11px; color: #666; line-height: 1.5; padding: 0 2px; }
-        .strength-box { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
-        .strength-bar { flex: 1; height: 4px; border-radius: 2px; background: #1c1c1c; overflow: hidden; }
-        .strength-fill { height: 100%; border-radius: 2px; transition: width 0.25s ease; }
-        .strength-label { font-size: 11px; font-weight: 600; min-width: 64px; text-align: right; }
         .logout-btn {
           width: 100%; margin-top: 6px; height: 48px; border-radius: 14px;
           border: 1px solid rgba(255,77,79,0.3); background: rgba(255,77,79,0.08);

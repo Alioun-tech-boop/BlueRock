@@ -257,7 +257,6 @@ class UpdateProfileRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     avatar: str | None = Field(default=None, max_length=16)
     email_notif_enabled: bool | None = None
-    email: str | None = None
 
 
 class UserOut(BaseModel):
@@ -345,15 +344,6 @@ def update_me(
             user.avatar = avatar
     if req.email_notif_enabled is not None:
         user.email_notif_enabled = req.email_notif_enabled
-    if req.email is not None:
-        new_email = req.email.strip().lower()
-        if not EMAIL_RE.match(new_email):
-            raise HTTPException(status_code=422, detail="Email invalide")
-        if new_email != user.email:
-            conflict = db.query(User).filter(User.email == new_email, User.id != user.id).first()
-            if conflict:
-                raise HTTPException(status_code=409, detail="Cet email est déjà utilisé")
-            user.email = new_email
     db.commit()
     db.refresh(user)
     return UserOut.from_orm(user)

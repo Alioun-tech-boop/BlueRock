@@ -23,6 +23,7 @@ function saveJSON(key, value) {
 }
 
 const PERIODS = [
+  { id: '1j', label: '1j', kind: '1j' },
   { id: '1m', label: '1M', kind: '1m' },
   { id: '3m', label: '3M', kind: '3m' },
   { id: '6m', label: '6M', kind: '6m' },
@@ -40,7 +41,7 @@ export default function Quote() {
   const [lang, setLang] = useState('fr')
   const [company, setCompany] = useState(null)
   const [allData, setAllData] = useState([])
-  const [period, setPeriod] = useState('1a')
+  const [period, setPeriod] = useState('1j')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [isFav, setIsFav] = useState(false)
@@ -608,14 +609,14 @@ export default function Quote() {
         .q-title { display: flex; flex-direction: column; align-items: center; gap: 1px; background: none; border: none; color: inherit; font-family: inherit; padding: 0 8px; cursor: pointer; border-radius: 10px; }
         .q-title:active { background: #1a1a1a; }
         .q-chev { vertical-align: middle; opacity: 0.7; }
-        .q-symbol { font-size: 16px; font-weight: 700; }
-        .q-name { font-size: 12px; color: #a3a3a3; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .q-symbol { font-size: 19px; font-weight: 700; }
+        .q-name { font-size: 14px; color: #a3a3a3; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .q-hero { padding: 8px 4px 12px; flex-shrink: 0; }
         .q-pair { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .q-logo-fallback {
-          width: 32px; height: 32px; border-radius: 50%; background: #262626;
+          width: 40px; height: 40px; border-radius: 50%; background: #262626;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 700; font-size: 14px;
+          font-weight: 700; font-size: 18px;
           overflow: hidden;
         }
         .q-logo-img { width: 100%; height: 100%; object-fit: cover; }
@@ -640,11 +641,11 @@ export default function Quote() {
           50% { opacity: 0.35; }
         }
         .q-price {
-          font-size: 34px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+          font-size: 42px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
           display: inline-block; border-radius: 8px; line-height: 1.2;
         }
-        .q-price.up { color: #00C853; }
-        .q-price.down { color: #FF4D4F; }
+        .q-price.up { color: #00C853; text-shadow: 0 0 18px rgba(0,200,83,0.55), 0 0 46px rgba(0,200,83,0.3); }
+        .q-price.down { color: #FF4D4F; text-shadow: 0 0 18px rgba(255,77,79,0.55), 0 0 46px rgba(255,77,79,0.3); }
         .flash-up { animation: flashUp 1s ease; }
         .flash-down { animation: flashDown 1s ease; }
         @keyframes flashUp {
@@ -656,30 +657,30 @@ export default function Quote() {
           100% { background: transparent; }
         }
         .q-change {
-          font-size: 15px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+          font-size: 18px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
           display: flex; align-items: center; gap: 6px; margin-top: 2px;
         }
-        .q-change.up { color: #00C853; }
-        .q-change.down { color: #FF4D4F; }
+        .q-change.up { color: #00C853; text-shadow: 0 0 14px rgba(0,200,83,0.5); }
+        .q-change.down { color: #FF4D4F; text-shadow: 0 0 14px rgba(255,77,79,0.5); }
         .q-period {
-          font-size: 11px; color: #a3a3a3; background: #1B1B1B;
-          padding: 2px 8px; border-radius: 8px;
+          font-size: 13px; color: #a3a3a3; background: #1B1B1B;
+          padding: 3px 10px; border-radius: 8px;
         }
-        .q-range { font-size: 12px; color: #a3a3a3; margin-top: 2px; }
+        .q-range { font-size: 13px; color: #a3a3a3; margin-top: 3px; }
         .q-stats {
-          display: flex; gap: 6px; overflow-x: auto;
+          display: flex; gap: 8px; overflow-x: auto;
           margin-bottom: 8px; flex-shrink: 0;
           scrollbar-width: none; -webkit-overflow-scrolling: touch;
         }
         .q-stats::-webkit-scrollbar { display: none; }
         .q-stat-card {
-          display: flex; flex-direction: column; gap: 3px;
-          padding: 8px 10px; background: #1B1B1B; border-radius: 12px;
-          min-width: 96px; flex: none;
+          display: flex; flex-direction: column; gap: 4px;
+          padding: 12px 14px; background: #1B1B1B; border-radius: 14px;
+          min-width: 118px; flex: none;
         }
-        .qs-label { font-size: 9px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .qs-label { font-size: 11px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .qs-value {
-          font-size: 11px; font-weight: 700;
+          font-size: 15px; font-weight: 700;
           font-family: 'JetBrains Mono', monospace;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
@@ -696,9 +697,9 @@ export default function Quote() {
         }
         .chart-timeframes::-webkit-scrollbar { display: none; }
         .tf-btn {
-          padding: 5px 12px; background: none; border: none; color: #666;
-          font-size: 13px; cursor: pointer; border-radius: 10px;
-          font-family: inherit; font-weight: 500; flex-shrink: 0;
+          padding: 8px 16px; background: none; border: none; color: #666;
+          font-size: 15px; cursor: pointer; border-radius: 10px;
+          font-family: inherit; font-weight: 600; flex-shrink: 0;
         }
         .tf-btn.active { background: #262626; color: #fff; }
         .quick-links {
@@ -707,8 +708,8 @@ export default function Quote() {
         .ql-btn {
           flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
           background: #1B1B1B; border: none; border-radius: 12px;
-          color: #a3a3a3; font-size: 11px; font-weight: 500;
-          cursor: pointer; font-family: inherit; height: 36px;
+          color: #a3a3a3; font-size: 12.5px; font-weight: 500;
+          cursor: pointer; font-family: inherit; height: 40px;
         }
         .ql-btn:hover { color: #fff; background: #232323; }
         .order-section {
@@ -716,12 +717,12 @@ export default function Quote() {
         }
         .order-box {
           flex: 1; display: flex; flex-direction: column; gap: 2px;
-          padding: 10px 12px; border-radius: 14px; cursor: pointer;
+          padding: 12px 14px; border-radius: 14px; cursor: pointer;
         }
         .order-box.sell { background: rgba(255,77,79,0.15); }
         .order-box.buy { background: rgba(0,200,83,0.15); }
-        .order-label { font-size: 11px; color: #a3a3a3; }
-        .order-val { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .order-label { font-size: 12.5px; color: #a3a3a3; }
+        .order-val { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
         .order-box.sell .order-val { color: #FF4D4F; }
         .order-box.buy .order-val { color: #00C853; }
         .loading-screen {
