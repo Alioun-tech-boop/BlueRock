@@ -173,17 +173,20 @@ def get_sectors():
 
 @router.get("/top-performers")
 def get_top_performers(limit: int = 10, db: Session = Depends(get_db)):
-    from sqlalchemy import func as safunc
     from ..models.analysis import ScoreCard
 
     latest = db.query(
         ScoreCard.company_id,
-        safunc.max(ScoreCard.fiscal_year).label("fy")
-    ).group_by(ScoreCard.company_id).subquery()
+        ScoreCard.id.label("sc_id"),
+    ).distinct(ScoreCard.company_id).order_by(
+        ScoreCard.company_id,
+        ScoreCard.fiscal_year.desc(),
+        ScoreCard.id.desc(),
+    ).subquery()
 
     scorecards = db.query(ScoreCard).join(
         latest,
-        (latest.c.company_id == ScoreCard.company_id) & (latest.c.fy == ScoreCard.fiscal_year)
+        latest.c.sc_id == ScoreCard.id
     ).order_by(ScoreCard.total_score.desc()).limit(limit).all()
 
     from ..scrapers.live_feed import live_feed

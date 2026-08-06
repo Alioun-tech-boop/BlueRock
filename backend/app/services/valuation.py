@@ -134,6 +134,13 @@ class ValuationService:
             else:
                 recommendation = "SELL"
         
+        # Remplace toute valorisation existante pour (entreprise, année) : évite les doublons
+        self.db.query(Valuation).filter(
+            Valuation.company_id == company_id,
+            Valuation.fiscal_year == fiscal_year,
+        ).delete(synchronize_session=False)
+        self.db.flush()
+        
         valuation = Valuation(
             company_id=company_id,
             fiscal_year=fiscal_year,

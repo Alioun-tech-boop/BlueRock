@@ -182,6 +182,13 @@ class ScoringService:
         
         rating = self._get_rating(total_score)
         
+        # Remplace tout scorecard existant pour (entreprise, année) : évite les doublons
+        self.db.query(ScoreCard).filter(
+            ScoreCard.company_id == company_id,
+            ScoreCard.fiscal_year == fiscal_year,
+        ).delete(synchronize_session=False)
+        self.db.flush()
+        
         scorecard = ScoreCard(
             company_id=company_id,
             fiscal_year=fiscal_year,

@@ -143,18 +143,27 @@ def screen_companies(
 ):
     from ..models.analysis import ScoreCard
     from ..models.ratios import FinancialRatio
-    from sqlalchemy import func as safunc
 
-    # Latest fiscal year per company for both scorecards and ratios
+    # Dernier scorecard et dernier ratio (année + id) par entreprise — DISTINCT ON
+    # garantit une seule ligne par société, même si la base contient des doublons
+    # historiques (anciennes versions de l'analyseur).
     latest_sc = db.query(
         ScoreCard.company_id,
-        safunc.max(ScoreCard.fiscal_year).label("fy")
-    ).group_by(ScoreCard.company_id).subquery()
+        ScoreCard.id.label("sc_id"),
+    ).distinct(ScoreCard.company_id).order_by(
+        ScoreCard.company_id,
+        ScoreCard.fiscal_year.desc(),
+        ScoreCard.id.desc(),
+    ).subquery()
 
     latest_rat = db.query(
         FinancialRatio.company_id,
-        safunc.max(FinancialRatio.fiscal_year).label("fy")
-    ).filter(FinancialRatio.quarter.is_(None)).group_by(FinancialRatio.company_id).subquery()
+        FinancialRatio.id.label("rat_id"),
+    ).filter(FinancialRatio.quarter.is_(None)).distinct(FinancialRatio.company_id).order_by(
+        FinancialRatio.company_id,
+        FinancialRatio.fiscal_year.desc(),
+        FinancialRatio.id.desc(),
+    ).subquery()
 
     query = db.query(
         Company.id,
@@ -170,8 +179,8 @@ def screen_companies(
         FinancialRatio.eps
     ).join(latest_sc, latest_sc.c.company_id == Company.id)\
      .join(latest_rat, latest_rat.c.company_id == Company.id)\
-     .join(ScoreCard, (ScoreCard.company_id == latest_sc.c.company_id) & (ScoreCard.fiscal_year == latest_sc.c.fy))\
-     .join(FinancialRatio, (FinancialRatio.company_id == latest_rat.c.company_id) & (FinancialRatio.fiscal_year == latest_rat.c.fy) & (FinancialRatio.quarter.is_(None)))
+     .join(ScoreCard, ScoreCard.id == latest_sc.c.sc_id)\
+     .join(FinancialRatio, FinancialRatio.id == latest_rat.c.rat_id)
     
     if sector:
         sector_enum = next((s for s in Sector if s.value.lower() == sector.lower()), None)
