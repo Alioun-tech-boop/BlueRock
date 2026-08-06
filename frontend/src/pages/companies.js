@@ -23,18 +23,19 @@ export default function Companies() {
   const [lang, setLang] = useState('fr')
   const [stocks, setStocks] = useState([])
   const [search, setSearch] = useState('')
+  const [type, setType] = useState('equity')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [favorites, setFavorites] = useState([])
   const mounted = useRef(true)
 
-  const fetchData = () => {
-    setLoading(true)
+  const fetchData = (silent = false) => {
+    if (!silent) setLoading(true)
     setError(false)
-    getCompanies({ limit: 47 })
+    getCompanies({ instrument_type: type, limit: 100 })
       .then(r => { if (mounted.current) setStocks(r.data.companies || []) })
-      .catch(() => { if (mounted.current) setError(true) })
-      .finally(() => { if (mounted.current) setLoading(false) })
+      .catch(() => { if (!silent && mounted.current) setError(true) })
+      .finally(() => { if (!silent && mounted.current) setLoading(false) })
   }
 
   useEffect(() => {
@@ -43,7 +44,9 @@ export default function Companies() {
     setFavorites(loadJSON(FAV_KEY, []))
     fetchData()
     return () => { mounted.current = false }
-  }, [])
+  }, [type])
+
+  const switchType = (t) => { if (t !== type) { setType(t); setSearch('') } }
 
   const toggleFavorite = (symbol) => {
     setFavorites(prev => {
@@ -77,6 +80,22 @@ export default function Companies() {
           </div>
           <div className="icon-btn spacer" />
         </header>
+
+        <div className="type-tabs">
+          {[
+            { id: 'equity', label: 'wlActions' },
+            { id: 'obligation', label: 'wlObligations' },
+            { id: 'fcp', label: 'wlFcp' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              className={`type-tab ${type === tab.id ? 'active' : ''}`}
+              onClick={() => switchType(tab.id)}
+            >
+              {t(lang, tab.label)}
+            </button>
+          ))}
+        </div>
 
         <div className="search-bar">
           <Search size={16} className="sb-icon" />
@@ -116,7 +135,6 @@ export default function Companies() {
                   <div className="stock-name">{s.symbol}</div>
                   <div className="stock-sub">{s.name?.substring(0, 30)}</div>
                   <div className="stock-tags">
-                    <span className="sm-sector">{s.sector}</span>
                     {s.rating && <span className="sm-rating">{s.rating}</span>}
                   </div>
                 </div>
@@ -166,6 +184,17 @@ export default function Companies() {
         .co-title { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .co-title span:first-child { font-size: 17px; font-weight: 700; }
         .co-count { font-size: 11px; color: #a3a3a3; }
+        .type-tabs {
+          display: flex; gap: 6px; margin-bottom: 12px;
+        }
+        .type-tab {
+          flex: 1; height: 34px;
+          background: #1B1B1B; border: none; border-radius: 12px;
+          color: #8b8b8b; font-size: 12px; font-weight: 600;
+          cursor: pointer; font-family: inherit;
+          transition: background 160ms ease-out, color 160ms ease-out;
+        }
+        .type-tab.active { background: #8b5cf6; color: #fff; }
         .search-bar {
           display: flex; align-items: center; gap: 10px;
           background: #1B1B1B; border-radius: 14px;
@@ -209,7 +238,6 @@ export default function Companies() {
         .stock-name { font-size: 14px; font-weight: 600; }
         .stock-sub { font-size: 11px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .stock-tags { display: flex; gap: 6px; align-items: center; }
-        .sm-sector { font-size: 9px; color: #777; }
         .sm-rating {
           font-size: 9px; font-weight: 700; color: #00C853;
           background: rgba(0,200,83,0.12); padding: 1px 6px; border-radius: 8px;

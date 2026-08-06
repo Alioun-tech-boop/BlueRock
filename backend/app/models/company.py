@@ -30,6 +30,7 @@ class Company(Base):
     symbol = Column(String(20), unique=True, index=True, nullable=False)
     name = Column(String(200), nullable=False)
     sector = Column(Enum(Sector), nullable=False)
+    instrument_type = Column(String(20), nullable=False, server_default="equity", default="equity")
     isin = Column(String(20), unique=True)
     listing_date = Column(DateTime)
     shares_outstanding = Column(Float)

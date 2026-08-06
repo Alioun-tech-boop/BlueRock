@@ -122,6 +122,7 @@ def _enrich_company(company, db, ctx: Optional[dict] = None):
         "symbol": company.symbol,
         "name": company.name,
         "sector": company.sector.value if company.sector else "Autre",
+        "instrument_type": company.instrument_type or "equity",
         "isin": company.isin,
         "shares_outstanding": company.shares_outstanding,
         "website": company.website,
@@ -224,11 +225,14 @@ def get_top_performers(limit: int = 10, db: Session = Depends(get_db)):
 def list_companies(
     sector: Optional[str] = None,
     search: Optional[str] = None,
+    instrument_type: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
     query = db.query(Company)
+    if instrument_type:
+        query = query.filter(Company.instrument_type == instrument_type)
     if sector:
         sector_enum = next((s for s in Sector if s.value.lower() == sector.lower()), None)
         if sector_enum:

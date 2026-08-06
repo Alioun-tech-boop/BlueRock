@@ -6,6 +6,7 @@ class CompanyBase(BaseModel):
     symbol: str
     name: str
     sector: str
+    instrument_type: Optional[str] = "equity"
     isin: Optional[str] = None
     shares_outstanding: Optional[float] = None
     website: Optional[str] = None

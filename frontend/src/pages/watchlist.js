@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
 import { supabase } from '../lib/supabase'
-import { Search, Plus, Star, ChevronLeft, X, Wallet } from 'lucide-react'
+import { Search, Plus, Star, X, Wallet } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 
 const FAV_KEY = 'bluerock_favorites_v1'
@@ -21,33 +21,37 @@ function saveJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
 }
 
-const SECTOR_FILTERS = [
-  { id: 'all', label: 'wlAll', match: null },
-  { id: 'banks', label: 'wlBanks', match: ['Banque', 'Services Financiers'] },
-  { id: 'telecom', label: 'wlTelecom', match: ['Télécommunications'] },
-  { id: 'industry', label: 'wlIndustry', match: ['Industriels', 'Matériaux'] },
-  { id: 'transport', label: 'wlTransport', match: ['Transport'] },
-  { id: 'insurance', label: 'wlInsurance', match: ['Assurance'] },
-  { id: 'agro', label: 'wlAgro', match: ['Agroalimentaire', 'Consommation de Base'] },
-  { id: 'energy', label: 'wlEnergy', match: ['Énergie', 'Pétrolier'] },
+const TYPES = [
+  { id: 'equity', label: 'wlActions' },
+  { id: 'obligation', label: 'wlObligations' },
+  { id: 'fcp', label: 'wlFcp' },
 ]
 
 function AddSheet({ lang, favorites, onToggle, onClose }) {
   const [query, setQuery] = useState('')
-  const [stocks, setStocks] = useState([])
+  const [groups, setGroups] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getCompanies({ limit: 47 })
-      .then(r => setStocks(r.data.companies || []))
-      .catch(() => setStocks([]))
+    Promise.all([
+      getCompanies({ instrument_type: 'equity', limit: 100 }),
+      getCompanies({ instrument_type: 'obligation', limit: 100 }),
+      getCompanies({ instrument_type: 'fcp', limit: 100 }),
+    ])
+      .then(([e, o, f]) => setGroups({
+        equity: e.data.companies || [],
+        obligation: o.data.companies || [],
+        fcp: f.data.companies || [],
+      }))
+      .catch(() => setGroups({ equity: [], obligation: [], fcp: [] }))
       .finally(() => setLoading(false))
   }, [])
 
   const q = query.trim().toLowerCase()
-  const list = stocks.filter(s =>
-    !q || s.symbol.toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q)
-  )
+  const match = s => !q || (s.symbol || '').toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q)
+  const groupsList = groups
+    ? TYPES.map(tp => ({ ...tp, list: (groups[tp.id] || []).filter(match) })).filter(g => g.list.length)
+    : []
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -69,24 +73,29 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
         </div>
         <div className="sheet-list">
           {loading && <div className="sheet-empty">{t(lang, 'loading')}</div>}
-          {!loading && list.length === 0 && <div className="sheet-empty">{t(lang, 'noResults')}</div>}
-          {list.map(s => {
-            const isFav = favorites.includes(s.symbol)
-            return (
-              <div key={s.symbol} className="add-row" onClick={() => onToggle(s.symbol)}>
-                <div className="add-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
-                  {s.symbol?.[0]}
-                </div>
-                <div className="add-info">
-                  <div className="add-name">{s.symbol}</div>
-                  <div className="add-sub">{s.name}</div>
-                </div>
-                <button className={`add-btn ${isFav ? 'active' : ''}`} aria-label="ajouter">
-                  <Star size={18} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#8f8f8f'} />
-                </button>
-              </div>
-            )
-          })}
+          {!loading && groupsList.length === 0 && <div className="sheet-empty">{t(lang, 'noResults')}</div>}
+          {groupsList.map(g => (
+            <div key={g.id}>
+              <div className="add-group">{g.label}</div>
+              {g.list.map(s => {
+                const isFav = favorites.includes(s.symbol)
+                return (
+                  <div key={s.symbol} className="add-row" onClick={() => onToggle(s.symbol)}>
+                    <div className="add-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
+                      {s.symbol?.[0]}
+                    </div>
+                    <div className="add-info">
+                      <div className="add-name">{s.symbol}</div>
+                      <div className="add-sub">{s.name}</div>
+                    </div>
+                    <button className={`add-btn ${isFav ? 'active' : ''}`} aria-label="ajouter">
+                      <Star size={18} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#8f8f8f'} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </div>
         <style jsx>{`
           .overlay {
@@ -125,6 +134,11 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .sheet-list { flex: 1; overflow-y: auto; padding: 0 22px 20px; }
           .sheet-list::-webkit-scrollbar { display: none; }
           .sheet-empty { padding: 30px 0; text-align: center; color: #666; font-size: 13px; }
+          .add-group {
+            font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+            text-transform: uppercase; color: #8f8f8f;
+            padding: 14px 0 4px;
+          }
           .add-row {
             position: relative;
             display: flex; align-items: center; gap: 14px;
@@ -162,8 +176,6 @@ export default function Watchlist() {
   const [lang, setLang] = useState('fr')
   const [stocks, setStocks] = useState([])
   const [favorites, setFavorites] = useState([])
-  const [query, setQuery] = useState('')
-  const [sector, setSector] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
@@ -172,9 +184,13 @@ export default function Watchlist() {
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     try {
-      const cRes = await getCompanies({ limit: 47 })
+      const [e, o, f] = await Promise.all([
+        getCompanies({ instrument_type: 'equity', limit: 100 }),
+        getCompanies({ instrument_type: 'obligation', limit: 100 }),
+        getCompanies({ instrument_type: 'fcp', limit: 100 }),
+      ])
       if (!mounted.current) return
-      setStocks(cRes.data.companies || [])
+      setStocks([...(e.data.companies || []), ...(o.data.companies || []), ...(f.data.companies || [])])
       setError(false)
     } catch {
       if (!silent && mounted.current) setError(true)
@@ -223,23 +239,9 @@ export default function Watchlist() {
     })
   }
 
-  const q = query.trim().toLowerCase()
-  const filter = SECTOR_FILTERS.find(f => f.id === sector)
-  const list = stocks.filter(s => {
-    if (filter && filter.match && !filter.match.some(m => (s.sector || '').includes(m))) return false
-    if (!q) return true
-    return (
-      s.symbol.toLowerCase().includes(q) ||
-      (s.name || '').toLowerCase().includes(q) ||
-      (s.sector || '').toLowerCase().includes(q)
-    )
-  })
-
-  const favList = [...list].sort((a, b) => {
-    const fa = favorites.includes(a.symbol) ? 0 : 1
-    const fb = favorites.includes(b.symbol) ? 0 : 1
-    return fa - fb
-  })
+  const favList = stocks
+    .filter(s => favorites.includes(s.symbol))
+    .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
 
   return (
     <div className="mobile-root">
@@ -269,32 +271,6 @@ export default function Watchlist() {
           </button>
         </div>
 
-        <div className="search-bar">
-          <Search size={18} className="sb-icon" />
-          <input
-            placeholder={t(lang, 'wlSearchPlaceholder')}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-          />
-          {query && (
-            <button className="icon-btn mini" onClick={() => setQuery('')}>
-              <X size={16} />
-            </button>
-          )}
-        </div>
-
-        <div className="filters-row">
-          {SECTOR_FILTERS.map(f => (
-            <button
-              key={f.id}
-              className={`filter-chip ${sector === f.id ? 'active' : ''}`}
-              onClick={() => setSector(f.id)}
-            >
-              {t(lang, f.label)}
-            </button>
-          ))}
-        </div>
-
         {error && (
           <div className="error-bar">
             <span>{t(lang, 'loadError')}</span>
@@ -313,10 +289,11 @@ export default function Watchlist() {
         ) : (
           <div className="stock-list">
             {favList.map(s => {
-              const chg = s.change_percent || 0
+              const chg = s.change_percent ?? null
               const up = chg > 0
               const down = chg < 0
               const isFav = favorites.includes(s.symbol)
+              const hasPrice = s.current_price != null
               return (
                 <div
                   key={s.symbol}
@@ -335,8 +312,8 @@ export default function Watchlist() {
                   </div>
                   <div className="row-right">
                     <div className="row-price">{fmtPrice(lang, s.current_price, 0)}</div>
-                    <div className={`row-chg ${up ? 'up' : down ? 'down' : 'flat'}`}>
-                      <span className="chg-val">{fmtPrice(lang, (s.current_price || 0) * chg / 100, 0)}</span>
+                    <div className={`row-chg ${!hasPrice ? 'flat' : up ? 'up' : down ? 'down' : 'flat'}`}>
+                      <span className="chg-val">{hasPrice ? fmtPrice(lang, (s.current_price || 0) * (chg || 0) / 100, 0) : '—'}</span>
                       <span className="chg-pct">{fmtChange(lang, chg)}</span>
                     </div>
                   </div>

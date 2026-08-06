@@ -687,8 +687,8 @@ export default function Quote() {
         .qs-value.down { color: #FF4D4F; }
         .chart-area {
           display: flex; flex-direction: column;
-          height: clamp(480px, 72vh, 760px);
-          min-height: 440px;
+          height: clamp(560px, 84vh, 900px);
+          min-height: 500px;
           margin: 0 -8px;
         }
         .chart-timeframes {

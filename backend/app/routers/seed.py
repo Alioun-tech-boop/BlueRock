@@ -23,6 +23,40 @@ def _map_sector(brvm_sector: str) -> Sector:
     return SECTOR_VALUE_TO_ENUM.get(value, Sector.AUTRE)
 
 
+# Catalogue des instruments cotés BRVM hors actions : obligations et FCP.
+# Pas de flux de prix en temps réel pour ces segments (données statiques).
+INSTRUMENTS = [
+    # ---- Obligations (cote obligations BRVM) ----
+    {"symbol": "EPA-24", "instrument_type": "obligation", "name": "État de Côte d'Ivoire — EPA 6,25% 2017-2024", "description": "Obligation assimilable de l'État de Côte d'Ivoire, taux 6,25%, échéance 2024."},
+    {"symbol": "ECCI-24", "instrument_type": "obligation", "name": "État de Côte d'Ivoire — ECCI 6,40% 2018-2024", "description": "Obligation de l'État de Côte d'Ivoire, taux 6,40%, échéance 2024."},
+    {"symbol": "CTEL-23", "instrument_type": "obligation", "name": "Côte d'Ivoire Telecom — 6,10% 2018-2023", "description": "Obligation corporate Côte d'Ivoire Télécom, taux 6,10%."},
+    {"symbol": "CIE-23", "instrument_type": "obligation", "name": "CIE — 6,25% 2018-2023", "description": "Obligation de la Compagnie Ivoirienne d'Électricité, taux 6,25%."},
+    {"symbol": "PALM-23", "instrument_type": "obligation", "name": "PALM-CI — 6,10% 2018-2023", "description": "Obligation PALM-CI (Palmeraies de Côte d'Ivoire), taux 6,10%."},
+    {"symbol": "SIB-23", "instrument_type": "obligation", "name": "SIB — 6,25% 2018-2023", "description": "Obligation de la Société Ivoirienne de Banque, taux 6,25%."},
+    {"symbol": "BOACI-23", "instrument_type": "obligation", "name": "BOA-CI — 6,10% 2018-2023", "description": "Obligation Bank of Africa Côte d'Ivoire, taux 6,10%."},
+    {"symbol": "BHS-23", "instrument_type": "obligation", "name": "BHS — 6,10% 2018-2023", "description": "Obligation de la Banque de l'Habitat du Sénégal, taux 6,10%."},
+    {"symbol": "ONATEL-23", "instrument_type": "obligation", "name": "ONATEL-BF — 6,15% 2018-2023", "description": "Obligation ONATEL Burkina Faso, taux 6,15%."},
+    {"symbol": "SEN-24", "instrument_type": "obligation", "name": "État du Sénégal — 6,25% 2017-2024", "description": "Obligation de l'État du Sénégal, taux 6,25%."},
+    {"symbol": "MALI-23", "instrument_type": "obligation", "name": "État du Mali — 6,10% 2018-2023", "description": "Obligation de l'État du Mali, taux 6,10%."},
+    {"symbol": "TOGO-24", "instrument_type": "obligation", "name": "État du Togo — 6,20% 2019-2024", "description": "Obligation de l'État du Togo, taux 6,20%."},
+    {"symbol": "NESTLE-24", "instrument_type": "obligation", "name": "Nestlé Côte d'Ivoire — 6,00% 2019-2024", "description": "Obligation corporate Nestlé Côte d'Ivoire, taux 6,00%."},
+    {"symbol": "UNIWAX-24", "instrument_type": "obligation", "name": "Uniwax — 6,25% 2019-2024", "description": "Obligation Uniwax, taux 6,25%."},
+    # ---- FCP (fonds communs de placement) ----
+    {"symbol": "FAO", "instrument_type": "fcp", "name": "FCP Atlantique Obligataire", "description": "Fonds commun de placement obligataire géré par Atlantique Asset Management."},
+    {"symbol": "FAA", "instrument_type": "fcp", "name": "FCP Atlantique Actions", "description": "Fonds commun de placement actions géré par Atlantique Asset Management."},
+    {"symbol": "FNC", "instrument_type": "fcp", "name": "FCP NSIA Croissance", "description": "Fonds commun de placement de croissance géré par NSIA Gestion d'Actifs."},
+    {"symbol": "FNP", "instrument_type": "fcp", "name": "FCP NSIA Patrimoine", "description": "Fonds commun de placement patrimonial géré par NSIA Gestion d'Actifs."},
+    {"symbol": "FNR", "instrument_type": "fcp", "name": "FCP NSIA Rendement", "description": "Fonds commun de placement de rendement géré par NSIA Gestion d'Actifs."},
+    {"symbol": "FUR", "instrument_type": "fcp", "name": "FCP UBC Renta Obligataire", "description": "Fonds commun de placement obligataire géré par UBC Gestion."},
+    {"symbol": "FCO", "instrument_type": "fcp", "name": "FCP Coris Obligataire", "description": "Fonds commun de placement obligataire géré par Coris Gestion."},
+    {"symbol": "FCA", "instrument_type": "fcp", "name": "FCP Coris Actions", "description": "Fonds commun de placement actions géré par Coris Gestion."},
+    {"symbol": "FBJ", "instrument_type": "fcp", "name": "FCP Bijou Obligataire", "description": "Fonds commun de placement obligataire de la BICICI."},
+    {"symbol": "FSS", "instrument_type": "fcp", "name": "FCP SIB Sécurité", "description": "Fonds commun de placement monétaire géré par la SIB."},
+    {"symbol": "FEC", "instrument_type": "fcp", "name": "FCP Ecobank Croissance", "description": "Fonds commun de placement de croissance géré par Ecobank."},
+    {"symbol": "FBR", "instrument_type": "fcp", "name": "FCP BRS Obligataire", "description": "Fonds commun de placement obligataire géré par BRS Gestion."},
+]
+
+
 @router.post("/companies")
 def seed_companies(db: Session = Depends(get_db), _=Depends(require_admin)):
     snapshot = _load_snapshot()
@@ -43,6 +77,26 @@ def seed_companies(db: Session = Depends(get_db), _=Depends(require_admin)):
             count += 1
     db.commit()
     return {"status": "success", "companies_created": count}
+
+
+@router.post("/instruments")
+def seed_instruments(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Seed des obligations et FCP cotés BRVM (catalogue statique, sans flux de prix)."""
+    count = 0
+    for data in INSTRUMENTS:
+        existing = db.query(Company).filter(Company.symbol == data["symbol"]).first()
+        if not existing:
+            company = Company(
+                symbol=data["symbol"],
+                name=data["name"],
+                sector=Sector.AUTRE,
+                instrument_type=data["instrument_type"],
+                description=data.get("description"),
+            )
+            db.add(company)
+            count += 1
+    db.commit()
+    return {"status": "success", "instruments_created": count, "instruments_total": len(INSTRUMENTS)}
 
 
 @router.post("/all")

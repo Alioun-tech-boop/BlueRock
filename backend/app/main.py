@@ -134,6 +134,7 @@ def _ensure_schema():
             "last_day_change_pct",
         ],
         "notifications": ["email_sent"],
+        "companies": ["instrument_type"],
     }
     ts_cols = {"email_verify_expires", "email_verify_sent_at", "locked_until", "password_reset_expires", "executed_at",
                "issued_at", "matured_at", "cancelled_at", "completed_at", "last_tracked_at"}
@@ -178,6 +179,9 @@ def _ensure_schema():
                 elif col == "allocation_snapshot":
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TEXT"))
+                elif col == "instrument_type" and table == "companies":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR(20) NOT NULL DEFAULT 'equity'"))
                 elif col in ts_cols:
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TIMESTAMP"))
