@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
 import { supabase } from '../lib/supabase'
-import { Search, Plus, Star, X, Wallet } from 'lucide-react'
+import { Search, Plus, Star, X, Wallet, ChevronDown } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 
 const FAV_KEY = 'bluerock_favorites_v1'
@@ -26,6 +26,8 @@ const TYPES = [
   { id: 'obligation', label: 'wlObligations' },
   { id: 'fcp', label: 'wlFcp' },
 ]
+
+const COLLAPSE_AT = 5
 
 function AddSheet({ lang, favorites, onToggle, onClose }) {
   const [query, setQuery] = useState('')
@@ -135,31 +137,34 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .sheet-list::-webkit-scrollbar { display: none; }
           .sheet-empty { padding: 30px 0; text-align: center; color: #666; font-size: 13px; }
           .add-group {
-            font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+            font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
             text-transform: uppercase; color: #8f8f8f;
-            padding: 14px 0 4px;
+            padding: 16px 0 6px;
           }
           .add-row {
             position: relative;
             display: flex; align-items: center; gap: 14px;
-            padding: 12px 0;
+            padding: 14px 0;
             cursor: pointer;
           }
           .add-row::after {
             content: '';
-            position: absolute; left: 54px; right: 0; bottom: 0;
+            position: absolute; left: 62px; right: 0; bottom: 0;
             height: 1px; background: #202020;
           }
           .add-logo {
-            width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+            width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 14px; color: #fff;
+            font-weight: 700; font-size: 16px; color: #fff;
           }
-          .add-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-          .add-name { font-size: 15px; font-weight: 700; color: #fff; }
-          .add-sub { font-size: 12px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .add-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+          .add-name {
+            font-size: 17px; font-weight: 700; color: #fff;
+            text-shadow: 0 0 10px rgba(255,255,255,0.35), 0 0 22px rgba(255,255,255,0.12);
+          }
+          .add-sub { font-size: 13px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
           .add-btn {
-            width: 36px; height: 36px; border: none; background: none;
+            width: 40px; height: 40px; border: none; background: none;
             display: flex; align-items: center; justify-content: center;
             cursor: pointer; border-radius: 50%;
             transition: opacity 160ms ease-out, transform 160ms ease-out;
@@ -179,6 +184,7 @@ export default function Watchlist() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [expanded, setExpanded] = useState({})
   const mounted = useRef(true)
 
   const fetchData = useCallback(async (silent = false) => {
@@ -288,42 +294,63 @@ export default function Watchlist() {
           </div>
         ) : (
           <div className="stock-list">
-            {favList.map(s => {
-              const chg = s.change_percent ?? null
-              const up = chg > 0
-              const down = chg < 0
-              const isFav = favorites.includes(s.symbol)
-              const hasPrice = s.current_price != null
+            {TYPES.map(tp => {
+              const group = favList.filter(s => s.instrument_type === tp.id)
+              if (!group.length) return null
+              const isOpen = !!expanded[tp.id]
+              const visible = isOpen ? group : group.slice(0, COLLAPSE_AT)
+              const hidden = group.length - visible.length
               return (
-                <div
-                  key={s.symbol}
-                  className="stock-row"
-                  onClick={() => router.push(`/company?id=${s.id}`)}
-                >
-                  <div className="row-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
-                    {s.symbol?.[0]}
+                <div key={tp.id} className="list-section">
+                  <div className="list-group">
+                    <span>{t(lang, tp.label)}</span>
+                    <span className="list-count">{group.length}</span>
                   </div>
-                  <div className="row-info">
-                    <div className="row-title-line">
-                      <span className="row-symbol">{s.symbol}</span>
-                      <span className="row-dash" />
-                    </div>
-                    <div className="row-sub">{s.name}</div>
-                  </div>
-                  <div className="row-right">
-                    <div className="row-price">{fmtPrice(lang, s.current_price, 0)}</div>
-                    <div className={`row-chg ${!hasPrice ? 'flat' : up ? 'up' : down ? 'down' : 'flat'}`}>
-                      <span className="chg-val">{hasPrice ? fmtPrice(lang, (s.current_price || 0) * (chg || 0) / 100, 0) : '—'}</span>
-                      <span className="chg-pct">{fmtChange(lang, chg)}</span>
-                    </div>
-                  </div>
-                  <button
-                    className={`row-star ${isFav ? 'active' : ''}`}
-                    onClick={e => { e.stopPropagation(); toggleFavorite(s.symbol) }}
-                    aria-label="favori"
-                  >
-                    <Star size={11} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#5a5a5a'} />
-                  </button>
+                  {visible.map(s => {
+                    const chg = s.change_percent ?? null
+                    const up = chg > 0
+                    const down = chg < 0
+                    const isFav = favorites.includes(s.symbol)
+                    const hasPrice = s.current_price != null
+                    return (
+                      <div
+                        key={s.symbol}
+                        className="stock-row"
+                        onClick={() => router.push(`/company?id=${s.id}`)}
+                      >
+                        <div className="row-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
+                          {s.symbol?.[0]}
+                        </div>
+                        <div className="row-info">
+                          <div className="row-title-line">
+                            <span className="row-symbol">{s.symbol}</span>
+                          </div>
+                          <div className="row-sub">{s.name}</div>
+                        </div>
+                        <div className="row-right">
+                          <div className="row-price">{fmtPrice(lang, s.current_price, 0)}</div>
+                          <div className={`row-chg ${!hasPrice ? 'flat' : up ? 'up' : down ? 'down' : 'flat'}`}>
+                            <span className="chg-val">{hasPrice ? fmtPrice(lang, (s.current_price || 0) * (chg || 0) / 100, 0) : '—'}</span>
+                            <span className="chg-pct">{fmtChange(lang, chg)}</span>
+                          </div>
+                        </div>
+                        <button
+                          className={`row-star ${isFav ? 'active' : ''}`}
+                          onClick={e => { e.stopPropagation(); toggleFavorite(s.symbol) }}
+                          aria-label="favori"
+                        >
+                          <Star size={14} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#5a5a5a'} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {hidden > 0 && (
+                    <button className="section-toggle" onClick={() => setExpanded(prev => ({ ...prev, [tp.id]: !isOpen }))}>
+                      {isOpen
+                        ? <>{t(lang, 'wlSeeLess')} <ChevronDown size={15} className="chev up" /></>
+                        : <>{t(lang, 'wlSeeMore')} · {hidden} <ChevronDown size={15} className="chev" /></>}
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -347,7 +374,7 @@ export default function Watchlist() {
           background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
-        .safe-area { flex: 1; overflow-y: auto; }
+        .safe-area { flex: 1; overflow-y: auto; padding-bottom: 110px; }
         .safe-area::-webkit-scrollbar { display: none; }
 
         .top-bar {
@@ -469,58 +496,93 @@ export default function Watchlist() {
         }
         .empty-sub { font-size: 12px; color: #666; }
 
-        .stock-list { padding: 0 0 16px; }
+        .stock-list { padding: 0 0 8px; }
+        .list-section { padding-bottom: 6px; }
+        .list-group {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 13px; font-weight: 800; letter-spacing: 0.6px;
+          text-transform: uppercase; color: #b9b9b9;
+          padding: 20px 22px 10px;
+          text-shadow: 0 0 10px rgba(255,255,255,0.25);
+        }
+        .list-count {
+          min-width: 24px; height: 24px; padding: 0 8px;
+          display: flex; align-items: center; justify-content: center;
+          background: #1E1E1E; border-radius: 12px;
+          font-size: 12px; font-weight: 700; color: #00C087;
+          text-shadow: 0 0 8px rgba(0,192,135,0.7);
+        }
+        .section-toggle {
+          display: flex; align-items: center; justify-content: center; gap: 6px;
+          margin: 10px 22px 4px;
+          width: calc(100% - 44px); height: 44px;
+          background: #1A1A1A; border: none; border-radius: 14px;
+          color: #00C087; font-size: 14px; font-weight: 700;
+          cursor: pointer; font-family: inherit;
+          text-shadow: 0 0 10px rgba(0,192,135,0.5);
+          transition: opacity 160ms ease-out, transform 160ms ease-out;
+        }
+        .section-toggle:active { opacity: 0.9; transform: scale(0.98); }
+        .section-toggle .chev { transition: transform 160ms ease-out; }
+        .section-toggle .chev.up { transform: rotate(180deg); }
         .stock-row {
           position: relative;
           display: flex; align-items: center;
-          height: 76px; padding: 0 16px 0 0;
+          height: 96px; padding: 0 16px 0 0;
           cursor: pointer;
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
         .stock-row:active { opacity: 0.9; transform: scale(0.98); }
         .row-logo {
-          width: 42px; height: 42px; border-radius: 50%;
-          margin-left: 16px; flex-shrink: 0;
+          width: 56px; height: 56px; border-radius: 50%;
+          margin-left: 18px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          color: #fff; font-size: 13px; font-weight: 700;
+          color: #fff; font-size: 17px; font-weight: 700;
         }
         .row-info {
           flex: 1; min-width: 0;
-          margin-left: 14px;
-          display: flex; flex-direction: column; gap: 4px;
+          margin-left: 16px;
+          display: flex; flex-direction: column; gap: 5px;
         }
-        .row-title-line { display: flex; align-items: center; gap: 7px; }
+        .row-title-line { display: flex; align-items: center; gap: 8px; }
         .row-symbol {
-          font-size: 15px; font-weight: 700; color: #fff;
+          font-size: 20px; font-weight: 700; color: #fff;
           white-space: nowrap;
-        }
-        .row-dash {
-          width: 11px; height: 5px; border-radius: 3px;
-          background: #8E8E8E;
+          text-shadow: 0 0 10px rgba(255,255,255,0.4), 0 0 24px rgba(255,255,255,0.15);
         }
         .row-sub {
-          font-size: 11px; font-weight: 400; color: #8B8B8B;
+          font-size: 13px; font-weight: 400; color: #8B8B8B;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .row-right {
-          display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+          display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
           padding-right: 16px; flex-shrink: 0;
         }
         .row-price {
-          font-size: 14px; font-weight: 700; color: #fff;
+          font-size: 19px; font-weight: 700; color: #fff;
           font-family: 'JetBrains Mono', monospace; white-space: nowrap;
+          text-shadow: 0 0 12px rgba(255,255,255,0.45), 0 0 26px rgba(255,255,255,0.18);
         }
         .row-chg {
           display: flex; align-items: center; gap: 10px;
-          font-size: 11px; font-weight: 600;
+          font-size: 13px; font-weight: 600;
           font-family: 'JetBrains Mono', monospace;
         }
-        .row-chg.up { color: #00C087; }
-        .row-chg.down { color: #F23645; }
-        .row-chg.flat { color: #8b8b8b; }
+        .row-chg.up {
+          color: #00C087;
+          text-shadow: 0 0 10px rgba(0,192,135,0.9), 0 0 24px rgba(0,192,135,0.4);
+        }
+        .row-chg.down {
+          color: #F23645;
+          text-shadow: 0 0 10px rgba(242,54,69,0.9), 0 0 24px rgba(242,54,69,0.4);
+        }
+        .row-chg.flat {
+          color: #8b8b8b;
+          text-shadow: 0 0 8px rgba(139,139,139,0.5);
+        }
         .row-star {
-          position: absolute; top: 5px; right: 6px;
-          width: 22px; height: 22px; border: none; background: none;
+          position: absolute; top: 8px; right: 8px;
+          width: 26px; height: 26px; border: none; background: none;
           display: flex; align-items: center; justify-content: center;
           cursor: pointer; border-radius: 50%;
           transition: opacity 160ms ease-out, transform 160ms ease-out;

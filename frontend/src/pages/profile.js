@@ -3,12 +3,12 @@ import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { updateMe } from '../services/api'
+import { updateMe, getCommunityMe } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
 import BottomNav from '../components/BottomNav'
 import {
   ArrowLeft, UserRound, Shield, Mail, Check, LogOut, Eye, EyeOff,
-  KeyRound, Loader2, Copy, Lock, Wallet, BadgeCheck, X,
+  KeyRound, Loader2, Copy, Lock, Wallet, BadgeCheck, X, AtSign, Rocket, Users,
 } from 'lucide-react'
 
 const AVATARS = ['🦁', '🐘', '🐆', '🦓', '🦅', '🐬', '🌴', '🔥', '⚡', '💎', '🐊', '🦜', '🐢', '🦩', '🪙', '📈']
@@ -62,6 +62,16 @@ export default function ProfilePage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [pwdBusy, setPwdBusy] = useState(false)
 
+  // e-mail de connexion
+  const [newEmail, setNewEmail] = useState('')
+  const [emailPwd, setEmailPwd] = useState('')
+  const [showEmailPwd, setShowEmailPwd] = useState(false)
+  const [emailBusy, setEmailBusy] = useState(false)
+
+  // communauté
+  const [community, setCommunity] = useState(null)
+  const [communityPosts, setCommunityPosts] = useState([])
+
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
 
@@ -75,6 +85,9 @@ export default function ProfilePage() {
     }
     setName(user.name || '')
     setAvatar(user.avatar || '')
+    getCommunityMe()
+      .then(r => { setCommunity(r.data.user || null); setCommunityPosts(r.data.posts || []) })
+      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user])
 
@@ -204,6 +217,40 @@ export default function ProfilePage() {
     }
   }
 
+  const submitEmail = async (e) => {
+    e.preventDefault()
+    const email = newEmail.trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      banner(t(lang, 'pfEmailInvalid'), null)
+      return
+    }
+    if (email === (user.email || '').toLowerCase()) {
+      setNewEmail('')
+      setEmailPwd('')
+      banner(null, null)
+      return
+    }
+    setEmailBusy(true); banner(null, null)
+    try {
+      const check = await supabase.auth.signInWithPassword({ email: user.email, password: emailPwd })
+      if (check.error) throw check.error
+      const upd = await supabase.auth.updateUser({ email })
+      if (upd.error) throw upd.error
+      await updateMe({ email }).catch(() => {})
+      updateUser({ email })
+      setNewEmail('')
+      setEmailPwd('')
+      banner(null, t(lang, 'pfEmailChanged').replace('{email}', email))
+    } catch (err) {
+      const msg = errMsg(err, '')
+      if (/invalid.*credential|wrong password|incorrect/i.test(msg)) banner(t(lang, 'pfPwdWrong'), null)
+      else if (/already been registered|duplicate|déjà utilisé|exists/i.test(msg)) banner(t(lang, 'pfEmailExists'), null)
+      else banner(errMsg(err, t(lang, 'authError')), null)
+    } finally {
+      setEmailBusy(false)
+    }
+  }
+
   const doLogout = async () => {
     await logout()
     router.replace('/login')
@@ -287,6 +334,34 @@ export default function ProfilePage() {
           </div>
           <button className="auth-submit" disabled={saveBusy || !name.trim()}>
             {saveBusy ? <Spinner /> : <Check size={16} />}{t(lang, 'pfSave')}
+          </button>
+        </form>
+
+        {/* ---- E-mail de connexion ---- */}
+        <div className="section-title">{t(lang, 'pfEmailSection')}</div>
+        <form className="card form-card" onSubmit={submitEmail}>
+          <div className="field">
+            <span className="field-label">{t(lang, 'pfNewEmail')}</span>
+            <div className="input-wrap">
+              <AtSign size={16} className="input-ico" />
+              <input className="auth-input" type="email" value={newEmail}
+                onChange={e => setNewEmail(e.target.value)}
+                placeholder={user.email} autoComplete="email" />
+            </div>
+          </div>
+          <div className="field">
+            <span className="field-label">{t(lang, 'pfCurrentPwd')}</span>
+            <div className="input-wrap">
+              <Lock size={16} className="input-ico" />
+              <input className="auth-input" type={showEmailPwd ? 'text' : 'password'} value={emailPwd}
+                onChange={e => setEmailPwd(e.target.value)} autoComplete="current-password" />
+              <button type="button" className="pwd-toggle" onClick={() => setShowEmailPwd(!showEmailPwd)}>
+                {showEmailPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          <button className="auth-submit" disabled={emailBusy || !newEmail.trim() || !emailPwd}>
+            {emailBusy ? <Spinner /> : <Mail size={15} />}{t(lang, 'pfChangeEmail')}
           </button>
         </form>
 
@@ -429,6 +504,68 @@ export default function ProfilePage() {
             {pwdBusy ? <Spinner /> : <KeyRound size={15} />}{t(lang, 'pfUpdatePwd')}
           </button>
         </form>
+
+        {/* ---- Ma communauté ---- */}
+        <div className="section-title">{t(lang, 'pfCommunity')}</div>
+
+        {community && (
+          <div className="card comm-card">
+            <div className="comm-head">
+              <div className="comm-avatar" style={{ background: community.avatar_color || '#7266D9' }}>
+                {community.avatar ? <img src={community.avatar} alt="" /> : (community.handle || 'U').charAt(0).toUpperCase()}
+              </div>
+              <div className="comm-id">
+                <span className="comm-name">
+                  {community.display_name || user.name}
+                  {community.verified && <BadgeCheck size={14} color="#1DA1F2" />}
+                </span>
+                <span className="comm-handle">@{community.handle}</span>
+              </div>
+              <button className="ghost-btn" onClick={() => router.push('/community')}>
+                <Users size={13} />{t(lang, 'pfGoCommunity')}
+              </button>
+            </div>
+            <div className="comm-stats">
+              <div className="cstat">
+                <span className="cstat-n">{community.posts_count ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'cPosts')}</span>
+              </div>
+              <div className="cstat">
+                <span className="cstat-n">{community.followers_count ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'cFollowers')}</span>
+              </div>
+              <div className="cstat">
+                <span className="cstat-n">{community.following_count ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'cFollowingCount')}</span>
+              </div>
+              <div className="cstat">
+                <span className="cstat-n">{community.rockets_received ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'pfLikes')}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card posts-card">
+          <div className="posts-head"><Rocket size={15} />{t(lang, 'pfMyPosts')}</div>
+          {!community || communityPosts.length === 0 ? (
+            <p className="info-empty">{t(lang, 'pfNoPosts')}</p>
+          ) : (
+            communityPosts.map(p => (
+              <button key={p.id} className="mini-post" onClick={() => router.push('/community')}>
+                <span className={`mini-badge ${p.sentiment === 'bearish' ? 'bear' : 'bull'}`}>
+                  {p.sentiment === 'bearish' ? '▼' : '▲'}
+                </span>
+                <div className="mini-text">
+                  <div className="mini-title">{p.title}</div>
+                  <div className="mini-meta">
+                    {p.symbol} · 🚀 {p.rockets} · 💬 {p.comments} · {p.created_at ? new Date(p.created_at).toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : ''}
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
 
         {/* ---- Déconnexion ---- */}
         <button className="logout-btn" onClick={doLogout}>
@@ -589,6 +726,43 @@ export default function ProfilePage() {
           font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px;
         }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 14px 0 6px; }
+        .comm-card, .posts-card { display: flex; flex-direction: column; gap: 12px; }
+        .comm-head { display: flex; align-items: center; gap: 12px; }
+        .comm-avatar {
+          width: 52px; height: 52px; border-radius: 16px; overflow: hidden; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          color: #fff; font-weight: 800; font-size: 22px;
+        }
+        .comm-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .comm-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .comm-name { font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+        .comm-handle { font-size: 12px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
+        .comm-stats {
+          display: flex; justify-content: space-between;
+          background: #0d0d0d; border: 1px solid #1f1f1f; border-radius: 14px; padding: 12px 10px;
+        }
+        .cstat { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+        .cstat-n { font-size: 17px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+        .cstat-l { font-size: 10px; color: #8f8f8f; white-space: nowrap; }
+        .posts-head { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: #00C853; }
+        .info-empty { font-size: 12.5px; color: #8f8f8f; line-height: 1.6; margin: 4px 0; }
+        .mini-post {
+          display: flex; gap: 10px; align-items: flex-start; width: 100%;
+          background: none; border: none; color: inherit; cursor: pointer;
+          padding: 12px 0; border-bottom: 1px solid #1f1f1f;
+          font-family: inherit; text-align: left;
+        }
+        .mini-post:last-child { border-bottom: none; }
+        .mini-badge {
+          width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; font-weight: 800;
+        }
+        .mini-badge.bull { background: rgba(0,200,83,0.12); color: #00C853; }
+        .mini-badge.bear { background: rgba(255,77,79,0.12); color: #FF4D4F; }
+        .mini-text { flex: 1; min-width: 0; }
+        .mini-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+        .mini-meta { font-size: 11.5px; color: #8f8f8f; margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>

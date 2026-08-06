@@ -49,13 +49,6 @@
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
 }
 
-/* --- Liste de valeurs : cadre global (type tableau TradingView) --- */
-.stock-list {
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
-  border-radius: 16px !important;
-  padding: 0 12px !important;
-}
-
 /* --- Chat : séparation entre la zone de message et la saisie --- */
 .chat-input-bar {
   border-top: 1px solid rgba(255, 255, 255, 0.2) !important;

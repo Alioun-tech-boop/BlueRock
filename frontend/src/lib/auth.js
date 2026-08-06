@@ -17,7 +17,7 @@ function profileFromSession(sbUser, profile) {
   const mfaEnabled = factors.some(f => f.status === 'verified')
   return {
     ...(profile || {}),
-    email: sbUser?.email || profile?.email || '',
+    email: sbUser?.new_email || sbUser?.email || profile?.email || '',
     name: sbUser?.user_metadata?.full_name || profile?.name || 'Utilisateur',
     email_verified: !!sbUser?.email_confirmed_at,
     totp_enabled: mfaEnabled,

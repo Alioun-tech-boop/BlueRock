@@ -173,6 +173,34 @@ def list_users(
     return {"users": [_user_out(u, current) for u in users]}
 
 
+@router.get("/me")
+def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Profil communautaire de l'utilisateur connecté + ses publications."""
+    current = _get_or_create_profile(db, user)
+    profile = (
+        db.query(CommunityUser)
+        .options(
+            joinedload(CommunityUser.followers),
+            joinedload(CommunityUser.following),
+            joinedload(CommunityUser.posts).joinedload(CommunityPost.reactions),
+            joinedload(CommunityUser.posts).joinedload(CommunityPost.comments),
+            joinedload(CommunityUser.posts).joinedload(CommunityPost.author),
+        )
+        .filter(CommunityUser.id == current.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    ctx = _company_ctx(db)
+    posts = sorted(profile.posts, key=lambda p: p.created_at or datetime.min, reverse=True)
+    user_out = _user_out(profile, current)
+    user_out["rockets_received"] = sum(len(p.reactions) for p in profile.posts)
+    return {
+        "user": user_out,
+        "posts": [_post_out(p, ctx, current) for p in posts],
+    }
+
+
 @router.get("/users/{user_id}")
 def get_user(user_id: int, user: User | None = Depends(get_optional_user), db: Session = Depends(get_db)):
     current = _get_or_create_profile(db, user) if user else None
