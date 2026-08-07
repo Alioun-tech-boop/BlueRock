@@ -30,3 +30,6 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+
+# Tesseract portable (271 Mo, dev local uniquement — Docker installe tesseract-ocr)
+tools/

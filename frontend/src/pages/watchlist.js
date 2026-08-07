@@ -1,9 +1,9 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
 import { supabase } from '../lib/supabase'
-import { Search, Plus, Star, X, Wallet, ChevronDown, Bell } from 'lucide-react'
+import { Search, Plus, Star, X, ChevronDown, Bell } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 import { getUnreadCount } from '../services/api'
@@ -23,57 +23,20 @@ function saveJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
 }
 
-const TYPES = [
+const CATS = [
+  { id: 'all', label: 'wlAll' },
   { id: 'equity', label: 'wlActions' },
   { id: 'obligation', label: 'wlObligations' },
   { id: 'fcp', label: 'wlFcp' },
 ]
 
-const COLLAPSE_AT = 5
+const SORTS = [
+  { id: 'name', label: 'wlSortName' },
+  { id: 'change', label: 'wlSortChange' },
+  { id: 'price', label: 'wlSortPrice' },
+]
 
-const SYMBOL_COUNTRY = {
-  'ABJC': 'CI', 'ABVC': 'CI', 'ADVTA': 'CI', 'AFRIC': 'CI', 'ALCIV': 'CI',
-  'BICC': 'CI', 'BNDC': 'CI', 'BNBC': 'CI', 'BOAB': 'CI', 'BOAC': 'CI',
-  'CBIBF': 'BF', 'CBIBJ': 'BJ', 'CDCI': 'CI', 'CEDAC': 'CI', 'CFAC': 'CI',
-  'CIEC': 'CI', 'CIPLA': 'CI', 'COFINA': 'CI', 'CORIS': 'BF', 'ECOBANC': 'CI',
-  'ECOBF': 'BF', 'ECOBJ': 'BJ', 'ECOTC': 'CI', 'ENI': 'CI', 'ETIT': 'CI',
-  'FILTIS': 'CI', 'FINAN': 'ML', 'FONCIER': 'CI', 'FUTUR': 'CI', 'GEST': 'ML',
-  'ICLA': 'CI', 'INTB': 'CI', 'LINAF': 'SN', 'LINBF': 'BF', 'LINBJ': 'BJ',
-  'LINML': 'ML', 'LINSN': 'SN', 'LONTAB': 'CI', 'MTNE': 'CI', 'NASCI': 'CI',
-  'NEI-CI': 'CI', 'NESLY': 'CI', 'NESTLE': 'CI', 'NTLC': 'TG', 'NUCL': 'SN',
-  'ONATEL': 'BF', 'ONTBF': 'BF', 'ORAG': 'CI', 'ORAC': 'CI', 'PALCI': 'CI',
-  'PRSC': 'CI', 'SABC': 'CI', 'SAHAM': 'SN', 'SECU': 'CI', 'SDCC': 'CI',
-  'SEMBCI': 'CI', 'SGBF': 'BF', 'SGBCI': 'CI', 'SGBJ': 'BJ', 'SICOR': 'CI',
-  'SITAB': 'CI', 'SIIC': 'SN', 'SIVC': 'CI', 'SMBF': 'BF', 'SNTS': 'SN',
-  'SOCEF': 'SN', 'SOCOCIM': 'SN', 'SOLIBRA': 'CI', 'SONATEL': 'SN', 'SONEL': 'SN',
-  'SPBF': 'BF', 'STAC': 'CI', 'STBAN': 'TG', 'TTLS': 'TG', 'UNCF': 'SN',
-  'UNIWAX': 'CI', 'VIVO': 'CI', 'BNDC.O': 'CI', 'CIEC.O': 'CI', 'CIPLA.O': 'CI',
-  'ETIT.O': 'CI', 'SABC.O': 'CI', 'SGBF.O': 'BF', 'SGBCI.O': 'CI', 'SONEL.O': 'SN',
-}
-
-const COUNTRY_NAMES = {
-  'CI': 'Côte d\u2019Ivoire', 'BJ': 'Bénin', 'BF': 'Burkina Faso', 'ML': 'Mali',
-  'NE': 'Niger', 'SN': 'Sénégal', 'TG': 'Togo', 'UEMOA': 'UEMOA',
-}
-
-const COUNTRY_KEYS = { 'CI': 'CI', 'BJ': 'BJ', 'BF': 'BF', 'ML': 'ML', 'NE': 'NE', 'SN': 'SN', 'TG': 'TG' }
-
-function countryOf(s) {
-  if (!s) return 'UEMOA'
-  if (SYMBOL_COUNTRY[s.symbol]) return SYMBOL_COUNTRY[s.symbol]
-  if (s.instrument_type === 'fcp') return 'UEMOA'
-  const n = (s.name || '')
-  if (n.includes('Bénin')) return 'BJ'
-  if (n.includes('Burkina')) return 'BF'
-  if (n.includes('Mali')) return 'ML'
-  if (n.includes('Niger')) return 'NE'
-  if (n.includes('SÉNÉGAL') || n.includes('SENEGAL')) return 'SN'
-  if (n.includes('Togo')) return 'TG'
-  if (n.includes('CÔTE') || n.includes('COTE') || n.includes('IVOIR')) return 'CI'
-  return 'UEMOA'
-}
-
-const TYPE_ORDER = ['equity', 'obligation', 'fcp']
+const STATUS_LABEL = { equity: 'wlActions', obligation: 'wlObligations', fcp: 'wlFcp' }
 
 function AddSheet({ lang, favorites, onToggle, onClose }) {
   const [query, setQuery] = useState('')
@@ -98,7 +61,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
   const q = query.trim().toLowerCase()
   const match = s => !q || (s.symbol || '').toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q)
   const groupsList = groups
-    ? TYPES.map(tp => ({ ...tp, list: (groups[tp.id] || []).filter(match) })).filter(g => g.list.length)
+    ? CATS.slice(1).map(tp => ({ ...tp, list: (groups[tp.id] || []).filter(match) })).filter(g => g.list.length)
     : []
 
   return (
@@ -124,7 +87,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           {!loading && groupsList.length === 0 && <div className="sheet-empty">{t(lang, 'noResults')}</div>}
           {groupsList.map(g => (
             <div key={g.id}>
-              <div className="add-group">{g.label}</div>
+              <div className="add-group">{t(lang, g.label)}</div>
               {g.list.map(s => {
                 const isFav = favorites.includes(s.symbol)
                 return (
@@ -136,8 +99,8 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
                       <div className="add-name">{s.symbol}</div>
                       <div className="add-sub">{s.name}</div>
                     </div>
-                    <button className={`add-btn ${isFav ? 'active' : ''}`} aria-label="ajouter">
-                      <Star size={18} fill={isFav ? '#18C27C' : 'none'} color={isFav ? '#18C27C' : '#9AA3B2'} />
+                    <button className={`add-btn ${isFav ? 'active' : ''}`} aria-label={t(lang, 'wlAdd')}>
+                      <Star size={18} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#8f8f8f'} />
                     </button>
                   </div>
                 )
@@ -173,7 +136,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
             background: #1A1A1A; border-radius: 14px;
             padding: 0 16px; height: 48px; margin: 16px 22px 8px;
           }
-          .ss-icon { color: #9AA3B2; flex-shrink: 0; }
+          .ss-icon { color: #8f8f8f; flex-shrink: 0; }
           .sheet-search input {
             flex: 1; background: none; border: none; outline: none;
             color: #fff; font-size: 15px; font-family: inherit;
@@ -184,7 +147,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .sheet-empty { padding: 30px 0; text-align: center; color: #666; font-size: 13px; }
           .add-group {
             font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
-            text-transform: uppercase; color: #9AA3B2;
+            text-transform: uppercase; color: #8f8f8f;
             padding: 16px 0 6px;
           }
           .add-row {
@@ -206,9 +169,9 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .add-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
           .add-name {
             font-size: 17px; font-weight: 700; color: #fff;
-            
+            text-shadow: 0 0 10px rgba(255,255,255,0.35), 0 0 22px rgba(255,255,255,0.12);
           }
-          .add-sub { font-size: 13px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .add-sub { font-size: 13px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
           .add-btn {
             width: 40px; height: 40px; border: none; background: none;
             display: flex; align-items: center; justify-content: center;
@@ -222,6 +185,31 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
   )
 }
 
+function SelectBox({ label, value, options, open, onToggle, onSelect }) {
+  return (
+    <div className={`select-box ${open ? 'open' : ''}`}>
+      <span className="select-label">{label}</span>
+      <div className="select-value" onClick={onToggle}>
+        <span>{value}</span>
+        <ChevronDown size={15} className={`chev ${open ? 'up' : ''}`} />
+      </div>
+      {open && (
+        <div className="select-menu">
+          {options.map(o => (
+            <button
+              key={o.id}
+              className={`select-opt ${o.active ? 'active' : ''}`}
+              onClick={() => onSelect(o.id)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Watchlist() {
   const router = useRouter()
   const [lang, setLang] = useState('fr')
@@ -230,12 +218,13 @@ export default function Watchlist() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
-  const [expanded, setExpanded] = useState({})
-  const [typeFilter, setTypeFilter] = useState('equity')
-  const [groupMode, setGroupMode] = useState('pays')
+  const [cat, setCat] = useState('all')
+  const [sector, setSector] = useState('')
+  const [sort, setSort] = useState('name')
+  const [openSel, setOpenSel] = useState(null)
   const [unread, setUnread] = useState(0)
+  const filterRef = useRef(null)
   const mounted = useRef(true)
-
   const { user } = useAuth()
 
   useEffect(() => {
@@ -281,6 +270,14 @@ export default function Watchlist() {
     }
   }, [fetchData])
 
+  useEffect(() => {
+    const onClick = e => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setOpenSel(null)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
   // Realtime Supabase : mise à jour des prix à l'insertion de ticks
   useEffect(() => {
     const channel = supabase
@@ -309,79 +306,73 @@ export default function Watchlist() {
     })
   }
 
+  const sectors = [...new Set(stocks.map(s => s.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+
   const favList = stocks
     .filter(s => favorites.includes(s.symbol))
-    .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
+    .filter(s => cat === 'all' || s.instrument_type === cat)
+    .filter(s => !sector || s.sector === sector)
+    .sort((a, b) => {
+      if (sort === 'price') return (b.current_price ?? -1) - (a.current_price ?? -1)
+      if (sort === 'change') return (b.change_percent ?? -999) - (a.change_percent ?? -999)
+      return (a.name || '').localeCompare(b.name || '')
+    })
 
-  const typeList = stocks
-    .filter(s => s.instrument_type === typeFilter)
-    .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
-
-  const grouped = []
-  const bucket = new Map()
-  for (const s of typeList) {
-    const g = groupMode === 'pays' ? countryOf(s) : (s.sector || 'Autres')
-    if (!bucket.has(g)) { bucket.set(g, []); grouped.push({ key: g, list: bucket.get(g) }) }
-    bucket.get(g).push(s)
-  }
-  grouped.sort((a, b) => b.list.length - a.list.length)
+  const selectValue = sel => sel === 'sector'
+    ? (sector ? sector : t(lang, 'wlAllSectors'))
+    : t(lang, SORTS.find(s => s.id === sort).label)
 
   return (
-    <div className="mobile-root">
-      <div className="safe-area">
-        <header className="top-bar">
-          <button className="top-bell" onClick={() => router.push('/notifications')} aria-label={t(lang, 'notifications')}>
-            <Bell size={18} strokeWidth={2} />
-            {unread > 0 && <span className="bell-badge">{unread > 9 ? '9+' : unread}</span>}
-          </button>
-          <div className="logo">BlueRock</div>
-          <button className="top-wallet" onClick={() => router.push('/portfolio')} aria-label={t(lang, 'portfolio')}>
-            <Wallet size={17} strokeWidth={2} />
-            <span>{t(lang, 'portfolio')}</span>
-          </button>
+    <div className="wl-root">
+      <div className="wl-frame">
+        <header className="wl-header">
+          <h1 className="wl-title">{t(lang, 'wlTitle')}</h1>
+          <div className="wl-actions">
+            <button className="wl-bell" onClick={() => router.push('/notifications')} aria-label={t(lang, 'notifications')}>
+              <Bell size={19} strokeWidth={2.2} />
+              {unread > 0 && <span className="wl-badge">{unread > 99 ? '99+' : unread}</span>}
+            </button>
+            <button className="wl-search" onClick={() => setAddOpen(true)} aria-label={t(lang, 'wlSearchPlaceholder')}>
+              <Search size={20} strokeWidth={2.2} />
+            </button>
+          </div>
         </header>
 
-        <div className="second-bar">
-          <button className="burger" onClick={() => router.back()} aria-label="retour">
-            <span /><span /><span />
+        <nav className="wl-cats">
+          <button className="wl-cat-dot" onClick={() => setAddOpen(true)} aria-label={t(lang, 'wlAdd')}>
+            <Plus size={20} strokeWidth={2.4} />
           </button>
-          <div className="sep" />
-          <button className="main-btn" onClick={() => router.push('/watchlist')}>
-            {t(lang, 'wlListBtn')}
-          </button>
-          <button className="add-btn" onClick={() => setAddOpen(true)}>
-            <Plus size={18} strokeWidth={2} />
-            <span>{t(lang, 'wlAdd')}</span>
-          </button>
-        </div>
+          {CATS.map(c => (
+            <button
+              key={c.id}
+              className={`wl-cat ${cat === c.id ? 'active' : ''}`}
+              onClick={() => setCat(c.id)}
+            >
+              {t(lang, c.label)}
+            </button>
+          ))}
+        </nav>
 
-        <div className="filter-stack">
-          <div className="filter-bar buttons">
-            {TYPES.map(tp => (
-              <button
-                key={tp.id}
-                className={`filter-btn ${typeFilter === tp.id ? 'active' : ''}`}
-                onClick={() => setTypeFilter(tp.id)}
-              >
-                {t(lang, tp.label)}
-              </button>
-            ))}
-          </div>
-          <div className="filter-bar menus">
-            <button
-              className={`filter-btn ${groupMode === 'pays' ? 'active' : ''}`}
-              onClick={() => setGroupMode('pays')}
-            >
-              {t(lang, 'pays')}
-            </button>
-            <button
-              className={`filter-btn ${groupMode === 'secteur' ? 'active' : ''}`}
-              onClick={() => setGroupMode('secteur')}
-            >
-              {t(lang, 'secteurs')}
-            </button>
-            <span className="filter-count">{typeList.length}</span>
-          </div>
+        <div className="wl-filters" ref={filterRef}>
+          <SelectBox
+            label={t(lang, 'wlSector')}
+            value={selectValue('sector')}
+            open={openSel === 'sector'}
+            onToggle={() => setOpenSel(openSel === 'sector' ? null : 'sector')}
+            onSelect={id => { setSector(id); setOpenSel(null) }}
+            options={[
+              { id: '', label: t(lang, 'wlAllSectors'), active: sector === '' },
+              ...sectors.map(s => ({ id: s, label: s, active: sector === s })),
+            ]}
+          />
+          <SelectBox
+            label={t(lang, 'wlSort')}
+            value={selectValue('sort')}
+            open={openSel === 'sort'}
+            onToggle={() => setOpenSel(openSel === 'sort' ? null : 'sort')}
+            onSelect={id => { setSort(id); setOpenSel(null) }}
+            options={SORTS.map(s => ({ id: s.id, label: t(lang, s.label), active: sort === s.id }))}
+          />
         </div>
 
         {error && (
@@ -391,78 +382,49 @@ export default function Watchlist() {
           </div>
         )}
 
-        {loading ? (
-          <div className="loading-row"><div className="spinner" /></div>
-        ) : typeList.length === 0 ? (
-          <div className="empty-box">
-            <Star size={26} />
-            <span>{t(lang, 'emptyWatchlist')}</span>
-            <span className="empty-sub">{t(lang, 'emptyWatchlistSub')}</span>
-          </div>
-        ) : (
-          <div className="stock-list">
-            {grouped.map(g => {
-              const group = g.list
-              const isOpen = !!expanded[g.key]
-              const visible = isOpen ? group : group.slice(0, COLLAPSE_AT)
-              const hidden = group.length - visible.length
-              const gName = groupMode === 'pays' ? (COUNTRY_NAMES[g.key] || g.key) : g.key
+        <main className="wl-list">
+          {loading ? (
+            <div className="loading-row"><div className="spinner" /></div>
+          ) : favorites.length === 0 ? (
+            <div className="empty-box">
+              <Star size={26} />
+              <span>{t(lang, 'emptyWatchlist')}</span>
+              <span className="empty-sub">{t(lang, 'emptyWatchlistSub')}</span>
+            </div>
+          ) : favList.length === 0 ? (
+            <div className="empty-box">
+              <span>{t(lang, 'noResults')}</span>
+            </div>
+          ) : (
+            favList.map(s => {
+              const chg = s.change_percent ?? null
+              const up = chg > 0
+              const down = chg < 0
+              const hasPrice = s.current_price != null
               return (
-                <div key={g.key} className="list-section">
-                  <div className="list-group">
-                    <span>{gName}</span>
-                    <span className="list-count">{group.length}</span>
+                <div
+                  key={s.symbol}
+                  className="wl-row"
+                  onClick={() => router.push(`/company?id=${s.id}`)}
+                >
+                  <div className="wl-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
+                    {s.symbol?.[0]}
                   </div>
-                  {visible.map(s => {
-                    const chg = s.change_percent ?? null
-                    const up = chg > 0
-                    const down = chg < 0
-                    const isFav = favorites.includes(s.symbol)
-                    const hasPrice = s.current_price != null
-                    return (
-                      <div
-                        key={s.symbol}
-                        className="stock-row"
-                        onClick={() => router.push(`/company?id=${s.id}`)}
-                      >
-                        <div className="row-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
-                          {s.symbol?.[0]}
-                        </div>
-                        <div className="row-info">
-                          <div className="row-title-line">
-                            <span className="row-symbol">{s.symbol}</span>
-                          </div>
-                          <div className="row-sub">{s.name}</div>
-                        </div>
-                        <div className="row-right">
-                          <div className="row-price">{fmtPrice(lang, s.current_price, 0)}</div>
-                          <div className={`row-chg ${!hasPrice ? 'flat' : up ? 'up' : down ? 'down' : 'flat'}`}>
-                            <span className="chg-val">{hasPrice ? fmtPrice(lang, (s.current_price || 0) * (chg || 0) / 100, 0) : '—'}</span>
-                            <span className="chg-pct">{fmtChange(lang, chg)}</span>
-                          </div>
-                        </div>
-                        <button
-                          className={`row-star ${isFav ? 'active' : ''}`}
-                          onClick={e => { e.stopPropagation(); toggleFavorite(s.symbol) }}
-                          aria-label="favori"
-                        >
-                          <Star size={14} fill={isFav ? '#18C27C' : 'none'} color={isFav ? '#18C27C' : '#5a5a5a'} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                  {hidden > 0 && (
-                    <button className="section-toggle" onClick={() => setExpanded(prev => ({ ...prev, [g.key]: !isOpen }))}>
-                      {isOpen
-                        ? <>{t(lang, 'wlSeeLess')} <ChevronDown size={15} className="chev up" /></>
-                        : <>{t(lang, 'wlSeeMore')} · {hidden} <ChevronDown size={15} className="chev" /></>}
-                    </button>
-                  )}
+                  <div className="wl-info">
+                    <div className="wl-name">{s.name}</div>
+                    <div className="wl-status">{t(lang, STATUS_LABEL[s.instrument_type] || 'wlActions')}</div>
+                  </div>
+                  <div className="wl-nums">
+                    <div className="wl-price">{fmtPrice(lang, s.current_price, 0)}</div>
+                    <div className={`wl-chg ${!hasPrice ? 'flat' : up ? 'up' : down ? 'down' : 'flat'}`}>
+                      {fmtChange(lang, chg)}
+                    </div>
+                  </div>
                 </div>
               )
-            })}
-          </div>
-        )}
+            })
+          )}
+        </main>
       </div>
 
       {addOpen && (
@@ -475,266 +437,216 @@ export default function Watchlist() {
       )}
 
       <BottomNav active="watchlist" />
-      <style jsx>{`
-        .mobile-root {
-          display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
-          font-family: Inter, -apple-system, sans-serif; overflow: hidden;
-        }
-        .safe-area { flex: 1; overflow-y: auto; padding-bottom: 110px; }
-        .safe-area::-webkit-scrollbar { display: none; }
 
-        .top-bar {
-          height: 54px; padding: 0 24px;
+      <style jsx>{`
+        .wl-root {
+          display: flex; flex-direction: column; height: 100vh;
+          background: #000; color: #fff;
+          font-family: 'Poppins', Inter, -apple-system, sans-serif;
+          overflow: hidden;
+        }
+        .wl-frame {
+          flex: 1; min-height: 0;
+          display: flex; flex-direction: column; width: 100%;
+        }
+        .wl-header {
+          height: 64px; padding: 0 22px;
           display: flex; align-items: center; justify-content: space-between;
           flex-shrink: 0;
+          border-bottom: 1px solid #161616;
         }
-        .top-bell {
-          position: relative;
-          width: 34px; height: 34px; border-radius: 50%;
-          background: none; border: none; cursor: pointer;
-          color: #F8F8FA; display: flex; align-items: center; justify-content: center;
+        .wl-title {
+          margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.4px;
+          line-height: 1; color: #fff;
+          text-shadow: 0 0 14px rgba(255,255,255,0.3), 0 0 34px rgba(255,255,255,0.1);
+        }
+        .wl-actions { display: flex; align-items: center; gap: 10px; }
+        .wl-search {
+          width: 42px; height: 42px; border: none; border-radius: 50%;
+          background: #2E2E2E; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; flex-shrink: 0;
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
-        .top-bell:active { opacity: 0.9; transform: scale(0.98); }
-        .bell-badge {
-          position: absolute; top: -2px; right: -2px;
+        .wl-search:active { opacity: 0.9; transform: scale(0.98); }
+        .wl-bell {
+          position: relative;
+          width: 42px; height: 42px; border: none; border-radius: 50%;
+          background: #2E2E2E; color: #fff;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; flex-shrink: 0;
+          transition: opacity 160ms ease-out, transform 160ms ease-out;
+        }
+        .wl-bell:active { opacity: 0.9; transform: scale(0.98); }
+        .wl-badge {
+          position: absolute; top: -3px; right: -3px;
           min-width: 17px; height: 17px; padding: 0 4px;
-          border-radius: 9px;
-          background: #F04438; color: #fff;
-          font-size: 10px; font-weight: 700; line-height: 17px;
+          background: #F23645; border-radius: 9px;
+          font-size: 10px; font-weight: 700; color: #fff;
           display: flex; align-items: center; justify-content: center;
         }
-        .logo {
-          font-size: 19px; font-weight: 700; letter-spacing: 0.25px;
-          color: #fff;
+
+        .wl-cats {
+          display: flex; align-items: center; gap: 10px;
+          overflow-x: auto; padding: 14px 22px 12px;
+          scrollbar-width: none; flex-shrink: 0;
         }
-        .top-wallet {
-          height: 34px; padding: 0 14px; border: none;
-          background: #2E2E2E; border-radius: 17px;
-          color: #fff; cursor: pointer;
-          display: flex; align-items: center; gap: 7px;
-          font-family: inherit; font-size: 13px; font-weight: 600;
+        .wl-cats::-webkit-scrollbar { display: none; }
+        .wl-cat-dot {
+          width: 40px; height: 40px; border-radius: 50%;
+          background: #2E2E2E; color: #fff; border: none;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer; flex-shrink: 0;
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
-        .top-wallet:active { opacity: 0.9; transform: scale(0.98); }
+        .wl-cat-dot:active { opacity: 0.9; transform: scale(0.98); }
+        .wl-cat {
+          height: 40px; padding: 0 20px; border: none; border-radius: 20px;
+          background: #1A1A1A; color: #8b8b8b;
+          font-family: inherit; font-size: 13.5px; font-weight: 500;
+          white-space: nowrap; cursor: pointer; flex-shrink: 0;
+          transition: background 160ms ease-out, color 160ms ease-out, transform 160ms ease-out;
+        }
+        .wl-cat:active { transform: scale(0.98); }
+        .wl-cat.active {
+          background: #00C087; color: #00150E; font-weight: 700;
+          text-shadow: 0 1px 0 rgba(255,255,255,0.25);
+        }
 
-        .second-bar {
-          height: 70px; padding: 0 22px;
-          display: flex; align-items: center; gap: 16px;
+        .wl-filters {
+          position: relative; z-index: 5;
+          display: flex; align-items: center; gap: 26px;
+          margin: 4px 22px 0; padding: 8px 18px;
+          background: #141414; border-radius: 18px;
           flex-shrink: 0;
         }
-        .burger {
-          display: flex; flex-direction: column; gap: 5px;
-          background: none; border: none; cursor: pointer; padding: 4px;
+        .select-box { position: relative; display: flex; flex-direction: column; gap: 2px; }
+        .select-label {
+          font-size: 10.5px; font-weight: 500; letter-spacing: 0.3px;
+          text-transform: uppercase; color: #7a7a7a;
         }
-        .burger span {
-          width: 34px; height: 3px; border-radius: 2px;
-          background: #fff;
+        .select-value {
+          display: flex; align-items: center; gap: 8px;
+          min-height: 26px; cursor: pointer; user-select: none;
         }
-        .sep {
-          width: 1px; height: 36px; background: #262626;
-        }
-        .main-btn {
-          flex: 1; height: 58px; min-width: 0;
-          background: #2E2E2E; border: none; border-radius: 18px;
-          color: #fff; font-size: 17px; font-weight: 600;
-          padding: 16px 34px;
-          cursor: pointer; font-family: inherit;
-          display: flex; align-items: center; justify-content: center;
+        .select-value span {
+          font-size: 14px; font-weight: 600; color: #fff;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-          transition: opacity 160ms ease-out, transform 160ms ease-out;
+          max-width: 220px;
         }
-        .main-btn:active { opacity: 0.9; transform: scale(0.98); }
-        .add-btn {
-          height: 58px; padding: 0 28px;
-          background: #2E2E2E; border: none; border-radius: 18px;
-          color: #F7F7F7; font-size: 16px; font-weight: 600;
-          display: flex; align-items: center; gap: 8px;
-          cursor: pointer; font-family: inherit; flex-shrink: 0;
-          transition: opacity 160ms ease-out, transform 160ms ease-out;
+        .select-value .chev { color: #8f8f8f; flex-shrink: 0; transition: transform 160ms ease-out; }
+        .select-value .chev.up { transform: rotate(180deg); }
+        .select-menu {
+          position: absolute; top: calc(100% + 10px); left: 0;
+          min-width: 190px; max-width: 280px; max-height: 260px; overflow-y: auto;
+          background: #1C1C1C; border: 1px solid #2A2A2A; border-radius: 14px;
+          padding: 6px; z-index: 60;
+          box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+          animation: menuIn 0.14s ease-out;
         }
-        .add-btn:active { opacity: 0.9; transform: scale(0.98); }
-
-        .filter-stack {
-          display: flex; flex-direction: column; gap: 10px;
-          padding: 4px 22px 14px; flex-shrink: 0;
+        @keyframes menuIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        .select-opt {
+          display: block; width: 100%; text-align: left;
+          padding: 9px 12px; border: none; border-radius: 10px;
+          background: none; color: #cfcfcf;
+          font-family: inherit; font-size: 13.5px; font-weight: 500;
+          cursor: pointer;
+          transition: background 140ms ease-out, color 140ms ease-out;
         }
-        .filter-bar {
-          display: flex; align-items: center; gap: 8px;
-          overflow-x: auto; scrollbar-width: none;
-        }
-        .filter-bar::-webkit-scrollbar { display: none; }
-        .filter-bar.buttons .filter-btn {
-          flex-shrink: 0; height: 40px; padding: 0 20px;
-          border: none; border-radius: 20px;
-          background: #1A1A1A; color: #A5ADBB;
-          font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
-          transition: background 160ms ease-out, color 160ms ease-out, box-shadow 160ms ease-out;
-        }
-        .filter-bar.buttons .filter-btn.active {
-          background: #F8F8FA; color: #111111;
-          animation: btnGlow 2s ease-in-out infinite;
-        }
-        @keyframes btnGlow {
-          0%, 100% { box-shadow: 0 0 6px rgba(24,194,124,0.35); }
-          50% { box-shadow: 0 0 16px rgba(24,194,124,0.75); }
-        }
-        .filter-bar.menus .filter-btn {
-          flex-shrink: 0; height: 34px; padding: 0 16px;
-          border: none; border-radius: 17px;
-          background: #1A1A1A; color: #6B7A94;
-          font-size: 16px; font-weight: 600; cursor: pointer; font-family: inherit;
-          transition: background 160ms ease-out, color 160ms ease-out;
-        }
-        .filter-bar.menus .filter-btn.active {
-          background: rgba(24,194,124,0.14); color: #F2F4F7;
-        }
-        .filter-count {
-          margin-left: auto; flex-shrink: 0;
-          font-size: 14px; font-weight: 500; color: #6B7A94;
-        }
-
-        .search-bar {
-          display: flex; align-items: center; gap: 8px;
-          background: #1A1A1A; border-radius: 14px;
-          padding: 0 14px; height: 46px; margin: 6px 22px 12px;
-        }
-        .sb-icon { color: #9AA3B2; flex-shrink: 0; }
-        .search-bar input {
-          flex: 1; background: none; border: none; outline: none;
-          color: #fff; font-size: 14px; font-family: inherit;
-        }
-        .search-bar input::placeholder { color: #5a5a5a; }
-        .icon-btn.mini {
-          width: 28px; height: 28px; background: none; border: none;
-          color: #9AA3B2; cursor: pointer; border-radius: 50%;
-          display: flex; align-items: center; justify-content: center;
-        }
-
-        .filters-row {
-          display: flex; gap: 8px; overflow-x: auto;
-          padding: 0 22px 16px; scrollbar-width: none;
-        }
-        .filters-row::-webkit-scrollbar { display: none; }
-        .filter-chip {
-          flex-shrink: 0; height: 34px; padding: 0 16px;
-          border-radius: 17px; border: none;
-          background: #1A1A1A; color: #9AA3B2;
-          font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
-          transition: background 160ms ease-out, color 160ms ease-out;
-        }
-        .filter-chip.active { background: #2E2E2E; color: #fff; font-weight: 600; }
+        .select-opt.active { background: rgba(0,192,135,0.14); color: #00C087; font-weight: 600; }
+        .select-opt:hover { background: #262626; }
 
         .error-bar {
           display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
-          border-radius: 12px; padding: 10px 12px; margin: 0 22px 14px;
-          font-size: 12px; color: #ff9d9d;
+          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          border-radius: 12px; padding: 10px 12px; margin: 12px 22px 0;
+          font-size: 12px; color: #ff9d9d; flex-shrink: 0;
         }
         .error-bar button {
-          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
+          background: rgba(255,77,79,0.2); border: none; border-radius: 8px;
           color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
         }
+
+        .wl-list {
+          flex: 1; min-height: 0; overflow-y: auto;
+          margin-top: 20px; padding-bottom: 88px;
+          scrollbar-width: none;
+        }
+        .wl-list::-webkit-scrollbar { display: none; }
         .loading-row { display: flex; justify-content: center; padding: 40px; }
         .spinner {
           width: 26px; height: 26px;
-          border: 3px solid #262626; border-top-color: #18C27C;
+          border: 3px solid #262626; border-top-color: #00C087;
           border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-box {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
           padding: 44px 20px; text-align: center;
-          color: #9AA3B2; font-size: 14px;
+          color: #a3a3a3; font-size: 14px;
         }
         .empty-sub { font-size: 12px; color: #666; }
 
-        .stock-list { padding: 0 0 8px; }
-        .list-section { padding-bottom: 6px; }
-        .list-group {
-          display: flex; align-items: center; gap: 10px;
-          font-size: 14px; font-weight: 600; letter-spacing: 0.25px;
-          color: #F2F4F7;
-          padding: 20px 22px 10px;
-        }
-        .list-count {
-          min-width: 24px; height: 24px; padding: 0 8px;
-          display: flex; align-items: center; justify-content: center;
-          background: #1E1E1E; border-radius: 12px;
-          font-size: 12px; font-weight: 600; color: #18C27C;
-        }
-        .section-toggle {
-          display: flex; align-items: center; justify-content: center; gap: 6px;
-          margin: 10px 22px 4px;
-          width: calc(100% - 44px); height: 44px;
-          background: #1A1A1A; border: none; border-radius: 14px;
-          color: #18C27C; font-size: 14px; font-weight: 700;
-          cursor: pointer; font-family: inherit;
-          
-          transition: opacity 160ms ease-out, transform 160ms ease-out;
-        }
-        .section-toggle:active { opacity: 0.9; transform: scale(0.98); }
-        .section-toggle .chev { transition: transform 160ms ease-out; }
-        .section-toggle .chev.up { transform: rotate(180deg); }
-        .stock-row {
+        .wl-row {
           position: relative;
           display: flex; align-items: center;
-          height: 96px; padding: 0 16px 0 0;
+          height: 88px; padding: 0 22px;
           cursor: pointer;
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
-        .stock-row:active { opacity: 0.9; transform: scale(0.98); }
-        .row-logo {
-          width: 56px; height: 56px; border-radius: 50%;
-          margin-left: 18px; flex-shrink: 0;
+        .wl-row:active { opacity: 0.9; transform: scale(0.98); }
+        .wl-row::after {
+          content: '';
+          position: absolute; left: 88px; right: 0; bottom: 0;
+          height: 1px; background: #1E1E1E;
+        }
+        .wl-logo {
+          width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           color: #fff; font-size: 17px; font-weight: 700;
         }
-        .row-info {
-          flex: 1; min-width: 0;
-          margin-left: 16px;
-          display: flex; flex-direction: column; gap: 5px;
+        .wl-info {
+          flex: 1; min-width: 0; margin-left: 16px;
+          display: flex; flex-direction: column; gap: 4px;
         }
-        .row-title-line { display: flex; align-items: center; gap: 8px; }
-        .row-symbol {
-          font-size: 18px; font-weight: 700; color: #F8F8FA;
-          white-space: nowrap;
-        }
-        .row-sub {
-          font-size: 14px; font-weight: 400; color: #9AA3B2;
+        .wl-name {
+          font-size: 16px; font-weight: 600; color: #fff;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .row-right {
-          display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
-          padding-right: 16px; flex-shrink: 0;
+        .wl-status {
+          font-size: 12px; font-weight: 400; color: #8B8B8B;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .row-price {
-          font-size: 18px; font-weight: 700; color: #8E95A3;
-          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap;
+        .wl-nums {
+          display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+          margin-left: 12px; flex-shrink: 0;
         }
-        .row-chg {
-          display: flex; align-items: center; gap: 10px;
-          font-size: 16px; font-weight: 500;
-          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+        .wl-price {
+          font-size: 16.5px; font-weight: 700; color: #fff;
+          font-variant-numeric: tabular-nums; white-space: nowrap;
         }
-        .row-chg.up {
-          color: #18C27C;
+        .wl-chg {
+          font-size: 12.5px; font-weight: 600;
+          font-variant-numeric: tabular-nums; white-space: nowrap;
         }
-        .row-chg.down {
-          color: #F04438;
+        .wl-chg.up { color: #00C087; }
+        .wl-chg.down { color: #F23645; }
+        .wl-chg.flat { color: #8b8b8b; }
+
+        @media (min-width: 768px) {
+          .wl-root { background: #0D0D0D; }
+          .wl-frame {
+            width: min(760px, 100%);
+            margin: 0 auto;
+            background: #000;
+            box-shadow: 0 0 0 1px #171717, 0 24px 90px rgba(0,0,0,0.75);
+          }
+          .wl-header { padding: 0 28px; }
+          .wl-cats { padding-left: 28px; padding-right: 28px; }
+          .wl-filters { margin-left: 28px; margin-right: 28px; }
+          .wl-row { padding: 0 28px; }
+          .wl-row::after { left: 96px; }
         }
-        .row-chg.flat {
-          color: #9AA3B2;
-        }
-        .row-star {
-          position: absolute; top: 8px; right: 8px;
-          width: 26px; height: 26px; border: none; background: none;
-          display: flex; align-items: center; justify-content: center;
-          cursor: pointer; border-radius: 50%;
-          transition: opacity 160ms ease-out, transform 160ms ease-out;
-        }
-        .row-star:active { opacity: 0.9; transform: scale(0.98); }
       `}</style>
     </div>
   )

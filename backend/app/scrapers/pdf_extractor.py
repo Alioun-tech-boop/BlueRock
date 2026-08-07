@@ -216,12 +216,38 @@ class PDFExtractor:
                 for page in pages:
                     text += (page.extract_text() or "") + "\n"
 
+                scanned = len(text.strip()) < 300
+                ocr_pages = None
+                if scanned:
+                    try:
+                        from .cobac_extractor import extract_cobac
+                        try:
+                            cobac = extract_cobac(pdf_path)
+                        except Exception:
+                            cobac = None
+                        if cobac:
+                            cobac["metadata"]["pages"] = len(pages)
+                            cobac["metadata"]["extracted_at"] = datetime.now().isoformat()
+                            return cobac
+                    except Exception:
+                        pass
+                    try:
+                        ocr_pages = self._ocr_pages(pages)
+                        text = "\n".join(ocr_pages)
+                    except Exception as e:
+                        raise ValueError(f"PDF scanné et OCR indisponible : {e}")
+
                 scale, scale_word = self._detect_scale(text)
 
                 dual = self._is_dual_currency(text)
 
-                l_income, l_balance, l_cf = self._extract_from_lines(pages, scale, dual)
-                t_income, t_balance, t_cf = self._extract_from_tables(pages, scale, dual)
+                if ocr_pages is not None:
+                    ocr_objs = [self._OcrPage(t) for t in ocr_pages]
+                    l_income, l_balance, l_cf = self._extract_from_lines(ocr_objs, scale, dual)
+                    t_income, t_balance, t_cf = {}, {}, {}
+                else:
+                    l_income, l_balance, l_cf = self._extract_from_lines(pages, scale, dual)
+                    t_income, t_balance, t_cf = self._extract_from_tables(pages, scale, dual)
 
                 def merge(line_based: Dict, table_based: Dict) -> Dict:
                     """Les tableaux (cellules pdfplumber propres) priment sur les
@@ -244,6 +270,7 @@ class PDFExtractor:
                         "source": pdf_path,
                         "pages": len(pages),
                         "detected_scale": scale_word,
+                        "ocr": scanned,
                         "extracted_at": datetime.now().isoformat(),
                     },
                 }
@@ -671,6 +698,47 @@ class PDFExtractor:
         if value is None:
             return None
         return -value if negative else value
+
+    def _ocr_pages(self, pages, max_pages: int = 40) -> List[str]:
+        """OCR des pages d'un PDF scanné (Tesseract, fra+eng). Arrêt précoce dès
+        que les trois états financiers sont repérés dans le texte OCR. Le binaire
+        est localisé via la variable d'environnement TESSERACT_CMD (portable),
+        sinon par le PATH (installation système / Docker)."""
+        import pytesseract
+        from pytesseract import TesseractNotFoundError
+
+        cmd = os.environ.get("TESSERACT_CMD") or "tesseract"
+        pytesseract.pytesseract.tesseract_cmd = cmd
+
+        results: List[str] = []
+        for i, page in enumerate(pages):
+            if i >= max_pages:
+                break
+            img = page.to_image(resolution=200)
+            try:
+                txt = pytesseract.image_to_string(img.original, lang="fra+eng")
+            except TesseractNotFoundError:
+                raise ValueError(f"binaire Tesseract introuvable ({cmd})")
+            results.append(txt)
+            joined = "\n".join(results).lower()
+            has_income = any(k in joined for k in (
+                "chiffre d'affaires", "chiffre d'affaires", "produit net bancaire",
+                "produits d'exploitation bancaire", "résultat net", "resultat net"))
+            has_balance = any(k in joined for k in (
+                "total actif", "total bilan", "capitaux propres", "depôts de la clientèle"))
+            has_cf = any(k in joined for k in (
+                "flux de trésorerie", "flux de tresorerie", "tableau des flux"))
+            if has_income and has_balance and has_cf:
+                break
+        return results
+
+    class _OcrPage:
+        """Adaptateur minimal : une page OCR se comporte comme une page
+        pdfplumber pour la stratégie d'extraction par lignes de texte."""
+        def __init__(self, text: str):
+            self._text = text
+        def extract_text(self) -> str:
+            return self._text
 
     def _extract_income_statement(self, text: str, scale: float = 1.0) -> Dict:
         patterns = {

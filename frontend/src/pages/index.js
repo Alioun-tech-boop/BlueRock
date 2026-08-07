@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import NewsThumb from '../components/NewsThumb'
@@ -7,7 +7,7 @@ import { Search, RefreshCw, AlertTriangle, ExternalLink } from 'lucide-react'
 import { t, detectLang, fmtPrice, fmtCompact, timeAgo } from '../lib/i18n'
 
 function fmtCap(n, lang) {
-  if (!n) return '—'
+  if (!n) return 'ÔÇö'
   if (n >= 1e12) return (n / 1e12).toFixed(2) + ' T'
   return fmtCompact(lang, n)
 }
@@ -91,7 +91,7 @@ export default function Home() {
         <header className="hm-header">
           <div className="hm-brand">
             <span className="hm-logo">BLUEROCK</span>
-            <span className="hm-sub">BRVM · {indices.date || '—'}</span>
+            <span className="hm-sub">BRVM ┬À {indices.date || 'ÔÇö'}</span>
           </div>
           <div className="hm-actions">
             <button className="icon-btn" onClick={() => router.push('/companies')}>
@@ -115,7 +115,7 @@ export default function Home() {
           {indicesList.map((idx, i) => (
             <div key={i} className="index-card">
               <span className="idx-name">{idx.name}</span>
-              <span className="idx-val">{idx.value?.toFixed(2) || '—'}</span>
+              <span className="idx-val">{idx.value?.toFixed(2) || 'ÔÇö'}</span>
               <span className={`idx-chg ${(idx.change || 0) >= 0 ? 'up' : 'down'}`}>
                 {(idx.change || 0) >= 0 ? '+' : ''}{(idx.change || 0).toFixed(2)}%
               </span>
@@ -181,7 +181,7 @@ export default function Home() {
                 <span className="tf-price">{fmtPrice(lang, s.close_price, 0)}</span>
                 <span className="tf-chg up">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
               </div>
-            )) : <span className="tf-empty">—</span>}
+            )) : <span className="tf-empty">ÔÇö</span>}
           </div>
           <div className="topflop-col">
             <div className="topflop-header flop">{t('flop5')}</div>
@@ -192,7 +192,7 @@ export default function Home() {
                 <span className="tf-price">{fmtPrice(lang, s.close_price, 0)}</span>
                 <span className="tf-chg down">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
               </div>
-            )) : <span className="tf-empty">—</span>}
+            )) : <span className="tf-empty">ÔÇö</span>}
           </div>
         </div>
 

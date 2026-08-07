@@ -15,6 +15,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-fra \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
