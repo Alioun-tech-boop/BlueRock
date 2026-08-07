@@ -36,8 +36,8 @@ export default function CompteTitre() {
       <div className="mobile-root center">
         <div className="loading">{t(lang, 'loading')}</div>
         <style jsx>{`
-          .mobile-root { display: flex; align-items: center; justify-content: center; height: 100vh; background: #000; color: #fff; }
-          .loading { color: #a3a3a3; font-size: 14px; }
+          .mobile-root { display: flex; align-items: center; justify-content: center; height: 100vh; background: #0E1627; color: #fff; }
+          .loading { color: #9AA3B2; font-size: 14px; }
         `}</style>
       </div>
     )
@@ -63,7 +63,7 @@ export default function CompteTitre() {
           </div>
         </div>
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .safe-area { flex: 1; padding: 0 16px; }
           .br-header { display: flex; align-items: center; justify-content: space-between; height: 60px; }
           .icon-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: none; border: none; color: #fff; cursor: pointer; border-radius: 50%; }
@@ -166,7 +166,7 @@ export default function CompteTitre() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 20px; }
@@ -204,17 +204,17 @@ export default function CompteTitre() {
         }
         .dc-on {
           display: flex; align-items: center; gap: 5px;
-          font-size: 11px; font-weight: 700; color: #00C853;
+          font-size: 11px; font-weight: 700; color: #18C27C;
         }
         .dc-title { font-size: 15px; font-weight: 700; color: #f0d28a; }
         .dc-limit {
           display: flex; align-items: baseline; gap: 8px;
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 34px; font-weight: 800; letter-spacing: -0.5px; color: #fff; line-height: 1.1;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          font-size: 34px; font-weight: 700; letter-spacing: 0.25px; color: #fff; line-height: 1.1;
         }
         .dc-ico { align-self: center; color: #D4A843; }
         .dc-currency { font-size: 13px; font-weight: 600; color: #9a8b5f; }
-        .dc-sub { font-size: 12px; color: #a3a3a3; line-height: 1.45; }
+        .dc-sub { font-size: 12px; color: #9AA3B2; line-height: 1.35; }
 
         .dc-meter { display: flex; flex-direction: column; gap: 7px; }
         .dm-track {
@@ -229,7 +229,7 @@ export default function CompteTitre() {
           display: flex; justify-content: space-between; gap: 8px;
           font-size: 11px; color: #8a8a8a;
         }
-        .dm-labels b { color: #e8e8e8; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+        .dm-labels b { color: #e8e8e8; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-weight: 600; }
 
         .dc-btn {
           display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -242,7 +242,7 @@ export default function CompteTitre() {
         .dc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .ct-error { background: #2a1212; border: 1px solid #5a1f1f; color: #ff8a8a; font-size: 12px; padding: 10px 12px; border-radius: 10px; }
-        .ct-foot { display: block; text-align: center; font-size: 11px; color: #6f6f6f; margin-top: 16px; line-height: 1.5; }
+        .ct-foot { display: block; text-align: center; font-size: 11px; color: #6f6f6f; margin-top: 16px; line-height: 1.35; }
       `}</style>
     </div>
   )

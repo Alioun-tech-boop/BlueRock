@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { LayoutDashboard, Building2, Brain, Search, BarChart3 } from 'lucide-react'
 import { getCompanies } from '../services/api'
@@ -84,6 +84,14 @@ export default function Sidebar({ active }) {
       <div className="sidebar-footer">
         <div className="version">BlueRock v1 · BRVM</div>
       </div>
+      <style jsx>{`
+        .nav-item { font-size: 16px; font-weight: 600; color: #F2F4F7; }
+        .nav-item.active { color: #18C27C; }
+        .nav-section { font-size: 14px; font-weight: 400; color: #9AA3B2; letter-spacing: 0.25px; }
+        .tv-company-row .symbol { font-weight: 700; font-variant-numeric: tabular-nums; }
+        .tv-company-row .price { color: #8E95A3; font-variant-numeric: tabular-nums; }
+        .tv-company-row .change { font-weight: 500; font-variant-numeric: tabular-nums; }
+      `}</style>
     </nav>
   )
 }

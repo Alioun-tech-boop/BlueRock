@@ -33,8 +33,10 @@ export default function Home() {
   useEffect(() => { fetchData(true) }, [])
 
   useEffect(() => {
-    const interval = setInterval(() => fetchData(false), 60000)
-    return () => clearInterval(interval)
+    const interval = setInterval(() => { if (!document.hidden) fetchData(false) }, 300000)
+    const onVis = () => { if (!document.hidden) fetchData(false) }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis) }
   }, [])
 
   if (loading && !data) {
@@ -48,13 +50,13 @@ export default function Home() {
         <style jsx>{`
           .mobile-root {
             display: flex; flex-direction: column; height: 100vh;
-            background: #000; color: #fff;
+            background: #0E1627; color: #fff;
             font-family: Inter, -apple-system, sans-serif;
           }
           .loading-area {
             flex: 1; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 12px;
-            color: #a3a3a3; font-size: 14px;
+            color: #9AA3B2; font-size: 14px;
           }
           .spinner {
             width: 28px; height: 28px;
@@ -88,7 +90,7 @@ export default function Home() {
       <div className="safe-area">
         <header className="hm-header">
           <div className="hm-brand">
-            <span className="hm-logo">BlueRock</span>
+            <span className="hm-logo">BLUEROCK</span>
             <span className="hm-sub">BRVM · {indices.date || '—'}</span>
           </div>
           <div className="hm-actions">
@@ -103,7 +105,7 @@ export default function Home() {
 
         {error && (
           <div className="error-bar">
-            <AlertTriangle size={14} color="#FF4D4F" />
+            <AlertTriangle size={14} color="#F04438" />
             <span>{error}</span>
             <button onClick={() => fetchData()} className="retry-btn"><RefreshCw size={13} /></button>
           </div>
@@ -261,7 +263,7 @@ export default function Home() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area {
@@ -273,16 +275,19 @@ export default function Home() {
           height: 60px; margin-bottom: 8px;
         }
         .hm-brand { display: flex; flex-direction: column; gap: 1px; }
-        .hm-logo { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
-        .hm-sub { font-size: 11px; color: #a3a3a3; }
+        .hm-logo {
+          font-size: 27px; font-weight: 800; letter-spacing: 2px; line-height: 1;
+          font-family: Inter, -apple-system, sans-serif;
+        }
+        .hm-sub { font-size: 11px; color: #9AA3B2; }
         .hm-actions { display: flex; gap: 4px; }
         .error-bar {
           display: flex; align-items: center; gap: 8px;
           padding: 10px 12px; background: #261010;
-          border: 1px solid #FF4D4F55; border-radius: 12px;
+          border: 1px solid #F0443855; border-radius: 12px;
           font-size: 13px; color: #f0b4b4; margin-bottom: 12px;
         }
-        .retry-btn { margin-left: auto; background: none; border: none; color: #FF4D4F; cursor: pointer; padding: 2px; }
+        .retry-btn { margin-left: auto; background: none; border: none; color: #F04438; cursor: pointer; padding: 2px; }
         .icon-btn {
           width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
           background: none; border: none; color: #fff; cursor: pointer; border-radius: 50%;
@@ -298,11 +303,11 @@ export default function Home() {
           padding: 12px 14px; background: #1B1B1B; border-radius: 16px;
           min-width: 130px; flex-shrink: 0;
         }
-        .idx-name { font-size: 12px; color: #a3a3a3; }
-        .idx-val { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .idx-chg { font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-        .idx-chg.up { color: #00C853; }
-        .idx-chg.down { color: #FF4D4F; }
+        .idx-name { font-size: 12px; color: #9AA3B2; }
+        .idx-val { font-size: 18px; font-weight: 700; color: #8E95A3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .idx-chg { font-size: 15px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .idx-chg.up { color: #18C27C; }
+        .idx-chg.down { color: #F04438; }
         .market-stats {
           display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px;
         }
@@ -310,15 +315,15 @@ export default function Home() {
           display: flex; flex-direction: column; gap: 3px;
           padding: 10px 8px; background: #141414; border-radius: 14px;
         }
-        .sb-label { font-size: 10px; color: #a3a3a3; white-space: nowrap; }
-        .sb-value { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .sb-value.up { color: #00C853; }
-        .sb-value.down { color: #FF4D4F; }
+        .sb-label { font-size: 10px; color: #9AA3B2; white-space: nowrap; }
+        .sb-value { font-size: 13px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sb-value.up { color: #18C27C; }
+        .sb-value.down { color: #F04438; }
         .section-header {
           display: flex; align-items: center; justify-content: space-between;
           margin-bottom: 12px; font-size: 18px; font-weight: 600;
         }
-        .arrow { font-size: 12px; color: #a3a3a3; cursor: pointer; }
+        .arrow { font-size: 12px; color: #9AA3B2; cursor: pointer; }
         .stock-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
         .stock-row {
           display: flex; align-items: center; gap: 12px; height: 68px;
@@ -332,44 +337,44 @@ export default function Home() {
         }
         .stock-logo-img { width: 100%; height: 100%; object-fit: cover; }
         .stock-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .stock-name { font-size: 15px; font-weight: 600; }
-        .stock-sub { font-size: 12px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .stock-right { text-align: right; display: flex; flex-direction: column; gap: 2px; }
-        .stock-price { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .stock-chg { font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-        .stock-chg.up { color: #00C853; }
-        .stock-chg.down { color: #FF4D4F; }
+        .stock-name { font-size: 18px; font-weight: 700; color: #F8F8FA; }
+        .stock-sub { font-size: 14px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stock-right { text-align: right; display: flex; flex-direction: column; gap: 5px; }
+        .stock-price { font-size: 18px; font-weight: 700; color: #8E95A3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stock-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stock-chg.up { color: #18C27C; }
+        .stock-chg.down { color: #F04438; }
         .topflop-section { display: flex; gap: 12px; margin-bottom: 20px; }
         .topflop-col {
           flex: 1; display: flex; flex-direction: column; gap: 8px;
           padding: 14px; background: #141414; border-radius: 18px;
         }
         .topflop-header { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
-        .topflop-header.top { color: #00C853; }
-        .topflop-header.flop { color: #FF4D4F; }
+        .topflop-header.top { color: #18C27C; }
+        .topflop-header.flop { color: #F04438; }
         .topflop-row {
           display: flex; align-items: center; justify-content: space-between;
-          font-family: 'JetBrains Mono', monospace; font-size: 12px;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 12px;
           cursor: pointer; padding: 2px 0;
         }
-        .tf-symbol { font-weight: 600; color: #fff; }
+        .tf-symbol { font-weight: 700; color: #F8F8FA; }
         .tf-logo { width: 20px; height: 20px; border-radius: 50%; background: #1e1e1e; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; margin-right: -6px; }
         .tf-logo img { width: 100%; height: 100%; object-fit: cover; }
-        .tf-price { color: #a3a3a3; }
-        .tf-chg { font-weight: 600; }
-        .tf-chg.up { color: #00C853; }
-        .tf-chg.down { color: #FF4D4F; }
-        .tf-empty { font-size: 12px; color: #666; }
+        .tf-price { color: #8E95A3; font-weight: 700; }
+        .tf-chg { font-weight: 500; font-size: 15px; }
+        .tf-chg.up { color: #18C27C; }
+        .tf-chg.down { color: #F04438; }
+        .tf-empty { font-size: 12px; color: #6B7A94; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
         .grid-card {
           display: flex; flex-direction: column; gap: 4px;
           padding: 14px; background: #141414; border-radius: 18px; cursor: pointer;
         }
-        .gc-name { font-size: 12px; color: #a3a3a3; }
-        .gc-value { font-size: 20px; font-weight: 700; }
-        .gc-chg { font-size: 12px; font-weight: 600; }
-        .gc-chg.up { color: #00C853; }
-        .gc-chg.down { color: #FF4D4F; }
+        .gc-name { font-size: 12px; color: #9AA3B2; }
+        .gc-value { font-size: 20px; font-weight: 700; color: #F8F8FA; }
+        .gc-chg { font-size: 15px; font-weight: 500; }
+        .gc-chg.up { color: #18C27C; }
+        .gc-chg.down { color: #F04438; }
         .perf-list { display: flex; flex-direction: column; padding: 4px 0 16px; }
         .perf-row {
           display: flex; align-items: center; gap: 10px;
@@ -378,11 +383,11 @@ export default function Home() {
         .perf-symbol { flex: 1; font-size: 14px; font-weight: 600; }
         .perf-logo { width: 26px; height: 26px; border-radius: 50%; background: #1a1a1a; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
         .perf-logo img { width: 100%; height: 100%; object-fit: cover; }
-        .perf-rating { font-size: 11px; color: #a3a3a3; background: #262626; padding: 2px 8px; border-radius: 10px; }
-        .perf-score { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .perf-score.up { color: #00C853; }
+        .perf-rating { font-size: 11px; color: #9AA3B2; background: #262626; padding: 2px 8px; border-radius: 10px; }
+        .perf-score { font-size: 15px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .perf-score.up { color: #18C27C; }
         .perf-score.mid { color: #facc15; }
-        .perf-score.down { color: #FF4D4F; }
+        .perf-score.down { color: #F04438; }
         .news-list { display: flex; flex-direction: column; padding: 4px 0 16px; }
         .news-row {
           display: flex; align-items: flex-start; gap: 10px;
@@ -390,13 +395,13 @@ export default function Home() {
           text-decoration: none; color: #fff;
         }
         .news-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-        .news-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a3a3a3; }
+        .news-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9AA3B2; }
         .news-badge {
           font-size: 10px; font-weight: 700; color: #8b5cf6;
           background: rgba(139,92,246,0.12); padding: 2px 8px; border-radius: 9px;
           max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-        .news-badge.official { color: #00C853; background: rgba(0,200,83,0.12); }
+        .news-badge.official { color: #18C27C; background: rgba(24,194,124,0.12); }
         .news-time { flex: 1; }
         .news-title { font-size: 13px; font-weight: 500; line-height: 1.35; }
         .news-empty { padding: 18px 0; text-align: center; color: #666; font-size: 13px; }

@@ -84,7 +84,7 @@ def _text_only(html: str) -> str:
 
 def send_notification_email(to: str, title: str, body: str) -> bool:
     """Alerte de suivi du plan patrimonial (in-app → email)."""
-    html_body = f"{body}<br/><br/><a href=\"{settings.FRONTEND_URL}/premium\" " \
+    html_body = f"{body}<br/><br/><a href=\"{settings.FRONTEND_URL}/patrimoine\" " \
                 f"style=\"color:#00C853;text-decoration:none;font-weight:700\">Ouvrir mon plan &rarr;</a>"
     html = _layout(title, html_body, "BlueRock — Suivi quotidien de votre plan patrimonial")
     return send_email(to, f"BlueRock — {title}", html, body)

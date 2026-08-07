@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { supabase } from '../lib/supabase'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL
   || (typeof window !== 'undefined' && window.location.hostname
@@ -8,7 +9,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 30000,
+  timeout: 12000,
   headers: { 'Content-Type': 'application/json' }
 })
 
@@ -45,11 +46,52 @@ const NO_CACHE_PREFIXES = [
 ]
 const DEFAULT_TTL = 30000
 const responseCache = new Map()
+const PERSIST_KEY = 'bluerock_api_cache_v1'
 
 const cacheKey = (config) => {
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('bluerock_token') : null
   const params = config.params ? JSON.stringify(config.params) : ''
   return `${token ? 'u' : 'a'}|${config.url}${params ? `?${params}` : ''}`
+}
+
+const loadPersistent = () => {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PERSIST_KEY) : null
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+const savePersistent = (key, entry) => {
+  try {
+    if (typeof localStorage === 'undefined') return
+    const all = loadPersistent()
+    all[key] = entry
+    let raw
+    try {
+      raw = JSON.stringify(all)
+    } catch {
+      const keys = Object.keys(all)
+      let drop = 0
+      while (drop < keys.length) {
+        delete all[keys[drop]]
+        drop++
+        try { raw = JSON.stringify(all); break } catch {}
+      }
+    }
+    if (raw) localStorage.setItem(PERSIST_KEY, raw)
+  } catch {}
+}
+
+const persistentHit = (key) => {
+  const all = loadPersistent()
+  const entry = all[key]
+  if (!entry || entry.data == null) return null
+  return { data: entry.data, savedAt: entry.savedAt || 0 }
+}
+
+const notifyNetwork = (online) => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('bluerock:net', { detail: { online } }))
 }
 
 const ttlFor = (url) => {
@@ -86,6 +128,7 @@ api.interceptors.request.use(config => {
 
 api.interceptors.response.use(
   res => {
+    notifyNetwork(true)
     if (isCacheable(res.config) && res.status === 200) {
       const key = cacheKey(res.config)
       responseCache.set(key, {
@@ -93,6 +136,7 @@ api.interceptors.response.use(
         headers: res.headers,
         expires: Date.now() + ttlFor(res.config.url),
       })
+      savePersistent(key, { data: res.data, savedAt: Date.now() })
       if (responseCache.size > 400) {
         responseCache.delete(responseCache.keys().next().value)
       }
@@ -102,10 +146,48 @@ api.interceptors.response.use(
   err => {
     const { response, config } = err
     const url = config?.url || ''
+    const isNetworkError = !response
+    if (isNetworkError && config?.method === 'get' && isCacheable(config)) {
+      const key = cacheKey(config)
+      const mem = responseCache.get(key)
+      const fallback = mem ? { data: mem.data, savedAt: 0 } : persistentHit(key)
+      if (fallback && fallback.data != null) {
+        notifyNetwork(false)
+        return Promise.resolve({
+          data: fallback.data,
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+          request: {},
+          __stale: true,
+        })
+      }
+    }
     if (response && response.status === 401 &&
         !url.includes('/auth/login') && !url.includes('/auth/register') && !url.includes('/auth/login-2fa') &&
-        !url.includes('/auth/verify-email') && !url.includes('/auth/reset-password')) {
-      if (typeof window !== 'undefined') {
+        !url.includes('/auth/verify-email') && !url.includes('/auth/reset-password') && !url.includes('/auth/legacy-login')) {
+      if (typeof window !== 'undefined' && !err.config.__authRetried) {
+        err.config.__authRetried = true
+        const redirectLogin = () => {
+          try { localStorage.removeItem('bluerock_token'); localStorage.removeItem('bluerock_user') } catch {}
+          if (!window.location.pathname.startsWith('/login')) window.location.href = '/login'
+        }
+        return supabase.auth.refreshSession()
+          .then(({ data, error }) => {
+            if (!error && data.session) {
+              try { localStorage.setItem('bluerock_token', data.session.access_token) } catch {}
+              return api.request(err.config)
+            }
+            if (navigator.onLine !== false) redirectLogin()
+            return Promise.reject(err)
+          })
+          .catch(() => {
+            if (navigator.onLine !== false) redirectLogin()
+            return Promise.reject(err)
+          })
+      }
+      if (typeof window !== 'undefined' && navigator.onLine !== false) {
         localStorage.removeItem('bluerock_token')
         localStorage.removeItem('bluerock_user')
         if (!window.location.pathname.startsWith('/login')) window.location.href = '/login'
@@ -161,6 +243,7 @@ export const getPortfolio = () => api.get('/api/portfolio')
 export const getPosition = (symbol) => api.get(`/api/portfolio/positions/${symbol}`)
 export const placeOrder = (payload) => api.post('/api/portfolio/orders', payload)
 export const getPremiumPlan = () => api.get('/api/premium/plan')
+export const getPremiumPlans = () => api.get('/api/premium/plans')
 export const savePremiumPlan = (payload) => api.post('/api/premium/plan', payload)
 export const cancelPremiumPlan = (id) => api.post(`/api/premium/plan/${id}/cancel`)
 export const trackPremiumPlan = (id) => api.post(`/api/premium/plan/${id}/track`)
@@ -185,11 +268,22 @@ export const joinChallenge = (id) => api.post(`/api/community/challenges/${id}/j
 export const leaveChallenge = (id) => api.delete(`/api/community/challenges/${id}/join`)
 export const getChallengeLeaderboard = (id) => api.get(`/api/community/challenges/${id}/leaderboard`)
 
-export const clearApiCache = () => responseCache.clear()
+export const clearApiCache = () => {
+  responseCache.clear()
+  try { localStorage.removeItem(PERSIST_KEY) } catch {}
+}
 export const invalidateApiCache = (prefix) => {
   for (const key of responseCache.keys()) {
     if (key.includes(prefix)) responseCache.delete(key)
   }
+  try {
+    const all = loadPersistent()
+    let changed = false
+    for (const key of Object.keys(all)) {
+      if (key.includes(prefix)) { delete all[key]; changed = true }
+    }
+    if (changed) localStorage.setItem(PERSIST_KEY, JSON.stringify(all))
+  } catch {}
 }
 
 export default api

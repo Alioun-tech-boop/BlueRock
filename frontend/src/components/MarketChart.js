@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
   ColorType, CrosshairMode, LineStyle, createSeriesMarkers,
@@ -6,20 +6,20 @@ import {
 import { fmtPrice, fmtCompact } from '../lib/i18n'
 import {
   MousePointer2, TrendingUp, Minus, GitBranch, Square, Type, Eraser,
-  Plus, RotateCcw, Scan, Hand, Maximize, Minimize, Sliders, X,
+  Plus, RotateCcw, Scan, Hand, Maximize, Minimize,
 } from 'lucide-react'
 
 const C = {
-  bg: '#0B0F19',
-  upBody: 'rgba(34,197,94,0.97)',
-  upBorder: 'rgba(22,163,74,0.97)',
-  downBody: 'rgba(239,68,68,0.97)',
-  downBorder: 'rgba(220,38,38,0.97)',
-  text: '#8B93A7',
-  axis: '#5B6472',
+  bg: '#0D1426',
+  upBody: '#35D07F',
+  upBorder: '#35D07F',
+  downBody: '#F6465D',
+  downBorder: '#F6465D',
+  text: '#9AA5B8',
+  axis: '#7B8798',
   ema: { 20: '#3B82F6', 50: '#FACC15', 200: '#A855F7' },
-  tipBg: '#141A26',
-  tipBorder: '#2A3448',
+  tipBg: '#141D32',
+  tipBorder: '#2A3A5C',
   boll: '#8B5CF6',
   vwap: '#14B8A6',
   rsi: '#A78BFA',
@@ -33,7 +33,8 @@ const C = {
 const EMAS = [20, 50, 200]
 
 const BAR_SPAN = {
-  '1j': 45, '5j': 45, '1m': 36, '3m': 32, '6m': 28, '1a': 20, '3a': 16, '5a': 14, 'max': 0, 'all': 0,
+  '1h': 0, '1d': 0, '1w': 0, '1m': 0, '3m': 0, '1y': 0,
+  '1j': 0, '5j': 0, '6m': 0, '1a': 0, '3a': 0, '5a': 0, 'max': 0, 'all': 0,
 }
 
 const FIBO_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
@@ -189,7 +190,7 @@ const IND_ROWS = [
   { key: 'macd', k: 'macd', label: 'MACD', color: C.macdLine },
 ]
 
-export default function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [], symbol = '' }) {
+export default forwardRef(function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [], symbol = '', toolsOpen = false, onToolsOpenChange }, ref) {
   const rootRef = useRef(null)
   const chartElRef = useRef(null)
   const wrapRef = useRef(null)
@@ -211,7 +212,6 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
   const [full, setFull] = useState(false)
   const [drawings, setDrawingsState] = useState([])
   const [textDraft, setTextDraft] = useState('')
-  const [uiOpen, setUiOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
 
   const setDrawings = (next) => {
     drawingsRef.current = next
@@ -266,18 +266,18 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(148,163,184,0.055)', style: LineStyle.Solid },
-        horzLines: { color: 'rgba(148,163,184,0.055)', style: LineStyle.Solid },
+        vertLines: { color: 'rgba(148,163,184,0.10)', style: LineStyle.Solid },
+        horzLines: { color: 'rgba(148,163,184,0.10)', style: LineStyle.Solid },
       },
       rightPriceScale: {
         borderVisible: true,
-        borderColor: 'rgba(255,255,255,0.07)',
+        borderColor: 'rgba(148,163,184,0.14)',
         scaleMargins: { top: 0.08, bottom: 0.22 },
         textColor: C.axis,
       },
       timeScale: {
         borderVisible: true,
-        borderColor: 'rgba(255,255,255,0.07)',
+        borderColor: 'rgba(148,163,184,0.14)',
         barSpacing: 13,
         minBarSpacing: 2.5,
         maxBarSpacing: 40,
@@ -288,8 +288,8 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(148,163,184,0.32)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#1E293B', labelTextColor: '#E2E8F0' },
-        horzLine: { color: 'rgba(148,163,184,0.32)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#1E293B', labelTextColor: '#E2E8F0' },
+        vertLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#22304A', labelTextColor: '#E8EEF7' },
+        horzLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#22304A', labelTextColor: '#E8EEF7' },
       },
       localization: {
         priceFormatter: v => fmtPrice(lang, v, 0),
@@ -354,7 +354,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     vol.setData(rows.map(r => ({
       time: r.time,
       value: r.volume,
-      color: r.close >= r.open ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)',
+      color: r.close >= r.open ? 'rgba(53,208,127,0.45)' : 'rgba(246,70,93,0.45)',
     })))
     for (const p of EMAS) {
       const closes = rows.map(r => r.close)
@@ -378,13 +378,14 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         tag.style.opacity = '0'
         return
       }
-      const color = last.close >= last.open ? '#22C55E' : '#EF4444'
+      const color = last.close >= last.open ? C.upBody : C.downBody
       line.style.opacity = '1'
       line.style.top = `${y}px`
-      line.style.background = color + '66'
+      line.style.borderTopColor = color + '88'
       tag.style.opacity = '1'
       tag.style.top = `${y}px`
-      tag.style.background = color
+      tag.style.background = '#FFFFFF'
+      tag.style.color = '#0D1426'
       tag.textContent = fmtPrice(lang, last.close, 0)
     }
 
@@ -411,7 +412,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       const prev = idx > 0 ? st.candle.dataByIndex(idx - 1) : null
       if (!bar) return
       const up = bar.close >= bar.open
-      const col = up ? '#22C55E' : '#EF4444'
+      const col = up ? C.upBody : C.downBody
       if (leg.price) {
         leg.price.textContent = fmtPrice(lang, bar.close, 0)
         leg.price.style.color = col
@@ -424,8 +425,8 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         } else {
           const pos = pct >= 0
           leg.chg.textContent = `${pos ? '+' : ''}${pct.toFixed(2)}%`
-          leg.chg.style.background = pos ? 'rgba(34,197,94,0.16)' : 'rgba(239,68,68,0.16)'
-          leg.chg.style.color = pos ? '#22C55E' : '#EF4444'
+          leg.chg.style.background = pos ? 'rgba(53,208,127,0.16)' : 'rgba(246,70,93,0.16)'
+          leg.chg.style.color = pos ? C.upBody : C.downBody
         }
       }
       if (leg.ohlc) {
@@ -490,14 +491,14 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         return lang === 'en' ? `${m}/${dd}/${y}` : `${dd}/${m}/${y}`
       })()
       tip.innerHTML = `
-        <div class="mc-tip-title" style="color:${up ? '#22C55E' : '#EF4444'}">${fmtPrice(lang, d.close, 0)}</div>
+        <div class="mc-tip-title" style="color:${up ? C.upBody : C.downBody}">${fmtPrice(lang, d.close, 0)}</div>
         <div class="mc-tip-date">${dateStr}</div>
         <div class="mc-tip-row"><span>O</span><b>${fmtPrice(lang, d.open, 0)}</b></div>
-        <div class="mc-tip-row"><span>H</span><b style="color:#22C55E">${fmtPrice(lang, d.high, 0)}</b></div>
-        <div class="mc-tip-row"><span>L</span><b style="color:#EF4444">${fmtPrice(lang, d.low, 0)}</b></div>
+        <div class="mc-tip-row"><span>H</span><b style="color:${C.upBody}">${fmtPrice(lang, d.high, 0)}</b></div>
+        <div class="mc-tip-row"><span>L</span><b style="color:${C.downBody}">${fmtPrice(lang, d.low, 0)}</b></div>
         <div class="mc-tip-row"><span>C</span><b>${fmtPrice(lang, d.close, 0)}</b></div>
         <div class="mc-tip-row"><span>V</span><b>${fmtCompact(lang, d.volume)}</b></div>
-        <div class="mc-tip-row"><span>%</span><b style="color:${chg != null && chg >= 0 ? '#22C55E' : '#EF4444'}">${chg != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '—'}</b></div>
+        <div class="mc-tip-row"><span>%</span><b style="color:${chg != null && chg >= 0 ? C.upBody : C.downBody}">${chg != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '—'}</b></div>
       `
       tip.style.opacity = '1'
       tip.style.left = `${tx}px`
@@ -541,7 +542,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     st.vol.setData(rows.map(r => ({
       time: r.time,
       value: r.volume,
-      color: r.close >= r.open ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)',
+      color: r.close >= r.open ? 'rgba(53,208,127,0.45)' : 'rgba(246,70,93,0.45)',
     })))
     for (const p of EMAS) {
       const closes = rows.map(r => r.close)
@@ -618,7 +619,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       st.chart.priceScale('right', paneIdx).applyOptions({ scaleMargins: { top: 0.12, bottom: 0.12 } })
       st.macdH.setData(rows.map((r, i) => ({
         time: r.time, value: macdArr.hist[i],
-        color: macdArr.hist[i] >= 0 ? 'rgba(34,197,94,0.55)' : 'rgba(239,68,68,0.55)',
+        color: macdArr.hist[i] >= 0 ? 'rgba(53,208,127,0.5)' : 'rgba(246,70,93,0.5)',
       })).filter(pt => pt.value != null))
       st.macdL.setData(rows.map((r, i) => ({ time: r.time, value: macdArr.line[i] })).filter(pt => pt.value != null))
       st.macdS.setData(rows.map((r, i) => ({ time: r.time, value: macdArr.signal[i] })).filter(pt => pt.value != null))
@@ -717,6 +718,8 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       return next
     })
   }
+
+  useImperativeHandle(ref, () => ({ toggleFull }))
 
   useEffect(() => {
     if (!full) return
@@ -1031,6 +1034,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
     const visRange = st.chart.timeScale().getVisibleLogicalRange()
     const barSpacing = st.chart.timeScale().options().barSpacing
     const daily = period === '1j' || period === '5j' || period === 'max' || period === 'all'
+      || period === '1h' || period === '1d' || period === '1w' || period === '1m' || period === '3m' || period === '1y'
     const yearly = period === '1a' || period === '3a' || period === '5a'
     const steps = daily ? [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90, 180, 365]
       : yearly ? [1, 2, 5, 10]
@@ -1079,26 +1083,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
 
   return (
     <div className={`mc-root${full ? ' fullscreen' : ''}`} ref={rootRef}>
-      <div className="mc-ctrl">
-        <button
-          className={`mc-ctrl-btn ${uiOpen ? 'active' : ''}`}
-          title={uiOpen ? 'Hide toolbar' : 'Indicators & drawing'}
-          onClick={() => setUiOpen(v => !v)}
-        >
-          {uiOpen ? <X size={14} /> : <Sliders size={14} />}
-        </button>
-        {!uiOpen && (
-          <span className="mc-ctrl-group">
-            <button className="mc-ctrl-btn" title="Zoom in" onClick={() => zoomBy(1 / 1.35)}><Plus size={14} /></button>
-            <button className="mc-ctrl-btn" title="Zoom out" onClick={() => zoomBy(1.35)}><Minus size={14} /></button>
-            <button className="mc-ctrl-btn" title="Reset view" onClick={zoomReset}><RotateCcw size={14} /></button>
-            <button className={`mc-ctrl-btn ${full ? 'active' : ''}`} title={full ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFull}>
-              {full ? <Minimize size={14} /> : <Maximize size={14} />}
-            </button>
-          </span>
-        )}
-      </div>
-      {uiOpen && (
+      {toolsOpen && (
         <>
       <div className="mc-toolbar">
         {CHIPS.map(c => {
@@ -1155,6 +1140,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           style={{ pointerEvents: svgPointerEvents }}
           onPointerDown={onSvgPointerDown}
         />
+        {toolsOpen && (
         <div className="mc-legend">
           <div className="mc-lg-row1">
             <span className="mc-lg-sym">{symbol || '—'}</span>
@@ -1177,9 +1163,13 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
             })}
           </div>
         </div>
+        )}
         <div ref={lineRef} className="mc-pline" />
         <div ref={tagRef} className="mc-ptag" />
         <div ref={tipRef} className="mc-tip" />
+        <div className="mc-tv" aria-hidden>
+          <span>TradingView</span>
+        </div>
         {!rows.length && (
           <div className="mc-empty">—</div>
         )}
@@ -1199,12 +1189,12 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         .mc-root.fullscreen .mc-dtoolbar { padding-left: 2px; }
         .mc-toolbar {
           display: flex; align-items: center; gap: 6px; padding: 0 8px 8px;
-          flex-wrap: wrap; border-bottom: 1px solid rgba(255,255,255,0.05);
+          flex-wrap: wrap; border-bottom: 1px solid rgba(148,163,184,0.12);
         }
         .mc-chip {
           display: flex; align-items: center; gap: 5px;
           font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
-          background: #141A26; border: 1px solid #20283A; color: #7B8496;
+          background: #141D32; border: 1px solid #22304A; color: #7B8798;
           cursor: pointer; user-select: none;
           transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
         }
@@ -1215,39 +1205,22 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           display: flex; align-items: center; gap: 8px;
           padding: 0 8px 6px;
         }
-        .mc-dgroup { display: flex; align-items: center; gap: 2px; background: #151A26; border-radius: 9px; padding: 2px; }
+        .mc-dgroup { display: flex; align-items: center; gap: 2px; background: #141D32; border-radius: 9px; padding: 2px; }
         .mc-dgroup.right { margin-left: auto; }
         .mc-dbtn {
           width: 26px; height: 26px; border: none; border-radius: 7px;
-          background: none; color: #8B93A7; cursor: pointer;
+          background: none; color: #8E95A3; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
           padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
         }
-        .mc-dbtn:hover { background: #1E2637; color: #E2E8F0; }
-        .mc-dbtn.active { background: rgba(0,200,83,0.18); color: #00C853; }
+        .mc-dbtn:hover { background: #1E2A44; color: #E2E8F0; }
+        .mc-dbtn.active { background: rgba(53,208,127,0.18); color: #35D07F; }
         .mc-dhint {
           display: flex; align-items: center; gap: 4px;
-          font-size: 10px; color: #5B6472; white-space: nowrap;
+          font-size: 10px; color: #5B6678; white-space: nowrap;
         }
-        .mc-ctrl {
-          display: flex; align-items: center; gap: 4px;
-          padding: 0 8px 6px;
-        }
-        .mc-ctrl-group {
-          display: flex; align-items: center; gap: 2px;
-          background: #151A26; border-radius: 9px; padding: 2px;
-          margin-left: auto;
-        }
-        .mc-ctrl-btn {
-          width: 26px; height: 26px; border: none; border-radius: 7px;
-          background: none; color: #8B93A7; cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
-          padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
-        }
-        .mc-ctrl-btn:hover { background: #1E2637; color: #E2E8F0; }
-        .mc-ctrl-btn.active { background: rgba(0,200,83,0.18); color: #00C853; }
         @media (min-width: 768px) {
-          .mc-ctrl { display: none; }
+          .mc-wrap { min-height: 420px; }
         }
         @media (max-width: 767px) {
           .mc-legend {
@@ -1267,47 +1240,62 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
           position: absolute; inset: 0; z-index: 2;
           pointer-events: none; user-select: none;
           display: flex; align-items: center; justify-content: center;
-          font-size: clamp(56px, 9vw, 110px); font-weight: 800; letter-spacing: 3px;
+          font-size: clamp(56px, 9vw, 110px); font-weight: 700; letter-spacing: 3px;
           color: rgba(255,255,255,0.028); font-variant-numeric: tabular-nums;
         }
         .mc-overlay { position: absolute; inset: 0; z-index: 3; touch-action: none; }
         .mc-legend {
           position: absolute; top: 10px; left: 10px; z-index: 5;
-          background: rgba(11,15,25,0.84); border: 1px solid #20283A;
+          background: rgba(13,20,38,0.88); border: 1px solid #22304A;
           border-radius: 10px; padding: 8px 12px 9px;
           font-size: 10.5px; pointer-events: none; user-select: none;
           min-width: 208px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
         }
         .mc-lg-row1 { display: flex; align-items: center; gap: 8px; }
-        .mc-lg-sym { font-weight: 800; color: #E2E8F0; font-size: 12px; }
+        .mc-lg-sym { font-weight: 700; color: #E8EEF7; font-size: 12px; }
         .mc-lg-price { font-weight: 700; font-variant-numeric: tabular-nums; transition: color 80ms ease-out; }
         .mc-lg-chg {
           font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 5px;
-          color: #8B93A7; font-variant-numeric: tabular-nums;
+          color: #8E95A3; font-variant-numeric: tabular-nums;
         }
-        .mc-lg-ohlc { margin-top: 5px; color: #8B93A7; font-variant-numeric: tabular-nums; letter-spacing: 0.2px; white-space: nowrap; }
-        .mc-lg-date { color: #5B6472; margin-top: 2px; font-size: 9.5px; }
+        .mc-lg-ohlc { margin-top: 5px; color: #8E95A3; font-variant-numeric: tabular-nums; letter-spacing: 0.2px; white-space: nowrap; }
+        .mc-lg-date { color: #5B6678; margin-top: 2px; font-size: 9.5px; }
         .mc-lg-inds {
-          margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06);
+          margin-top: 6px; border-top: 1px solid rgba(148,163,184,0.12);
           padding-top: 5px; display: flex; flex-direction: column; gap: 3px;
         }
-        .mc-lg-ind { display: flex; align-items: center; gap: 6px; color: #8B93A7; }
+        .mc-lg-ind { display: flex; align-items: center; gap: 6px; color: #8E95A3; }
         .mc-lg-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
         .mc-lg-ind-name { font-size: 10px; }
-        .mc-lg-ind b { margin-left: auto; font-weight: 600; color: #E2E8F0; font-variant-numeric: tabular-nums; }
+        .mc-lg-ind b { margin-left: auto; font-weight: 600; color: #E8EEF7; font-variant-numeric: tabular-nums; }
         .mc-pline {
-          position: absolute; left: 0; right: 0; height: 1px; z-index: 4;
+          position: absolute; left: 0; right: 0; height: 0; z-index: 4;
+          border-top: 1px dashed rgba(233,240,250,0.45);
           transition: top 150ms ease-out, opacity 120ms ease-out;
           pointer-events: none;
         }
         .mc-ptag {
           position: absolute; right: 0; z-index: 4;
           transform: translateY(-50%);
-          color: #fff; font-family: Inter, sans-serif;
-          font-weight: 600; font-size: 12px;
-          padding: 5px 8px; border-radius: 5px;
+          color: #0D1426; font-family: Inter, sans-serif;
+          font-weight: 700; font-size: 12px;
+          padding: 4px 8px; border-radius: 4px;
+          background: #FFFFFF;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.35);
           transition: top 150ms ease-out, opacity 120ms ease-out;
           pointer-events: none;
+        }
+        .mc-tv {
+          position: absolute; left: 8px; bottom: 8px; z-index: 5;
+          width: 40px; height: 40px; border-radius: 50%;
+          background: #0E1627;
+          display: flex; align-items: center; justify-content: center;
+          opacity: 0.6; pointer-events: none;
+        }
+        .mc-tv span {
+          color: #fff; font-size: 8px; font-weight: 700;
+          letter-spacing: 0.25px; font-family: Inter, sans-serif;
+          white-space: nowrap;
         }
         .mc-tip {
           position: absolute; z-index: 6; width: 150px;
@@ -1321,7 +1309,7 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
         .mc-tip-date { color: #6B7280; font-size: 10px; margin: 1px 0 6px; }
         .mc-tip-row {
           display: flex; justify-content: space-between;
-          font-size: 11px; line-height: 1.65; color: #8B93A7;
+          font-size: 11px; line-height: 1.355; color: #8E95A3;
         }
         .mc-tip-row b { font-weight: 600; color: #E2E8F0; font-variant-numeric: tabular-nums; }
         .mc-empty {
@@ -1332,4 +1320,4 @@ export default function MarketChart({ data = [], period = '1a', lang = 'fr', sta
       `}</style>
     </div>
   )
-}
+})

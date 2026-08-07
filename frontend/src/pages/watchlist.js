@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
 import { supabase } from '../lib/supabase'
-import { Search, Plus, Star, X, Wallet, ChevronDown } from 'lucide-react'
+import { Search, Plus, Star, X, Wallet, ChevronDown, Bell } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
+import { getUnreadCount } from '../services/api'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -28,6 +30,50 @@ const TYPES = [
 ]
 
 const COLLAPSE_AT = 5
+
+const SYMBOL_COUNTRY = {
+  'ABJC': 'CI', 'ABVC': 'CI', 'ADVTA': 'CI', 'AFRIC': 'CI', 'ALCIV': 'CI',
+  'BICC': 'CI', 'BNDC': 'CI', 'BNBC': 'CI', 'BOAB': 'CI', 'BOAC': 'CI',
+  'CBIBF': 'BF', 'CBIBJ': 'BJ', 'CDCI': 'CI', 'CEDAC': 'CI', 'CFAC': 'CI',
+  'CIEC': 'CI', 'CIPLA': 'CI', 'COFINA': 'CI', 'CORIS': 'BF', 'ECOBANC': 'CI',
+  'ECOBF': 'BF', 'ECOBJ': 'BJ', 'ECOTC': 'CI', 'ENI': 'CI', 'ETIT': 'CI',
+  'FILTIS': 'CI', 'FINAN': 'ML', 'FONCIER': 'CI', 'FUTUR': 'CI', 'GEST': 'ML',
+  'ICLA': 'CI', 'INTB': 'CI', 'LINAF': 'SN', 'LINBF': 'BF', 'LINBJ': 'BJ',
+  'LINML': 'ML', 'LINSN': 'SN', 'LONTAB': 'CI', 'MTNE': 'CI', 'NASCI': 'CI',
+  'NEI-CI': 'CI', 'NESLY': 'CI', 'NESTLE': 'CI', 'NTLC': 'TG', 'NUCL': 'SN',
+  'ONATEL': 'BF', 'ONTBF': 'BF', 'ORAG': 'CI', 'ORAC': 'CI', 'PALCI': 'CI',
+  'PRSC': 'CI', 'SABC': 'CI', 'SAHAM': 'SN', 'SECU': 'CI', 'SDCC': 'CI',
+  'SEMBCI': 'CI', 'SGBF': 'BF', 'SGBCI': 'CI', 'SGBJ': 'BJ', 'SICOR': 'CI',
+  'SITAB': 'CI', 'SIIC': 'SN', 'SIVC': 'CI', 'SMBF': 'BF', 'SNTS': 'SN',
+  'SOCEF': 'SN', 'SOCOCIM': 'SN', 'SOLIBRA': 'CI', 'SONATEL': 'SN', 'SONEL': 'SN',
+  'SPBF': 'BF', 'STAC': 'CI', 'STBAN': 'TG', 'TTLS': 'TG', 'UNCF': 'SN',
+  'UNIWAX': 'CI', 'VIVO': 'CI', 'BNDC.O': 'CI', 'CIEC.O': 'CI', 'CIPLA.O': 'CI',
+  'ETIT.O': 'CI', 'SABC.O': 'CI', 'SGBF.O': 'BF', 'SGBCI.O': 'CI', 'SONEL.O': 'SN',
+}
+
+const COUNTRY_NAMES = {
+  'CI': 'Côte d\u2019Ivoire', 'BJ': 'Bénin', 'BF': 'Burkina Faso', 'ML': 'Mali',
+  'NE': 'Niger', 'SN': 'Sénégal', 'TG': 'Togo', 'UEMOA': 'UEMOA',
+}
+
+const COUNTRY_KEYS = { 'CI': 'CI', 'BJ': 'BJ', 'BF': 'BF', 'ML': 'ML', 'NE': 'NE', 'SN': 'SN', 'TG': 'TG' }
+
+function countryOf(s) {
+  if (!s) return 'UEMOA'
+  if (SYMBOL_COUNTRY[s.symbol]) return SYMBOL_COUNTRY[s.symbol]
+  if (s.instrument_type === 'fcp') return 'UEMOA'
+  const n = (s.name || '')
+  if (n.includes('Bénin')) return 'BJ'
+  if (n.includes('Burkina')) return 'BF'
+  if (n.includes('Mali')) return 'ML'
+  if (n.includes('Niger')) return 'NE'
+  if (n.includes('SÉNÉGAL') || n.includes('SENEGAL')) return 'SN'
+  if (n.includes('Togo')) return 'TG'
+  if (n.includes('CÔTE') || n.includes('COTE') || n.includes('IVOIR')) return 'CI'
+  return 'UEMOA'
+}
+
+const TYPE_ORDER = ['equity', 'obligation', 'fcp']
 
 function AddSheet({ lang, favorites, onToggle, onClose }) {
   const [query, setQuery] = useState('')
@@ -91,7 +137,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
                       <div className="add-sub">{s.name}</div>
                     </div>
                     <button className={`add-btn ${isFav ? 'active' : ''}`} aria-label="ajouter">
-                      <Star size={18} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#8f8f8f'} />
+                      <Star size={18} fill={isFav ? '#18C27C' : 'none'} color={isFav ? '#18C27C' : '#9AA3B2'} />
                     </button>
                   </div>
                 )
@@ -127,7 +173,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
             background: #1A1A1A; border-radius: 14px;
             padding: 0 16px; height: 48px; margin: 16px 22px 8px;
           }
-          .ss-icon { color: #8f8f8f; flex-shrink: 0; }
+          .ss-icon { color: #9AA3B2; flex-shrink: 0; }
           .sheet-search input {
             flex: 1; background: none; border: none; outline: none;
             color: #fff; font-size: 15px; font-family: inherit;
@@ -138,7 +184,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .sheet-empty { padding: 30px 0; text-align: center; color: #666; font-size: 13px; }
           .add-group {
             font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
-            text-transform: uppercase; color: #8f8f8f;
+            text-transform: uppercase; color: #9AA3B2;
             padding: 16px 0 6px;
           }
           .add-row {
@@ -160,9 +206,9 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
           .add-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
           .add-name {
             font-size: 17px; font-weight: 700; color: #fff;
-            text-shadow: 0 0 10px rgba(255,255,255,0.35), 0 0 22px rgba(255,255,255,0.12);
+            
           }
-          .add-sub { font-size: 13px; color: #8b8b8b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .add-sub { font-size: 13px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
           .add-btn {
             width: 40px; height: 40px; border: none; background: none;
             display: flex; align-items: center; justify-content: center;
@@ -185,7 +231,25 @@ export default function Watchlist() {
   const [error, setError] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [expanded, setExpanded] = useState({})
+  const [typeFilter, setTypeFilter] = useState('equity')
+  const [groupMode, setGroupMode] = useState('pays')
+  const [unread, setUnread] = useState(0)
   const mounted = useRef(true)
+
+  const { user } = useAuth()
+
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    const poll = () => getUnreadCount()
+      .then(n => { if (alive) setUnread(n) })
+      .catch(() => {})
+    poll()
+    const id = setInterval(poll, 120000)
+    const onVis = () => { if (document.visibilityState === 'visible') poll() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
+  }, [user])
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -249,16 +313,30 @@ export default function Watchlist() {
     .filter(s => favorites.includes(s.symbol))
     .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
 
+  const typeList = stocks
+    .filter(s => s.instrument_type === typeFilter)
+    .sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''))
+
+  const grouped = []
+  const bucket = new Map()
+  for (const s of typeList) {
+    const g = groupMode === 'pays' ? countryOf(s) : (s.sector || 'Autres')
+    if (!bucket.has(g)) { bucket.set(g, []); grouped.push({ key: g, list: bucket.get(g) }) }
+    bucket.get(g).push(s)
+  }
+  grouped.sort((a, b) => b.list.length - a.list.length)
+
   return (
     <div className="mobile-root">
       <div className="safe-area">
         <header className="top-bar">
-          <button className="dots-btn" onClick={() => router.back()} aria-label="menu">
-            <span /><span /><span />
+          <button className="top-bell" onClick={() => router.push('/notifications')} aria-label={t(lang, 'notifications')}>
+            <Bell size={18} strokeWidth={2} />
+            {unread > 0 && <span className="bell-badge">{unread > 9 ? '9+' : unread}</span>}
           </button>
           <div className="logo">BlueRock</div>
           <button className="top-wallet" onClick={() => router.push('/portfolio')} aria-label={t(lang, 'portfolio')}>
-            <Wallet size={17} strokeWidth={2.2} />
+            <Wallet size={17} strokeWidth={2} />
             <span>{t(lang, 'portfolio')}</span>
           </button>
         </header>
@@ -277,6 +355,35 @@ export default function Watchlist() {
           </button>
         </div>
 
+        <div className="filter-stack">
+          <div className="filter-bar buttons">
+            {TYPES.map(tp => (
+              <button
+                key={tp.id}
+                className={`filter-btn ${typeFilter === tp.id ? 'active' : ''}`}
+                onClick={() => setTypeFilter(tp.id)}
+              >
+                {t(lang, tp.label)}
+              </button>
+            ))}
+          </div>
+          <div className="filter-bar menus">
+            <button
+              className={`filter-btn ${groupMode === 'pays' ? 'active' : ''}`}
+              onClick={() => setGroupMode('pays')}
+            >
+              {t(lang, 'pays')}
+            </button>
+            <button
+              className={`filter-btn ${groupMode === 'secteur' ? 'active' : ''}`}
+              onClick={() => setGroupMode('secteur')}
+            >
+              {t(lang, 'secteurs')}
+            </button>
+            <span className="filter-count">{typeList.length}</span>
+          </div>
+        </div>
+
         {error && (
           <div className="error-bar">
             <span>{t(lang, 'loadError')}</span>
@@ -286,7 +393,7 @@ export default function Watchlist() {
 
         {loading ? (
           <div className="loading-row"><div className="spinner" /></div>
-        ) : favList.length === 0 ? (
+        ) : typeList.length === 0 ? (
           <div className="empty-box">
             <Star size={26} />
             <span>{t(lang, 'emptyWatchlist')}</span>
@@ -294,16 +401,16 @@ export default function Watchlist() {
           </div>
         ) : (
           <div className="stock-list">
-            {TYPES.map(tp => {
-              const group = favList.filter(s => s.instrument_type === tp.id)
-              if (!group.length) return null
-              const isOpen = !!expanded[tp.id]
+            {grouped.map(g => {
+              const group = g.list
+              const isOpen = !!expanded[g.key]
               const visible = isOpen ? group : group.slice(0, COLLAPSE_AT)
               const hidden = group.length - visible.length
+              const gName = groupMode === 'pays' ? (COUNTRY_NAMES[g.key] || g.key) : g.key
               return (
-                <div key={tp.id} className="list-section">
+                <div key={g.key} className="list-section">
                   <div className="list-group">
-                    <span>{t(lang, tp.label)}</span>
+                    <span>{gName}</span>
                     <span className="list-count">{group.length}</span>
                   </div>
                   {visible.map(s => {
@@ -339,13 +446,13 @@ export default function Watchlist() {
                           onClick={e => { e.stopPropagation(); toggleFavorite(s.symbol) }}
                           aria-label="favori"
                         >
-                          <Star size={14} fill={isFav ? '#00C087' : 'none'} color={isFav ? '#00C087' : '#5a5a5a'} />
+                          <Star size={14} fill={isFav ? '#18C27C' : 'none'} color={isFav ? '#18C27C' : '#5a5a5a'} />
                         </button>
                       </div>
                     )
                   })}
                   {hidden > 0 && (
-                    <button className="section-toggle" onClick={() => setExpanded(prev => ({ ...prev, [tp.id]: !isOpen }))}>
+                    <button className="section-toggle" onClick={() => setExpanded(prev => ({ ...prev, [g.key]: !isOpen }))}>
                       {isOpen
                         ? <>{t(lang, 'wlSeeLess')} <ChevronDown size={15} className="chev up" /></>
                         : <>{t(lang, 'wlSeeMore')} · {hidden} <ChevronDown size={15} className="chev" /></>}
@@ -371,7 +478,7 @@ export default function Watchlist() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding-bottom: 110px; }
@@ -382,16 +489,24 @@ export default function Watchlist() {
           display: flex; align-items: center; justify-content: space-between;
           flex-shrink: 0;
         }
-        .dots-btn {
-          display: flex; align-items: center; gap: 8px;
-          background: none; border: none; cursor: pointer; padding: 8px;
+        .top-bell {
+          position: relative;
+          width: 34px; height: 34px; border-radius: 50%;
+          background: none; border: none; cursor: pointer;
+          color: #F8F8FA; display: flex; align-items: center; justify-content: center;
+          transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
-        .dots-btn span {
-          width: 7px; height: 7px; border-radius: 50%;
-          background: #F2F2F2;
+        .top-bell:active { opacity: 0.9; transform: scale(0.98); }
+        .bell-badge {
+          position: absolute; top: -2px; right: -2px;
+          min-width: 17px; height: 17px; padding: 0 4px;
+          border-radius: 9px;
+          background: #F04438; color: #fff;
+          font-size: 10px; font-weight: 700; line-height: 17px;
+          display: flex; align-items: center; justify-content: center;
         }
         .logo {
-          font-size: 19px; font-weight: 800; letter-spacing: -0.4px;
+          font-size: 19px; font-weight: 700; letter-spacing: 0.25px;
           color: #fff;
         }
         .top-wallet {
@@ -423,7 +538,7 @@ export default function Watchlist() {
         .main-btn {
           flex: 1; height: 58px; min-width: 0;
           background: #2E2E2E; border: none; border-radius: 18px;
-          color: #fff; font-size: 20px; font-weight: 600;
+          color: #fff; font-size: 17px; font-weight: 600;
           padding: 16px 34px;
           cursor: pointer; font-family: inherit;
           display: flex; align-items: center; justify-content: center;
@@ -441,12 +556,51 @@ export default function Watchlist() {
         }
         .add-btn:active { opacity: 0.9; transform: scale(0.98); }
 
+        .filter-stack {
+          display: flex; flex-direction: column; gap: 10px;
+          padding: 4px 22px 14px; flex-shrink: 0;
+        }
+        .filter-bar {
+          display: flex; align-items: center; gap: 8px;
+          overflow-x: auto; scrollbar-width: none;
+        }
+        .filter-bar::-webkit-scrollbar { display: none; }
+        .filter-bar.buttons .filter-btn {
+          flex-shrink: 0; height: 40px; padding: 0 20px;
+          border: none; border-radius: 20px;
+          background: #1A1A1A; color: #A5ADBB;
+          font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
+          transition: background 160ms ease-out, color 160ms ease-out, box-shadow 160ms ease-out;
+        }
+        .filter-bar.buttons .filter-btn.active {
+          background: #F8F8FA; color: #111111;
+          animation: btnGlow 2s ease-in-out infinite;
+        }
+        @keyframes btnGlow {
+          0%, 100% { box-shadow: 0 0 6px rgba(24,194,124,0.35); }
+          50% { box-shadow: 0 0 16px rgba(24,194,124,0.75); }
+        }
+        .filter-bar.menus .filter-btn {
+          flex-shrink: 0; height: 34px; padding: 0 16px;
+          border: none; border-radius: 17px;
+          background: #1A1A1A; color: #6B7A94;
+          font-size: 16px; font-weight: 600; cursor: pointer; font-family: inherit;
+          transition: background 160ms ease-out, color 160ms ease-out;
+        }
+        .filter-bar.menus .filter-btn.active {
+          background: rgba(24,194,124,0.14); color: #F2F4F7;
+        }
+        .filter-count {
+          margin-left: auto; flex-shrink: 0;
+          font-size: 14px; font-weight: 500; color: #6B7A94;
+        }
+
         .search-bar {
           display: flex; align-items: center; gap: 8px;
           background: #1A1A1A; border-radius: 14px;
           padding: 0 14px; height: 46px; margin: 6px 22px 12px;
         }
-        .sb-icon { color: #8f8f8f; flex-shrink: 0; }
+        .sb-icon { color: #9AA3B2; flex-shrink: 0; }
         .search-bar input {
           flex: 1; background: none; border: none; outline: none;
           color: #fff; font-size: 14px; font-family: inherit;
@@ -454,7 +608,7 @@ export default function Watchlist() {
         .search-bar input::placeholder { color: #5a5a5a; }
         .icon-btn.mini {
           width: 28px; height: 28px; background: none; border: none;
-          color: #8f8f8f; cursor: pointer; border-radius: 50%;
+          color: #9AA3B2; cursor: pointer; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
         }
 
@@ -466,7 +620,7 @@ export default function Watchlist() {
         .filter-chip {
           flex-shrink: 0; height: 34px; padding: 0 16px;
           border-radius: 17px; border: none;
-          background: #1A1A1A; color: #8b8b8b;
+          background: #1A1A1A; color: #9AA3B2;
           font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;
           transition: background 160ms ease-out, color 160ms ease-out;
         }
@@ -474,25 +628,25 @@ export default function Watchlist() {
 
         .error-bar {
           display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           border-radius: 12px; padding: 10px 12px; margin: 0 22px 14px;
           font-size: 12px; color: #ff9d9d;
         }
         .error-bar button {
-          background: rgba(255,77,79,0.2); border: none; border-radius: 8px;
+          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
           color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
         }
         .loading-row { display: flex; justify-content: center; padding: 40px; }
         .spinner {
           width: 26px; height: 26px;
-          border: 3px solid #262626; border-top-color: #00C087;
+          border: 3px solid #262626; border-top-color: #18C27C;
           border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-box {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
           padding: 44px 20px; text-align: center;
-          color: #a3a3a3; font-size: 14px;
+          color: #9AA3B2; font-size: 14px;
         }
         .empty-sub { font-size: 12px; color: #666; }
 
@@ -500,26 +654,24 @@ export default function Watchlist() {
         .list-section { padding-bottom: 6px; }
         .list-group {
           display: flex; align-items: center; gap: 10px;
-          font-size: 13px; font-weight: 800; letter-spacing: 0.6px;
-          text-transform: uppercase; color: #b9b9b9;
+          font-size: 14px; font-weight: 600; letter-spacing: 0.25px;
+          color: #F2F4F7;
           padding: 20px 22px 10px;
-          text-shadow: 0 0 10px rgba(255,255,255,0.25);
         }
         .list-count {
           min-width: 24px; height: 24px; padding: 0 8px;
           display: flex; align-items: center; justify-content: center;
           background: #1E1E1E; border-radius: 12px;
-          font-size: 12px; font-weight: 700; color: #00C087;
-          text-shadow: 0 0 8px rgba(0,192,135,0.7);
+          font-size: 12px; font-weight: 600; color: #18C27C;
         }
         .section-toggle {
           display: flex; align-items: center; justify-content: center; gap: 6px;
           margin: 10px 22px 4px;
           width: calc(100% - 44px); height: 44px;
           background: #1A1A1A; border: none; border-radius: 14px;
-          color: #00C087; font-size: 14px; font-weight: 700;
+          color: #18C27C; font-size: 14px; font-weight: 700;
           cursor: pointer; font-family: inherit;
-          text-shadow: 0 0 10px rgba(0,192,135,0.5);
+          
           transition: opacity 160ms ease-out, transform 160ms ease-out;
         }
         .section-toggle:active { opacity: 0.9; transform: scale(0.98); }
@@ -546,39 +698,34 @@ export default function Watchlist() {
         }
         .row-title-line { display: flex; align-items: center; gap: 8px; }
         .row-symbol {
-          font-size: 20px; font-weight: 700; color: #fff;
+          font-size: 18px; font-weight: 700; color: #F8F8FA;
           white-space: nowrap;
-          text-shadow: 0 0 10px rgba(255,255,255,0.4), 0 0 24px rgba(255,255,255,0.15);
         }
         .row-sub {
-          font-size: 13px; font-weight: 400; color: #8B8B8B;
+          font-size: 14px; font-weight: 400; color: #9AA3B2;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .row-right {
-          display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+          display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
           padding-right: 16px; flex-shrink: 0;
         }
         .row-price {
-          font-size: 19px; font-weight: 700; color: #fff;
-          font-family: 'JetBrains Mono', monospace; white-space: nowrap;
-          text-shadow: 0 0 12px rgba(255,255,255,0.45), 0 0 26px rgba(255,255,255,0.18);
+          font-size: 18px; font-weight: 700; color: #8E95A3;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap;
         }
         .row-chg {
           display: flex; align-items: center; gap: 10px;
-          font-size: 13px; font-weight: 600;
-          font-family: 'JetBrains Mono', monospace;
+          font-size: 16px; font-weight: 500;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
         }
         .row-chg.up {
-          color: #00C087;
-          text-shadow: 0 0 10px rgba(0,192,135,0.9), 0 0 24px rgba(0,192,135,0.4);
+          color: #18C27C;
         }
         .row-chg.down {
-          color: #F23645;
-          text-shadow: 0 0 10px rgba(242,54,69,0.9), 0 0 24px rgba(242,54,69,0.4);
+          color: #F04438;
         }
         .row-chg.flat {
-          color: #8b8b8b;
-          text-shadow: 0 0 8px rgba(139,139,139,0.5);
+          color: #9AA3B2;
         }
         .row-star {
           position: absolute; top: 8px; right: 8px;

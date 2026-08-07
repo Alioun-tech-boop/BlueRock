@@ -190,7 +190,7 @@ export default function Donnees() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -206,7 +206,7 @@ export default function Donnees() {
         .spacer { opacity: 0; }
         .dt-title { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .dt-title span:first-child { font-size: 17px; font-weight: 700; }
-        .dt-sub { font-size: 11px; color: #a3a3a3; }
+        .dt-sub { font-size: 11px; color: #9AA3B2; }
         .card { background: #141414; border-radius: 18px; padding: 16px; margin-bottom: 16px; }
         .card-title {
           display: flex; align-items: center; gap: 8px;
@@ -225,9 +225,9 @@ export default function Donnees() {
           flex-direction: column; text-align: center;
           border: 1px dashed #333; border-radius: 14px;
           padding: 22px 14px; cursor: pointer; margin-bottom: 12px;
-          color: #a3a3a3; font-size: 12px;
+          color: #9AA3B2; font-size: 12px;
         }
-        .dropzone.has-file { border-color: #00C853; color: #00C853; }
+        .dropzone.has-file { border-color: #18C27C; color: #18C27C; }
         .upload-btn {
           width: 100%; height: 44px;
           background: #8b5cf6; border: none; border-radius: 14px;
@@ -237,24 +237,24 @@ export default function Donnees() {
         .error-box {
           display: flex; align-items: center; gap: 8px;
           margin-top: 12px; padding: 10px 12px;
-          background: rgba(255,77,79,0.1); color: #ff7b7b;
+          background: rgba(240,68,56,0.1); color: #ff7b7b;
           border-radius: 12px; font-size: 12px;
         }
         .result-box { margin-top: 12px; }
         .result-ok {
           display: flex; align-items: center; gap: 6px;
-          color: #00C853; font-size: 13px; font-weight: 600; margin-bottom: 10px;
+          color: #18C27C; font-size: 13px; font-weight: 600; margin-bottom: 10px;
         }
         .result-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
         .result-grid div {
           display: flex; flex-direction: column; align-items: center; gap: 2px;
           background: #1B1B1B; border-radius: 12px; padding: 10px 4px;
         }
-        .result-grid span { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .result-grid small { font-size: 10px; color: #a3a3a3; }
+        .result-grid span { font-size: 14px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .result-grid small { font-size: 10px; color: #9AA3B2; }
         .mini-btn {
           margin-left: auto; background: #1B1B1B; border: none; border-radius: 10px;
-          color: #a3a3a3; font-size: 11px; padding: 5px 12px; cursor: pointer; font-family: inherit;
+          color: #9AA3B2; font-size: 11px; padding: 5px 12px; cursor: pointer; font-family: inherit;
         }
         .empty-note { color: #666; font-size: 12px; text-align: center; padding: 12px 0; }
         .stmt-block { border: 1px solid #1f1f1f; border-radius: 14px; padding: 12px; margin-bottom: 10px; }
@@ -262,22 +262,22 @@ export default function Donnees() {
           display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
         }
         .stmt-type { font-size: 12px; font-weight: 700; color: #a78bfa; }
-        .stmt-meta { font-size: 11px; color: #666; font-family: 'JetBrains Mono', monospace; }
+        .stmt-meta { font-size: 11px; color: #666; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .line-item {
           display: flex; justify-content: space-between; gap: 8px;
           padding: 6px 0; border-bottom: 1px solid #1a1a1a;
           font-size: 12px; color: #d0d0d0;
         }
         .line-item:last-child { border-bottom: none; }
-        .li-val { font-family: 'JetBrains Mono', monospace; color: #fff; text-align: right; }
+        .li-val { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #fff; text-align: right; }
         .stmt-more { font-size: 11px; color: #666; text-align: center; padding-top: 6px; }
         .macro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .macro-item {
           display: flex; flex-direction: column; gap: 2px;
           background: #1B1B1B; border-radius: 12px; padding: 10px 12px;
         }
-        .macro-name { font-size: 11px; color: #a3a3a3; }
-        .macro-val { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .macro-name { font-size: 11px; color: #9AA3B2; }
+        .macro-val { font-size: 14px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .macro-date { font-size: 10px; color: #666; }
       `}</style>
     </div>

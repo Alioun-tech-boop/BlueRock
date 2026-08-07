@@ -7,7 +7,8 @@ import { t, detectLang, timeAgo } from '../lib/i18n'
 import { getCommunityPosts, getCommunityUsers, getCommunityUser, followCommunityUser, rocketCommunityPost, getCommunityComments, addCommunityComment, createCommunityPost, getCompanies } from '../services/api'
 import { useAuth } from '../lib/auth'
 
-const TABS = ['forYou', 'editorsPick', 'following', 'challenges']
+const SECTIONS = ['social', 'challenges']
+const FEED_TABS = ['forYou', 'editorsPick', 'following']
 
 function fmtPriceValue(n, lang) {
   if (n == null) return '—'
@@ -43,9 +44,9 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
       ))}
       {bearish && points && (
         <>
-          <rect x="30" y="120" width="120" height="120" fill="rgba(255,77,79,0.12)" />
-          <rect x="160" y="160" width="120" height="100" fill="rgba(255,77,79,0.10)" />
-          <rect x="290" y="200" width="80" height="70" fill="rgba(255,77,79,0.12)" />
+          <rect x="30" y="120" width="120" height="120" fill="rgba(240,68,56,0.12)" />
+          <rect x="160" y="160" width="120" height="100" fill="rgba(240,68,56,0.10)" />
+          <rect x="290" y="200" width="80" height="70" fill="rgba(240,68,56,0.12)" />
         </>
       )}
       {points && (
@@ -59,13 +60,13 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
             const y = h - 35 - ((v - min) / span) * (h - 60)
             return `${x.toFixed(1)},${y.toFixed(1)}`
           }).join(' ')} 360,288`}
-          fill={bearish ? 'rgba(255,77,79,0.08)' : 'rgba(0,200,83,0.08)'}
+          fill={bearish ? 'rgba(240,68,56,0.08)' : 'rgba(24,194,124,0.08)'}
         />
       )}
       <polyline
         points={poly}
         fill="none"
-        stroke={bearish ? '#FF4D4F' : '#00C853'}
+        stroke={bearish ? '#F04438' : '#18C27C'}
         strokeWidth="2.5"
         strokeLinejoin="round"
       />
@@ -75,7 +76,7 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
           {symbol.slice(0, 2)}
         </text>
         <rect x="34" y="4" rx="6" width="86" height="20" fill="#17171c" stroke="#2a2a33" strokeWidth="1" />
-        <text x="77" y="18" textAnchor="middle" fontSize="10" fontWeight="600" fill={bearish ? '#FF4D4F' : '#00C853'} fontFamily="Inter, sans-serif">
+        <text x="77" y="18" textAnchor="middle" fontSize="10" fontWeight="600" fill={bearish ? '#F04438' : '#18C27C'} fontFamily="Inter, sans-serif">
           {bearish ? '▼ BAISSIER' : '▲ HAUSSIER'}
         </text>
       </g>
@@ -84,7 +85,7 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
           <text x="0" y="0" fontSize="12" fontWeight="700" fill="#fff" fontFamily="Inter, sans-serif">
             {fmtPriceValue(price, 'fr')} FCFA
           </text>
-          <text x="388" y="0" textAnchor="end" fontSize="12" fontWeight="700" fill={bearish ? '#FF4D4F' : '#00C853'} fontFamily="Inter, sans-serif">
+          <text x="388" y="0" textAnchor="end" fontSize="12" fontWeight="700" fill={bearish ? '#F04438' : '#18C27C'} fontFamily="Inter, sans-serif">
             {(change_percent != null ? change_percent.toFixed(2) : '0.00')}%
           </text>
         </g>
@@ -145,7 +146,7 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
 
       <div className="post-actions">
         <button className={`rocket-btn ${rocketed ? 'rocked' : ''}`} onClick={toggleRocket}>
-          <span className="rocket-emoji">🚀</span>
+          <span className="rocket-emoji">ðŸš€</span>
           <span className="rocket-count">{rockets}</span>
         </button>
         <button className="comment-btn" onClick={(e) => { e.stopPropagation(); onOpen(post) }}>
@@ -153,7 +154,7 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
           <span>{post.comments || 0}</span>
         </button>
         <button className="more-btn" aria-label="plus" onClick={(e) => { e.stopPropagation(); onOpen(post) }}>
-          <MoreHorizontal size={18} color="#8f8f8f" />
+          <MoreHorizontal size={18} color="#9AA3B2" />
         </button>
       </div>
 
@@ -168,9 +169,9 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
           width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
         }
         .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-        .post-name-row { display: flex; align-items: center; gap: 4px; }
-        .post-name { font-size: 14px; font-weight: 700; }
-        .post-date { font-size: 11px; color: #8f8f8f; }
+        .post-name-row { display: flex; align-items: center; gap: 5px; }
+        .post-name { font-size: 14px; font-weight: 700; color: #F8F8FA; }
+        .post-date { font-size: 11px; color: #9AA3B2; }
         .editor-badge {
           font-size: 9px; font-weight: 700; color: #D4A843;
           background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
@@ -180,9 +181,9 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
           border-radius: 10px; overflow: hidden; height: 150px;
           background: #101014;
         }
-        .post-title { font-size: 15px; font-weight: 800; margin-top: 10px; line-height: 1.35; }
+        .post-title { font-size: 16px; font-weight: 600; color: #F8F8FA; margin-top: 10px; line-height: 1.35; }
         .post-content {
-          font-size: 12.5px; color: #c9c9c9; line-height: 1.5;
+          font-size: 14px; color: #9AA3B2; line-height: 1.35;
           margin-top: 5px; display: -webkit-box;
           -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
@@ -196,9 +197,9 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
           background: #2A2A2A; border: 1px solid #3a3a3a; border-radius: 15px;
           cursor: pointer; font-family: inherit;
         }
-        .rocket-btn.rocked { background: rgba(0,200,83,0.12); border-color: rgba(0,200,83,0.4); }
+        .rocket-btn.rocked { background: rgba(24,194,124,0.12); border-color: rgba(24,194,124,0.4); }
         .rocket-emoji { font-size: 13px; line-height: 1; }
-        .rocket-count { font-size: 13px; font-weight: 600; color: #fff; }
+        .rocket-count { font-size: 13px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
         .comment-btn {
           display: flex; align-items: center; gap: 6px;
           background: none; border: none; color: #fff;
@@ -295,7 +296,7 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
 
           <div className="detail-actions">
             <button className={`rocket-btn ${rocketed ? 'rocked' : ''}`} onClick={toggleRocket}>
-              <span className="rocket-emoji">🚀</span>
+              <span className="rocket-emoji">ðŸš€</span>
               <span className="rocket-count">{rockets}</span>
             </button>
             <button className="comment-btn">
@@ -355,7 +356,7 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
             padding: 14px 16px 0;
           }
           .back-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 4px; }
-          .sheet-title { flex: 1; font-size: 16px; font-weight: 700; }
+          .sheet-title { flex: 1; font-size: 16px; font-weight: 600; }
           .sheet-close {
             background: #262626; border: none; border-radius: 50%;
             width: 32px; height: 32px; color: #fff;
@@ -366,9 +367,9 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; }
           .post-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
           .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-          .post-name-row { display: flex; align-items: center; gap: 4px; }
-          .post-name { font-size: 15px; font-weight: 700; }
-          .post-date { font-size: 11px; color: #8f8f8f; }
+          .post-name-row { display: flex; align-items: center; gap: 5px; }
+          .post-name { font-size: 15px; font-weight: 700; color: #F8F8FA; }
+          .post-date { font-size: 11px; color: #9AA3B2; }
           .editor-badge {
             font-size: 9px; font-weight: 700; color: #D4A843;
             background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
@@ -378,9 +379,9 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
             border-radius: 12px; overflow: hidden; height: 300px;
             background: #101014;
           }
-          .detail-title { font-size: 19px; font-weight: 800; margin-top: 14px; line-height: 1.35; }
+          .detail-title { font-size: 16px; font-weight: 600; color: #F8F8FA; margin-top: 14px; line-height: 1.35; }
           .detail-content {
-            font-size: 14px; color: #c9c9c9; line-height: 1.6;
+            font-size: 14px; color: #9AA3B2; line-height: 1.35;
             margin-top: 8px; white-space: pre-wrap; word-break: break-word;
           }
           .detail-actions {
@@ -393,9 +394,9 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
             background: #2A2A2A; border: 1px solid #3a3a3a; border-radius: 17px;
             cursor: pointer; font-family: inherit;
           }
-          .rocket-btn.rocked { background: rgba(0,200,83,0.12); border-color: rgba(0,200,83,0.4); }
+          .rocket-btn.rocked { background: rgba(24,194,124,0.12); border-color: rgba(24,194,124,0.4); }
           .rocket-emoji { font-size: 15px; line-height: 1; }
-          .rocket-count { font-size: 14px; font-weight: 600; color: #fff; }
+          .rocket-count { font-size: 14px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
           .comment-btn {
             display: flex; align-items: center; gap: 7px;
             background: none; border: none; color: #fff;
@@ -403,13 +404,13 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
             padding: 6px 4px;
           }
           .cmts-label {
-            font-size: 13px; font-weight: 700; color: #a3a3a3;
-            margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.4px;
+            font-size: 14px; font-weight: 600; color: #F2F4F7;
+            margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.25px;
           }
-          .cmt-count { color: #666; font-size: 12px; }
+          .cmt-count { color: #9AA3B2; font-size: 12px; }
           .sheet-empty {
             display: flex; align-items: center; gap: 8px; justify-content: center;
-            color: #666; font-size: 13px; padding: 24px 0;
+            color: #6B7A94; font-size: 13px; padding: 24px 0;
           }
           .spin { animation: spin 1s linear infinite; }
           @keyframes spin { to { transform: rotate(360deg); } }
@@ -417,10 +418,10 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           .comment:last-child { border-bottom: none; }
           .comment-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
           .comment-body { flex: 1; min-width: 0; }
-          .comment-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8f8f8f; }
-          .comment-name { font-weight: 700; color: #fff; }
+          .comment-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9AA3B2; }
+          .comment-name { font-weight: 700; color: #F8F8FA; }
           .comment-time { flex: 1; text-align: right; }
-          .comment-text { font-size: 13.5px; color: #d6d6d6; line-height: 1.5; margin-top: 3px; }
+          .comment-text { font-size: 14px; color: #9AA3B2; line-height: 1.35; margin-top: 3px; }
           .sheet-input-row {
             display: flex; align-items: center; gap: 10px;
             padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
@@ -434,16 +435,16 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           .sheet-input::placeholder { color: #5a5a5a; }
           .send-btn {
             width: 40px; height: 40px; border-radius: 50%; border: none;
-            background: #00C853; color: #00130a; cursor: pointer;
+            background: #18C27C; color: #00130a; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
           }
           .send-btn:disabled { background: #2a2a2a; color: #666; cursor: default; }
           .auth-prompt {
             display: flex; align-items: center; justify-content: space-between; gap: 10px;
-            padding: 10px 16px; background: #1d1d1d; font-size: 12px; color: #a3a3a3;
+            padding: 10px 16px; background: #1d1d1d; font-size: 12px; color: #9AA3B2;
           }
           .auth-prompt button {
-            background: #00C853; border: none; color: #00130a; border-radius: 10px;
+            background: #18C27C; border: none; color: #00130a; border-radius: 10px;
             padding: 6px 12px; font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit;
           }
         `}</style>
@@ -554,7 +555,7 @@ function ComposerSheet({ lang, onClose, onCreated }) {
             display: flex; align-items: center; justify-content: space-between;
             padding: 16px 16px 0;
           }
-          .sheet-title { font-size: 16px; font-weight: 700; }
+          .sheet-title { font-size: 16px; font-weight: 600; }
           .sheet-close {
             background: #262626; border: none; border-radius: 50%;
             width: 32px; height: 32px; color: #fff;
@@ -562,23 +563,23 @@ function ComposerSheet({ lang, onClose, onCreated }) {
           }
           .sheet-body { overflow-y: auto; padding: 14px 16px; }
           .sheet-body::-webkit-scrollbar { display: none; }
-          .field-label { font-size: 12px; color: #8f8f8f; margin: 10px 0 8px; font-weight: 600; }
+          .field-label { font-size: 14px; color: #9AA3B2; margin: 10px 0 8px; font-weight: 400; }
           .symbol-grid { display: flex; flex-wrap: wrap; gap: 8px; }
           .symbol-chip {
             padding: 7px 12px; border-radius: 14px; border: 1px solid #2a2a2a;
-            background: #1E1E1E; color: #b0b0b0; font-size: 12px; font-weight: 600;
-            cursor: pointer; font-family: 'JetBrains Mono', monospace; font-family: inherit;
+            background: #1E1E1E; color: #A5ADBB; font-size: 12px; font-weight: 600;
+            cursor: pointer; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-family: inherit;
           }
-          .symbol-chip.active { background: #00C853; border-color: #00C853; color: #00130a; font-weight: 700; }
+          .symbol-chip.active { background: #18C27C; border-color: #18C27C; color: #00130a; font-weight: 700; }
           .sentiment-row { display: flex; gap: 10px; }
           .sent-btn {
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
             height: 40px; border-radius: 12px; border: 1px solid #2a2a2a;
-            background: #1E1E1E; color: #8f8f8f; font-size: 13px; font-weight: 600;
+            background: #1E1E1E; color: #A5ADBB; font-size: 13px; font-weight: 600;
             cursor: pointer; font-family: inherit;
           }
-          .sent-btn.bull.active { background: rgba(0,200,83,0.12); border-color: #00C853; color: #00C853; }
-          .sent-btn.bear.active { background: rgba(255,77,79,0.12); border-color: #FF4D4F; color: #FF4D4F; }
+          .sent-btn.bull.active { background: rgba(24,194,124,0.12); border-color: #18C27C; color: #18C27C; }
+          .sent-btn.bear.active { background: rgba(240,68,56,0.12); border-color: #F04438; color: #F04438; }
           .title-input {
             width: 100%; margin-top: 14px; height: 44px;
             background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 12px;
@@ -589,17 +590,17 @@ function ComposerSheet({ lang, onClose, onCreated }) {
             width: 100%; margin-top: 10px; resize: none;
             background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 12px;
             padding: 12px 14px; color: #fff; font-size: 14px; font-family: inherit; outline: none;
-            line-height: 1.5;
+            line-height: 1.35;
           }
           .content-input::placeholder { color: #5a5a5a; }
-          .composer-error { color: #FF4D4F; font-size: 12px; margin-top: 8px; }
+          .composer-error { color: #F04438; font-size: 12px; margin-top: 8px; }
           .sheet-footer {
             padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
             border-top: 1px solid #1d1d1d;
           }
           .publish-btn {
             width: 100%; height: 46px; border: none; border-radius: 14px;
-            background: #00C853; color: #00130a; font-size: 15px; font-weight: 800;
+            background: #18C27C; color: #00130a; font-size: 15px; font-weight: 700;
             cursor: pointer; font-family: inherit;
           }
           .publish-btn:disabled { background: #2a2a2a; color: #666; cursor: default; }
@@ -688,7 +689,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
                   </span>
                   <div className="mini-text">
                     <div className="mini-title">{p.title}</div>
-                    <div className="mini-meta">{p.symbol} · 🚀 {p.rockets} · 💬 {p.comments}</div>
+                    <div className="mini-meta">{p.symbol} · ðŸš€ {p.rockets} · ðŸ’¬ {p.comments}</div>
                   </div>
                 </div>
               ))}
@@ -711,7 +712,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
             padding: 16px 16px 0;
           }
           .back-btn { background: none; border: none; color: #fff; cursor: pointer; padding: 4px; }
-          .sheet-title { flex: 1; font-size: 16px; font-weight: 700; }
+          .sheet-title { flex: 1; font-size: 16px; font-weight: 600; }
           .sheet-close {
             background: #262626; border: none; border-radius: 50%;
             width: 32px; height: 32px; color: #fff;
@@ -721,23 +722,23 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           .sheet-body::-webkit-scrollbar { display: none; }
           .sheet-empty {
             display: flex; align-items: center; gap: 8px; justify-content: center;
-            color: #666; font-size: 13px; padding: 24px 0;
+            color: #6B7A94; font-size: 13px; padding: 24px 0;
           }
           .spin { animation: spin 1s linear infinite; }
           @keyframes spin { to { transform: rotate(360deg); } }
           .profile-head { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 0 16px; }
           .profile-avatar { width: 84px; height: 84px; border-radius: 50%; margin-bottom: 10px; }
           .profile-name-row { display: flex; align-items: center; gap: 6px; }
-          .profile-name { font-size: 20px; font-weight: 800; }
-          .profile-handle { font-size: 13px; color: #8f8f8f; margin-top: 2px; }
-          .profile-bio { font-size: 13.5px; color: #d6d6d6; line-height: 1.5; margin: 10px 0 0; max-width: 320px; }
+          .profile-name { font-size: 20px; font-weight: 700; color: #F8F8FA; }
+          .profile-handle { font-size: 13px; color: #9AA3B2; margin-top: 2px; }
+          .profile-bio { font-size: 14px; color: #9AA3B2; line-height: 1.35; margin: 10px 0 0; max-width: 320px; }
           .profile-stats { display: flex; gap: 28px; margin: 16px 0; }
           .pstat { display: flex; flex-direction: column; gap: 2px; }
-          .pstat-n { font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
-          .pstat-l { font-size: 11px; color: #8f8f8f; }
+          .pstat-n { font-size: 18px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #8E95A3; }
+          .pstat-l { font-size: 11px; color: #9AA3B2; }
           .follow-btn {
             height: 38px; padding: 0 28px; border-radius: 19px; border: none;
-            background: #00C853; color: #00130a; font-weight: 800; font-size: 14px;
+            background: #18C27C; color: #00130a; font-weight: 700; font-size: 14px;
             cursor: pointer; font-family: inherit;
           }
           .follow-btn.active { background: #2a2a2a; color: #fff; border: 1px solid #3a3a3a; }
@@ -746,8 +747,8 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
             color: #8b5cf6; font-size: 13px; cursor: pointer; font-family: inherit;
           }
           .profile-posts-label {
-            font-size: 12px; font-weight: 700; color: #a3a3a3;
-            margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0.4px;
+            font-size: 14px; font-weight: 600; color: #F2F4F7;
+            margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0.25px;
           }
           .mini-post {
             display: flex; gap: 10px; align-items: flex-start;
@@ -756,13 +757,13 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           .mini-badge {
             width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 800;
+            font-size: 12px; font-weight: 700;
           }
-          .mini-badge.bull { background: rgba(0,200,83,0.12); color: #00C853; }
-          .mini-badge.bear { background: rgba(255,77,79,0.12); color: #FF4D4F; }
+          .mini-badge.bull { background: rgba(24,194,124,0.12); color: #18C27C; }
+          .mini-badge.bear { background: rgba(240,68,56,0.12); color: #F04438; }
           .mini-text { flex: 1; min-width: 0; }
-          .mini-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
-          .mini-meta { font-size: 11.5px; color: #8f8f8f; margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+          .mini-title { font-size: 13.5px; font-weight: 600; color: #F8F8FA; line-height: 1.35; }
+          .mini-meta { font-size: 11.5px; color: #9AA3B2; margin-top: 3px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         `}</style>
       </div>
     </div>
@@ -773,6 +774,7 @@ export default function Community() {
   const router = useRouter()
   const { user } = useAuth()
   const [lang, setLang] = useState('fr')
+  const [section, setSection] = useState('social')
   const [tab, setTab] = useState('forYou')
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -790,10 +792,7 @@ export default function Community() {
   }, [])
 
   const loadFeed = (activeTab) => {
-    if (activeTab === 'challenges') {
-      setLoading(false)
-      return
-    }
+    if (section !== 'social') return
     setLoading(true)
     setError('')
     getCommunityPosts(activeTab, 25)
@@ -806,7 +805,9 @@ export default function Community() {
       .finally(() => { if (mounted.current) setLoading(false) })
   }
 
-  useEffect(() => { loadFeed(tab) }, [tab])
+  useEffect(() => { if (section === 'social') loadFeed(tab) }, [section, tab])
+
+  const switchSection = (id) => { setSection(id) }
 
   const switchTab = (id) => { setTab(id) }
 
@@ -834,17 +835,31 @@ export default function Community() {
           </div>
         </header>
 
-        <div className="tabs-row">
-          {TABS.map(id => (
+        <div className="sections-row">
+          {SECTIONS.map(id => (
             <button
               key={id}
-              className={`feed-tab ${tab === id ? 'active' : ''}`}
-              onClick={() => switchTab(id)}
+              className={`section-btn ${section === id ? 'active' : ''}`}
+              onClick={() => switchSection(id)}
             >
               {t(lang, id)}
             </button>
           ))}
         </div>
+
+        {section === 'social' && (
+          <div className="tabs-row">
+            {FEED_TABS.map(id => (
+              <button
+                key={id}
+                className={`feed-tab ${tab === id ? 'active' : ''}`}
+                onClick={() => switchTab(id)}
+              >
+                {t(lang, id)}
+              </button>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div className="error-bar">
@@ -853,7 +868,7 @@ export default function Community() {
           </div>
         )}
 
-        {tab === 'challenges' ? (
+        {section === 'challenges' ? (
           <ChallengesSection lang={lang} user={user} />
         ) : loading ? (
           <div className="loading-row"><div className="spinner" /></div>
@@ -901,7 +916,7 @@ export default function Community() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 22px 8px; }
@@ -912,10 +927,10 @@ export default function Community() {
         }
         .co-title-col { display: flex; flex-direction: column; gap: 2px; }
         .co-title {
-          font-size: 34px; font-weight: 800; letter-spacing: -0.5px; margin: 0;
+          font-size: 34px; font-weight: 700; letter-spacing: 0.25px; margin: 0;
           line-height: 1;
         }
-        .co-sub { font-size: 12px; color: #8f8f8f; }
+        .co-sub { font-size: 12px; color: #9AA3B2; }
         .co-actions { display: flex; align-items: center; gap: 10px; }
         .icon-btn {
           width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
@@ -923,10 +938,26 @@ export default function Community() {
         }
         .write-btn {
           width: 40px; height: 40px; border-radius: 50%; border: none;
-          background: #00C853; color: #00130a; cursor: pointer;
+          background: #18C27C; color: #00130a; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
         }
         .write-plus { font-size: 24px; font-weight: 700; line-height: 1; }
+        .sections-row {
+          display: flex; gap: 10px; margin-bottom: 14px;
+        }
+        .section-btn {
+          flex: 1; height: 52px; border: 1px solid #262626; border-radius: 16px;
+          background: #141414; color: #A5ADBB;
+          font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
+          transition: opacity 150ms ease-out;
+        }
+        .section-btn:active { opacity: 0.85; }
+        .section-btn.active {
+          background: #F8F8FA;
+          border-color: rgba(24,194,124,0.4); color: #111111;
+          box-shadow: 0 0 20px rgba(24,194,124,0.15);
+          
+        }
         .tabs-row {
           display: flex; align-items: center; gap: 20px;
           padding: 2px 0 16px; overflow-x: auto; scrollbar-width: none;
@@ -935,34 +966,34 @@ export default function Community() {
         .feed-tab {
           flex-shrink: 0; height: 42px; min-width: 120px;
           padding: 0 20px; border: none; border-radius: 21px;
-          background: transparent; color: #8f8f8f;
+          background: transparent; color: #A5ADBB;
           font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit;
         }
         .feed-tab.active {
-          background: #fff; color: #000; font-weight: 700;
+          background: #F8F8FA; color: #111111; font-size: 17px; font-weight: 600;
         }
         .feed { display: flex; flex-direction: column; gap: 18px; padding-bottom: 12px; }
         .loading-row { display: flex; justify-content: center; padding: 40px; }
         .spinner {
           width: 26px; height: 26px;
-          border: 3px solid #262626; border-top-color: #00C853;
+          border: 3px solid #262626; border-top-color: #18C27C;
           border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-box {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
           padding: 44px 20px; text-align: center;
-          color: #a3a3a3; font-size: 14px;
+          color: #6B7A94; font-size: 14px;
         }
-        .empty-sub { font-size: 12px; color: #666; }
+        .empty-sub { font-size: 12px; color: #6B7A94; }
         .error-bar {
           display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           border-radius: 12px; padding: 10px 12px; margin-bottom: 14px;
           font-size: 12px; color: #ff9d9d;
         }
         .error-bar button {
-          background: rgba(255,77,79,0.2); border: none; border-radius: 8px;
+          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
           color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
         }
       `}</style>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
@@ -178,7 +178,7 @@ export default function ProfilePage() {
       <div className="mobile-root">
         <div className="safe-area center"><div className="loading-inline"><Spinner /> …</div></div>
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: Inter, -apple-system, sans-serif; overflow: hidden; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; overflow: hidden; }
           .safe-area { flex: 1; overflow-y: auto; display: flex; align-items: center; justify-content: center; }
           .safe-area::-webkit-scrollbar { display: none; }
           .loading-inline { display: flex; align-items: center; gap: 8px; color: #888; font-size: 13px; }
@@ -415,7 +415,7 @@ export default function ProfilePage() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 8px; }
@@ -426,23 +426,23 @@ export default function ProfilePage() {
           display: flex; padding: 8px; border-radius: 10px;
         }
         .back-btn:hover { background: #141414; }
-        .pf-title { flex: 1; font-size: 18px; font-weight: 800; margin: 0; }
+        .pf-title { flex: 1; font-size: 18px; font-weight: 700; margin: 0; }
         .header-spacer { width: 36px; }
         .section-title { font-size: 14px; font-weight: 700; color: #aaa; margin: 18px 2px 10px; text-transform: uppercase; letter-spacing: 0.4px; }
         .card { background: #141414; border: 1px solid #1f1f1f; border-radius: 18px; padding: 16px; margin-bottom: 12px; }
         .form-card { display: flex; flex-direction: column; gap: 12px; }
         .field { display: flex; flex-direction: column; gap: 6px; }
-        .field-label { font-size: 12px; color: #8f8f8f; font-weight: 600; }
+        .field-label { font-size: 12px; color: #9AA3B2; font-weight: 600; }
         .auth-input {
           height: 46px; border-radius: 13px; border: 1px solid #262626;
           background: #0d0d0d; color: #fff; padding: 0 14px;
           font-size: 15px; font-family: inherit; outline: none; width: 100%;
         }
-        .auth-input:focus { border-color: #00C853; }
-        .auth-input.mono { font-family: 'JetBrains Mono', monospace; text-align: center; letter-spacing: 2px; }
+        .auth-input:focus { border-color: #18C27C; }
+        .auth-input.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 2px; }
         .auth-submit {
           height: 48px; border: none; border-radius: 13px;
-          background: #00C853; color: #00130a; font-size: 14.5px; font-weight: 700;
+          background: #18C27C; color: #00130a; font-size: 14.5px; font-weight: 700;
           cursor: pointer; font-family: inherit;
           display: flex; align-items: center; justify-content: center; gap: 8px;
         }
@@ -454,16 +454,16 @@ export default function ProfilePage() {
           cursor: pointer; font-family: inherit;
           display: inline-flex; align-items: center; gap: 6px;
         }
-        .ghost-btn.copy { border-color: rgba(0,200,83,0.3); color: #00C853; }
+        .ghost-btn.copy { border-color: rgba(24,194,124,0.3); color: #18C27C; }
         .ghost-btn:disabled { opacity: 0.5; }
         .auth-error {
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           color: #ff8a8c; border-radius: 12px; padding: 10px 14px; font-size: 12.5px;
-          line-height: 1.5; margin-bottom: 12px;
+          line-height: 1.35; margin-bottom: 12px;
         }
         .auth-info {
           display: flex; align-items: center; gap: 8px;
-          background: rgba(0,200,83,0.08); border: 1px solid rgba(0,200,83,0.3);
+          background: rgba(24,194,124,0.08); border: 1px solid rgba(24,194,124,0.3);
           color: #7ee2a4; border-radius: 12px; padding: 10px 14px; font-size: 12.5px;
           margin-bottom: 12px;
         }
@@ -475,18 +475,18 @@ export default function ProfilePage() {
         .hero-avatar {
           width: 62px; height: 62px; border-radius: 20px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          background: linear-gradient(135deg, #00C853, #00994a);
-          font-size: 30px; font-weight: 800; color: #00130a;
+          background: linear-gradient(135deg, #18C27C, #00994a);
+          font-size: 30px; font-weight: 700; color: #00130a;
         }
         .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-        .hero-name { font-size: 17px; font-weight: 800; }
-        .hero-email { font-size: 12px; color: #8f8f8f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hero-name { font-size: 17px; font-weight: 700; }
+        .hero-email { font-size: 12px; color: #9AA3B2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .hero-badges { display: flex; flex-wrap: wrap; gap: 6px; }
         .h-badge {
           display: inline-flex; align-items: center; gap: 4px;
           font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 8px;
         }
-        .h-badge.ok { color: #7ee2a4; background: rgba(0,200,83,0.1); }
+        .h-badge.ok { color: #7ee2a4; background: rgba(24,194,124,0.1); }
         .h-badge.warn { color: #ffd166; background: rgba(255,209,102,0.1); }
         .h-badge.type.demo { color: #4ea8ff; background: rgba(78,168,255,0.12); }
         .h-badge.type.real { color: #ffd166; background: rgba(255,209,102,0.12); }
@@ -498,8 +498,8 @@ export default function ProfilePage() {
           background: #0d0d0d; font-size: 20px; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
         }
-        .avatar-cell.active { border-color: #00C853; background: rgba(0,200,83,0.1); }
-        .avatar-cell.clear { font-weight: 800; color: #fff; font-size: 15px; }
+        .avatar-cell.active { border-color: #18C27C; background: rgba(24,194,124,0.1); }
+        .avatar-cell.clear { font-weight: 700; color: #fff; font-size: 15px; }
         .list-card { padding: 6px 14px; }
         .list-row {
           display: flex; align-items: center; gap: 12px;
@@ -509,30 +509,30 @@ export default function ProfilePage() {
         .row-icon {
           width: 36px; height: 36px; border-radius: 11px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          background: rgba(0,200,83,0.1); color: #00C853;
+          background: rgba(24,194,124,0.1); color: #18C27C;
         }
         .row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
         .row-label { font-size: 13.5px; font-weight: 600; }
-        .row-sub { font-size: 11.5px; color: #8f8f8f; }
+        .row-sub { font-size: 11.5px; color: #9AA3B2; }
         .row-sub.ok { color: #7ee2a4; }
         .row-sub.warn { color: #ffd166; }
         .mini-btn {
-          background: rgba(0,200,83,0.1); border: 1px solid rgba(0,200,83,0.3);
-          color: #00C853; font-size: 11.5px; font-weight: 700;
+          background: rgba(24,194,124,0.1); border: 1px solid rgba(24,194,124,0.3);
+          color: #18C27C; font-size: 11.5px; font-weight: 700;
           padding: 7px 12px; border-radius: 10px; cursor: pointer;
           font-family: inherit; display: inline-flex; align-items: center; gap: 6px;
           flex-shrink: 0;
         }
-        .mini-btn.danger { background: rgba(255,77,79,0.1); border-color: rgba(255,77,79,0.3); color: #ff8a8c; }
+        .mini-btn.danger { background: rgba(240,68,56,0.1); border-color: rgba(240,68,56,0.3); color: #ff8a8c; }
         .mini-btn:disabled { opacity: 0.5; }
         .disable-box, .setup-box { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 14px; border-top: 1px solid #1f1f1f; align-items: center; }
-        .disable-sub { font-size: 12px; color: #8f8f8f; text-align: center; }
+        .disable-sub { font-size: 12px; color: #9AA3B2; text-align: center; }
         .disable-actions { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: space-between; }
-        .card-sub { font-size: 12.5px; color: #8f8f8f; text-align: center; line-height: 1.6; }
+        .card-sub { font-size: 12.5px; color: #9AA3B2; text-align: center; line-height: 1.35; }
         .qr-box { padding: 12px; background: #0d0d0d; border: 1px solid #262626; border-radius: 14px; }
         .secret-box { text-align: center; }
         .secret-label { font-size: 10.5px; color: #666; }
-        .secret-value { font-size: 12.5px; font-family: 'JetBrains Mono', monospace; color: #bbb; letter-spacing: 2px; margin-top: 4px; }
+        .secret-value { font-size: 12.5px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #bbb; letter-spacing: 2px; margin-top: 4px; }
         .recovery-card { display: flex; flex-direction: column; gap: 12px; }
         .recovery-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .recovery-head .row-label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 3px; }
@@ -540,12 +540,12 @@ export default function ProfilePage() {
         .codes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .code-chip {
           background: #0d0d0d; border: 1px solid #262626; border-radius: 10px;
-          padding: 9px 6px; text-align: center; font-family: 'JetBrains Mono', monospace;
+          padding: 9px 6px; text-align: center; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #e8e8e8;
         }
         .logout-btn {
           width: 100%; margin-top: 6px; height: 48px; border-radius: 14px;
-          border: 1px solid rgba(255,77,79,0.3); background: rgba(255,77,79,0.08);
+          border: 1px solid rgba(240,68,56,0.3); background: rgba(240,68,56,0.08);
           color: #ff8a8c; font-size: 14px; font-weight: 700; cursor: pointer;
           font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px;
         }
@@ -555,21 +555,21 @@ export default function ProfilePage() {
         .comm-avatar {
           width: 52px; height: 52px; border-radius: 16px; overflow: hidden; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          color: #fff; font-weight: 800; font-size: 22px;
+          color: #fff; font-weight: 700; font-size: 22px;
         }
         .comm-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .comm-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
         .comm-name { font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
-        .comm-handle { font-size: 12px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
+        .comm-handle { font-size: 12px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .comm-stats {
           display: flex; justify-content: space-between;
           background: #0d0d0d; border: 1px solid #1f1f1f; border-radius: 14px; padding: 12px 10px;
         }
         .cstat { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
-        .cstat-n { font-size: 17px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
-        .cstat-l { font-size: 10px; color: #8f8f8f; white-space: nowrap; }
-        .posts-head { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: #00C853; }
-        .info-empty { font-size: 12.5px; color: #8f8f8f; line-height: 1.6; margin: 4px 0; }
+        .cstat-n { font-size: 17px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .cstat-l { font-size: 10px; color: #9AA3B2; white-space: nowrap; }
+        .posts-head { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: #18C27C; }
+        .info-empty { font-size: 12.5px; color: #9AA3B2; line-height: 1.35; margin: 4px 0; }
         .mini-post {
           display: flex; gap: 10px; align-items: flex-start; width: 100%;
           background: none; border: none; color: inherit; cursor: pointer;
@@ -580,13 +580,13 @@ export default function ProfilePage() {
         .mini-badge {
           width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          font-size: 12px; font-weight: 800;
+          font-size: 12px; font-weight: 700;
         }
-        .mini-badge.bull { background: rgba(0,200,83,0.12); color: #00C853; }
-        .mini-badge.bear { background: rgba(255,77,79,0.12); color: #FF4D4F; }
+        .mini-badge.bull { background: rgba(24,194,124,0.12); color: #18C27C; }
+        .mini-badge.bear { background: rgba(240,68,56,0.12); color: #F04438; }
         .mini-text { flex: 1; min-width: 0; }
         .mini-title { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
-        .mini-meta { font-size: 11.5px; color: #8f8f8f; margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+        .mini-meta { font-size: 11.5px; color: #9AA3B2; margin-top: 3px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>

@@ -1,31 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getCompanies, getMarketSparklines, getPortfolio, placeOrder } from '../services/api'
+import { getCompanies, getPortfolio, placeOrder } from '../services/api'
 import { useAuth } from '../lib/auth'
 import {
-  Wallet, TrendingUp, TrendingDown, Plus, Sparkles, ArrowUpRight, ArrowDownRight, UserRound,
-  Trophy, Target, Activity, Layers,
+  Bell, Wallet, CircleUserRound, ChevronDown, SlidersHorizontal,
+  ArrowUpRight, ArrowDownRight, UserRound,
 } from 'lucide-react'
-import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
+import { detectLang, t } from '../lib/i18n'
 
 const PORT_KEY = 'bluerock_portfolio_v1'
-
-const PERIODS = [
-  { id: '1W', days: 7 },
-  { id: '1M', days: 30 },
-  { id: '3M', days: 90 },
-  { id: '6M', days: 180 },
-  { id: '1A', days: 365 },
-]
-
-function downsample(arr, max = 64) {
-  if (arr.length <= max) return arr
-  const step = (arr.length - 1) / (max - 1)
-  const out = []
-  for (let i = 0; i < max; i++) out.push(arr[Math.round(i * step)])
-  return out
-}
 
 function loadJSON(key, fallback) {
   try {
@@ -34,74 +18,19 @@ function loadJSON(key, fallback) {
   } catch { return fallback }
 }
 
-function saveJSON(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
-}
-
-const SECTOR_COLORS = {
-  Banque: '#7266D9', 'Services Financiers': '#00C853', Télécommunications: '#facc15',
-  Industriels: '#4ea8ff', Transport: '#ff8fa3', Assurance: '#ff9f43',
-  Agroalimentaire: '#2ec4b6', 'Consommation de Base': '#2ec4b6',
-  Énergie: '#e76f51', 'Consommation Discrétionnaire': '#c77dff',
-  Matériaux: '#90e0ef', Immobilier: '#f4a261',
-}
-
-function AreaChart({ data, width = 340, height = 150 }) {
-  if (!data || data.length < 2) return <div className="chart-empty">—</div>
-  const min = Math.min(...data)
-  const max = Math.max(...data)
-  const span = max - min || 1
-  const pad = 8
-  const pts = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (width - pad * 2)
-    const y = height - pad - ((v - min) / span) * (height - pad * 2)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-  const up = data[data.length - 1] >= data[0]
-  const color = up ? '#00C853' : '#FF4D4F'
+function EmptyState({ title, sub, btn, onClick }) {
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      <polygon points={`${pad},${height - pad} ${pts} ${width - pad},${height - pad}`} fill={color} opacity="0.1" />
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function Pie({ slices, size = 140 }) {
-  const total = slices.reduce((s, x) => s + x.value, 0) || 1
-  const r = size / 2 - 4
-  const cx = size / 2
-  const cy = size / 2
-  let angle = -90
-  const arcs = slices.map((s, i) => {
-    const frac = s.value / total
-    const a1 = angle
-    const a2 = angle + frac * 360
-    angle = a2
-    const rad = a => ((a - 90) * Math.PI) / 180
-    const x1 = cx + r * Math.cos(rad(a1))
-    const y1 = cy + r * Math.sin(rad(a1))
-    const x2 = cx + r * Math.cos(rad(a2))
-    const y2 = cy + r * Math.sin(rad(a2))
-    const large = frac > 0.5 ? 1 : 0
-    return (
-      <path key={i} d={`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`} fill={s.color} />
-    )
-  })
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {arcs}
-      <circle cx={cx} cy={cy} r={r * 0.62} fill="#1E1E1E" />
-    </svg>
-  )
-}
-
-function RiskBar({ level }) {
-  const pct = Math.max(8, Math.min(100, level))
-  const color = level <= 35 ? '#00C853' : level <= 65 ? '#facc15' : '#FF4D4F'
-  return (
-    <div className="risk-bar">
-      <div className="risk-fill" style={{ width: `${pct}%`, background: color }} />
+    <div className="pf-empty">
+      <div className="rings">
+        <div className="ring r3" />
+        <div className="ring r2" />
+        <div className="ring r1" />
+        <span className="plus-h" />
+        <span className="plus-v" />
+      </div>
+      <p className="pf-empty-title">{title}</p>
+      {sub && <p className="pf-empty-sub">{sub}</p>}
+      {btn && <button className="pf-empty-btn" onClick={onClick}>{btn}</button>}
     </div>
   )
 }
@@ -111,13 +40,11 @@ export default function Portfolio() {
   const { user, loading: authLoading } = useAuth()
   const [lang, setLang] = useState('fr')
   const [stocks, setStocks] = useState([])
-  const [spark, setSpark] = useState({})
   const [positions, setPositions] = useState({})
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [migrated, setMigrated] = useState(false)
-  const [period, setPeriod] = useState('1M')
-  const [demoCap, setDemoCap] = useState(null)
+  const [tab, setTab] = useState('positions')
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -142,9 +69,6 @@ export default function Portfolio() {
         ;(res.data.positions || []).forEach(p => { pos[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
         setPositions(pos)
         setOrders(res.data.orders || [])
-        if (res.data.demo_limit != null) {
-          setDemoCap({ limit: res.data.demo_limit, used: res.data.demo_used, remaining: res.data.demo_remaining })
-        }
         const local = loadJSON(PORT_KEY, {})
         const localEntries = Object.entries(local).filter(([, p]) => p.qty > 0)
         if (localEntries.length && (!res.data.positions || !res.data.positions.length) && !migrated) {
@@ -172,14 +96,8 @@ export default function Portfolio() {
   }, [user, authLoading, migrated])
 
   useEffect(() => {
-    Promise.all([
-      getCompanies({ limit: 47 }).then(r => r.data.companies || []).catch(() => []),
-      getMarketSparklines(400).then(r => r.data || {}).catch(() => ({})),
-    ]).then(([list, sp]) => {
-      if (!mounted.current) return
-      setStocks(list)
-      setSpark(sp)
-    })
+    getCompanies({ limit: 47 }).then(r => r.data.companies || []).catch(() => [])
+      .then(list => { if (mounted.current) setStocks(list) })
     return () => { mounted.current = false }
   }, [])
 
@@ -208,280 +126,88 @@ export default function Portfolio() {
     return { value, cost, dayPl, dayPlPct, totalPl, totalPlPct }
   }, [positionList])
 
-  const series = useMemo(() => {
-    const days = (PERIODS.find(p => p.id === period) || PERIODS[1]).days
-    const n = Math.min(days, 64)
-    const out = new Array(n).fill(0)
-    positionList.forEach(p => {
-      const points = spark[p.id]
-      if (points && points.length >= 2) {
-        const last = points[points.length - 1]
-        const ratio = p.price ? last / p.price : 1
-        const win = downsample(points.slice(-days), n)
-        for (let i = 0; i < n; i++) out[i] += (win[i] || last) * ratio * p.qty
-      } else {
-        for (let i = 0; i < n; i++) out[i] += p.value
-      }
-    })
-    return out
-  }, [positionList, spark, period])
-
-  const periodPerf = useMemo(() => {
-    if (series.length < 2) return { chg: 0, pl: 0, high: null, low: null }
-    const first = series[0]
-    const last = series[series.length - 1]
-    const chg = first ? ((last - first) / first) * 100 : 0
-    return { chg, pl: last - first, high: Math.max(...series), low: Math.min(...series) }
-  }, [series])
-
-  const maxPlPct = Math.max(...positionList.map(p => Math.abs(p.plPct)), 0.01)
-
-  const movers = useMemo(() => {
-    const sorted = [...positionList].sort((a, b) => b.chg - a.chg)
-    const maxAbs = Math.max(...positionList.map(p => Math.abs(p.chg)), 0.01)
-    return {
-      gainers: sorted.filter(p => p.chg > 0).slice(0, 3).map(p => ({ ...p, barW: (p.chg / maxAbs) * 100 })),
-      losers: sorted.slice().reverse().filter(p => p.chg < 0).slice(0, 3).map(p => ({ ...p, barW: (Math.abs(p.chg) / maxAbs) * 100 })),
-    }
-  }, [positionList])
-
-  const allocation = useMemo(() => {
-    const total = totals.value || 1
-    const list = positionList
-      .map(p => ({ ...p, weight: (p.value / total) * 100 }))
-      .sort((a, b) => b.weight - a.weight)
-    return { list, maxW: list.length ? list[0].weight : 1 }
-  }, [positionList, totals.value])
-
-  const volatility = useMemo(() => {
-    const vols = positionList.map(p => {
-      const pts = spark[p.id]
-      if (!pts || pts.length < 4) return null
-      const win = pts.slice(-31)
-      let prev = null
-      let sum = 0
-      let n = 0
-      for (const v of win) {
-        if (prev != null && prev > 0) { sum += ((v - prev) / prev) ** 2; n++ }
-        prev = v
-      }
-      if (!n) return null
-      return (Math.sqrt(sum / n) * Math.sqrt(252)) * 100
-    }).filter(v => v != null)
-    if (!vols.length) return null
-    return vols.reduce((s, v) => s + v, 0) / vols.length
-  }, [positionList, spark])
-
-  const sectorPie = useMemo(() => {
-    const map = {}
-    positionList.forEach(p => {
-      const sec = p.stock?.sector || 'Autre'
-      map[sec] = (map[sec] || 0) + p.value
-    })
-    return Object.entries(map)
-      .map(([label, value]) => ({ label, value, color: SECTOR_COLORS[label] || '#5a5a5a' }))
-      .sort((a, b) => b.value - a.value)
-  }, [positionList])
-
-  const nPos = positionList.length
-  const herfindahl = nPos ? positionList.reduce((s, p) => s + (p.value / (totals.value || 1)) ** 2, 0) : 0
-  const diversification = nPos === 0 ? 0 : Math.min(100, Math.round((1 - herfindahl) * 100))
-  const riskLevel = nPos === 0 ? 0 : Math.max(15, Math.min(90, Math.round(60 - diversification * 0.45)))
-  const riskLabel = riskLevel <= 35 ? t(lang, 'riskLow') : riskLevel <= 65 ? t(lang, 'riskMedium') : t(lang, 'riskHigh')
-
-  const estDividends = positionList.reduce((s, p) => {
-    const dy = p.stock?.dividend_yield ?? 0
-    return s + p.value * (dy / 100)
-  }, 0)
-  const divYield = totals.value ? (estDividends / totals.value) * 100 : 0
-
-  const aiRecos = []
-  if (nPos > 0) {
-    const top = [...positionList].sort((a, b) => b.value - a.value)
-    const topPct = (top[0].value / totals.value) * 100
-    if (topPct > 35) aiRecos.push({ type: 'warn', i18n: 'aiRecoConcentration', v: `${topPct.toFixed(0)}%` })
-    else aiRecos.push({ type: 'ok', i18n: 'aiRecoDiversified', v: '' })
-    const sectorsCount = sectorPie.length
-    if (sectorsCount <= 2) aiRecos.push({ type: 'warn', i18n: 'aiRecoSectors', v: String(sectorsCount) })
-    else aiRecos.push({ type: 'ok', i18n: 'aiRecoSectorSpread', v: String(sectorsCount) })
-    const neg = positionList.filter(p => p.pl < 0)
-    if (neg.length) aiRecos.push({ type: 'warn', i18n: 'aiRecoLosers', v: neg.map(p => p.symbol).join(', ') })
-    if (divYield >= 2) aiRecos.push({ type: 'ok', i18n: 'aiRecoDividends', v: `${divYield.toFixed(1)}%` })
-    if (diversification >= 60) aiRecos.push({ type: 'ok', i18n: 'aiRecoDiversification', v: `${diversification}%` })
-  }
-  if (aiRecos.length === 0) aiRecos.push({ type: 'info', i18n: 'aiRecoEmpty', v: '' })
-
   const fmtMoney = n => n != null ? n.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—'
-  const fmtPl = v => `${v >= 0 ? '+' : ''}${fmtMoney(v)}`
   const fmtPlPct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+
+  const pendingOrders = orders.filter(o => o.status === 'pending')
+  const historyOrders = orders.filter(o => o.status !== 'pending')
+
+  const tabs = [
+    { id: 'positions', label: t(lang, 'pfOpenPositions') },
+    { id: 'orders', label: t(lang, 'pfPendingOrders') },
+    { id: 'history', label: t(lang, 'pfHistory') },
+  ]
+
+  const renderOrder = o => {
+    const buy = o.side === 'buy'
+    const when = o.created_at ? new Date(o.created_at) : null
+    const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
+    return (
+      <div key={o.id} className="order-row">
+        <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
+        <div className="order-info">
+          <div className="order-sym mono">{o.symbol}</div>
+          <div className="order-detail">
+            {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price)}
+          </div>
+        </div>
+        <div className="order-right">
+          <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
+          <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0))}</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mobile-root">
-      <div className="safe-area">
-        <header className="pf-header">
-          <div className="pf-title-col">
-            <h1 className="pf-title">{t(lang, 'portfolio')}</h1>
-            <span className="pf-sub">{t(lang, 'pfSubtitle')}</span>
-          </div>
-          <button className="icon-btn add" aria-label={t(lang, 'add')} onClick={() => router.push('/watchlist')}>
-            <Plus size={24} />
+      <header className="top-bar">
+        <button className="acct-capsule" onClick={() => router.push('/profile')} aria-label={t(lang, 'account')}>
+          <span className="acct-avatar">R</span>
+          <span className="acct-balance mono">{fmtMoney(totals.value)}</span>
+          <ChevronDown size={16} strokeWidth={2.4} className="acct-chev" />
+        </button>
+        <div className="top-icons">
+          <button className="top-icon" onClick={() => router.push('/notifications')} aria-label={t(lang, 'notifications')}>
+            <Bell size={23} strokeWidth={2.2} />
           </button>
-        </header>
+          <button className="top-icon" onClick={() => router.push('/watchlist')} aria-label={t(lang, 'watchlist')}>
+            <Wallet size={24} strokeWidth={2.2} />
+          </button>
+          <button className="top-icon" onClick={() => router.push('/profile')} aria-label={t(lang, 'account')}>
+            <CircleUserRound size={28} strokeWidth={2.2} />
+          </button>
+        </div>
+      </header>
 
-        {demoCap && (
-          <div className="demo-cap">
-            <div className="dc-row">
-              <span className="dc-label"><Sparkles size={11} /> {t(lang, 'ctDemoBadge')} · {t(lang, 'ctDemoTitle')}</span>
-              <span className="dc-pct">{((demoCap.used / demoCap.limit) * 100).toFixed(1)}%</span>
-            </div>
-            <div className="dc-track"><div className="dc-fill" style={{ width: `${Math.min((demoCap.used / demoCap.limit) * 100, 100)}%` }} /></div>
-            <div className="dc-row sub">
-              <span>{fmtMoney(demoCap.used)} / {fmtMoney(demoCap.limit)} FCFA</span>
-              <span className="dc-left">{t(lang, 'ctDemoRemaining')} : {fmtMoney(demoCap.remaining)}</span>
-            </div>
-          </div>
-        )}
+      <div className="safe-area">
+        <div className="tt-row">
+          <h1 className="tt-title">{t(lang, 'transactions')}</h1>
+          <SlidersHorizontal size={25} strokeWidth={2.2} className="tt-filter" />
+        </div>
+
+        <div className="tx-tabs">
+          {tabs.map(tb => (
+            <button
+              key={tb.id}
+              className={`tx-tab ${tab === tb.id ? 'active' : ''}`}
+              onClick={() => setTab(tb.id)}
+            >{tb.label}</button>
+          ))}
+        </div>
 
         {loading ? (
           <div className="loading-row"><div className="spinner" /></div>
         ) : !user ? (
-          <div className="empty-box">
-            <UserRound size={30} />
-            <span className="empty-title">{t(lang, 'authRequired')}</span>
-            <span className="empty-sub">{t(lang, 'authRequiredSub')}</span>
-            <button className="empty-btn" onClick={() => router.push(`/login?next=${encodeURIComponent(router.asPath)}`)}>{t(lang, 'authLogin')}</button>
-          </div>
-        ) : nPos === 0 && !orders.length ? (
-          <div className="empty-box">
-            <Wallet size={30} />
-            <span className="empty-title">{t(lang, 'pfEmpty')}</span>
-            <span className="empty-sub">{t(lang, 'pfEmptySub')}</span>
-            <button className="empty-btn" onClick={() => router.push('/watchlist')}>{t(lang, 'pfGoWatchlist')}</button>
-          </div>
-        ) : (
-          <>
-            {nPos === 0 && (
-              <div className="empty-box">
-                <Wallet size={30} />
-                <span className="empty-title">{t(lang, 'pfEmpty')}</span>
-                <span className="empty-sub">{t(lang, 'pfEmptySub')}</span>
-                <button className="empty-btn" onClick={() => router.push('/watchlist')}>{t(lang, 'pfGoWatchlist')}</button>
-              </div>
-            )}
-            <section className="value-card">
-              <div className="vc-top">
-                <span className="vc-label">{t(lang, 'pfTotalValue')}</span>
-                <div className="vc-periods">
-                  {PERIODS.map(pp => (
-                    <button
-                      key={pp.id}
-                      className={`vc-period ${period === pp.id ? 'active' : ''}`}
-                      onClick={() => setPeriod(pp.id)}
-                    >{pp.id}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="vc-value">{fmtMoney(totals.value)} FCFA</div>
-              <div className="vc-meta">
-                <span className={`vc-day ${totals.dayPl >= 0 ? 'up' : 'down'}`}>
-                  {totals.dayPl >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                  {fmtPlPct(totals.dayPlPct)} {t(lang, 'today')}
-                </span>
-                <span className={`vc-total ${periodPerf.chg >= 0 ? 'up' : 'down'}`}>
-                  {fmtPlPct(periodPerf.chg)} {t(lang, 'pfPeriodPerf')}
-                </span>
-              </div>
-              <div className="vc-chart">
-                <AreaChart data={series} />
-              </div>
-              <div className="vc-stats">
-                <span className="vc-minmax"><i className="dot down" /> {t(lang, 'pfPeriodLow')} · {fmtMoney(periodPerf.low)}</span>
-                <span className="vc-minmax"><i className="dot up" /> {t(lang, 'pfPeriodHigh')} · {fmtMoney(periodPerf.high)}</span>
-              </div>
-            </section>
-
-            <section className="breakdown-card">
-              <div className="card-title">{t(lang, 'pfBreakdown')}</div>
-              <div className="bd-grid">
-                <div className="bd-item">
-                  <span className="bd-label">{t(lang, 'pfInvested')}</span>
-                  <span className="bd-value">{fmtMoney(totals.cost)} FCFA</span>
-                </div>
-                <div className="bd-item">
-                  <span className="bd-label">{t(lang, 'pfDayPl')}</span>
-                  <span className={`bd-value ${totals.dayPl >= 0 ? 'up' : 'down'}`}>{fmtPl(totals.dayPl)} FCFA</span>
-                </div>
-                <div className="bd-item">
-                  <span className="bd-label">{t(lang, 'pfTotalPl')}</span>
-                  <span className={`bd-value ${totals.totalPl >= 0 ? 'up' : 'down'}`}>{fmtPl(totals.totalPl)} FCFA</span>
-                </div>
-                <div className="bd-item">
-                  <span className="bd-label">{t(lang, 'pfPositions')}</span>
-                  <span className="bd-value">{nPos}</span>
-                </div>
-              </div>
-            </section>
-
-            <section className="sector-card">
-              <div className="card-title">{t(lang, 'pfSectorExposure')}</div>
-              <div className="sec-body">
-                <Pie slices={sectorPie} />
-                <div className="sec-legend">
-                  {sectorPie.map((s, i) => (
-                    <div key={i} className="sec-item">
-                      <i className="sw" style={{ background: s.color }} />
-                      <span className="sec-name">{s.label}</span>
-                      <span className="sec-pct mono">{((s.value / (totals.value || 1)) * 100).toFixed(0)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="movers-card">
-              <div className="card-title"><Trophy size={15} className="ct-ico" /> {t(lang, 'pfTopMovers')}</div>
-              <div className="movers-grid">
-                <div className="mover-col">
-                  <div className="mover-head gainers"><TrendingUp size={12} /> {t(lang, 'pfGainers')}</div>
-                  {movers.gainers.length ? movers.gainers.map(p => (
-                    <div key={p.symbol} className="mover-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
-                      <span className="mover-sym">{p.symbol}</span>
-                      <div className="mover-track"><div className="mover-fill up" style={{ width: `${p.barW}%` }} /></div>
-                      <span className="mover-chg up mono">+{p.chg.toFixed(2)}%</span>
-                    </div>
-                  )) : <div className="mover-empty">—</div>}
-                </div>
-                <div className="mover-col">
-                  <div className="mover-head losers"><TrendingDown size={12} /> {t(lang, 'pfLosers')}</div>
-                  {movers.losers.length ? movers.losers.map(p => (
-                    <div key={p.symbol} className="mover-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
-                      <span className="mover-sym">{p.symbol}</span>
-                      <div className="mover-track"><div className="mover-fill down" style={{ width: `${p.barW}%` }} /></div>
-                      <span className="mover-chg down mono">{p.chg.toFixed(2)}%</span>
-                    </div>
-                  )) : <div className="mover-empty">—</div>}
-                </div>
-              </div>
-            </section>
-
-            <section className="alloc-card">
-              <div className="card-title"><Layers size={15} className="ct-ico" /> {t(lang, 'pfAllocation')}</div>
-              {allocation.list.map(p => (
-                <div key={p.symbol} className="alloc-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
-                  <span className="alloc-sym">{p.symbol}</span>
-                  <div className="alloc-track"><div className="alloc-fill" style={{ width: `${(p.weight / allocation.maxW) * 100}%` }} /></div>
-                  <span className="alloc-pct mono">{p.weight.toFixed(1)}%</span>
-                </div>
-              ))}
-              {allocation.list[0] && (
-                <div className="alloc-top">
-                  <Target size={12} /> {t(lang, 'pfHeaviest')} <b className="mono">{allocation.list[0].symbol}</b> · {allocation.list[0].weight.toFixed(1)}%
-                </div>
-              )}
-            </section>
-
-            <section className="positions-card">
-              <div className="card-title">{t(lang, 'pfPositions')}</div>
+          <EmptyState
+            title={t(lang, 'authRequired')}
+            sub={t(lang, 'authRequiredSub')}
+            btn={t(lang, 'authLogin')}
+            onClick={() => router.push(`/login?next=${encodeURIComponent(router.asPath)}`)}
+          />
+        ) : tab === 'positions' ? (
+          positionList.length ? (
+            <div className="px-list">
               {positionList.map(p => {
                 const up = p.pl >= 0
                 return (
@@ -500,347 +226,161 @@ export default function Portfolio() {
                     <div className="pos-right">
                       <div className="pos-value mono">{fmtMoney(p.value)}</div>
                       <div className={`pos-pl mono ${up ? 'up' : 'down'}`}>
-                        {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                        {up ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
                         {fmtPlPct(p.plPct)}
-                      </div>
-                      <div className="pos-bar">
-                        <div className={`pos-bar-fill ${up ? 'up' : 'down'}`} style={{ width: `${Math.min(100, (Math.abs(p.plPct) / maxPlPct) * 100)}%` }} />
                       </div>
                     </div>
                   </div>
                 )
               })}
-            </section>
-
-            <section className="ai-card">
-              <div className="ai-head">
-                <span className="ai-badge"><Sparkles size={14} /> {t(lang, 'aiPerformance')}</span>
-                <span className="ai-premium">PREMIUM</span>
-              </div>
-              <div className="ai-stats">
-                <div className="ai-stat">
-                  <span className="ai-stat-label">{t(lang, 'pfDiversification')}</span>
-                  <span className="ai-stat-value">{diversification}%</span>
-                </div>
-                <div className="ai-stat">
-                  <span className="ai-stat-label">{t(lang, 'pfRiskLevel')}</span>
-                  <div className="risk-wrap">
-                    <span className={`risk-text ${riskLevel <= 35 ? 'up' : riskLevel <= 65 ? 'warn' : 'down'}`}>{riskLabel}</span>
-                    <RiskBar level={riskLevel} />
-                  </div>
-                </div>
-                <div className="ai-stat">
-                  <span className="ai-stat-label">{t(lang, 'pfEstDividends')}</span>
-                  <span className="ai-stat-value">{fmtMoney(estDividends)} FCFA</span>
-                </div>
-                <div className="ai-stat">
-                  <span className="ai-stat-label">{t(lang, 'pfGrowthProj')}</span>
-                  <span className="ai-stat-value">{totals.totalPlPct >= 0 ? '+' : ''}{totals.totalPlPct.toFixed(1)}%</span>
-                </div>
-                <div className="ai-stat">
-                  <span className="ai-stat-label"><Activity size={11} className="ai-ico" /> {t(lang, 'pfVolatility')}</span>
-                  <span className="ai-stat-value">{volatility != null ? `${volatility.toFixed(1)}%` : '—'}</span>
-                </div>
-              </div>
-              <div className="ai-recos">
-                <div className="reco-title">{t(lang, 'aiRecommendations')}</div>
-                {aiRecos.map((r, i) => (
-                  <div key={i} className={`reco-item ${r.type}`}>
-                    <span className="reco-icon">
-                      {r.type === 'ok' ? '✓' : r.type === 'warn' ? '!' : 'i'}
-                    </span>
-                    <span>{t(lang, r.i18n)}</span>
-                    {r.v && <span className="mono reco-v">{r.v}</span>}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="orders-card">
-              <div className="card-title">{t(lang, 'pfOrders')}</div>
-              {!orders.length ? (
-                <div className="orders-empty">{t(lang, 'pfOrdersEmpty')}</div>
-              ) : (
-                <div className="orders-list">
-                  {orders.map(o => {
-                    const buy = o.side === 'buy'
-                    const when = o.created_at ? new Date(o.created_at) : null
-                    const typeKey = o.order_type === 'limit' ? 'orderLimit' : o.order_type === 'take_profit' ? 'takeProfit' : o.order_type === 'stop_loss' ? 'stopLoss' : 'orderMarket'
-                    const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
-                    return (
-                      <div key={o.id} className="order-row">
-                        <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
-                        <span className="order-sym mono">{o.symbol}</span>
-                        <span className="order-detail">
-                          {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price)}
-                          <span className={`order-status ${o.status}`}>{t(lang, typeKey)} · {t(lang, stKey)}</span>
-                        </span>
-                        <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0))} FCFA</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </section>
-          </>
+            </div>
+          ) : (
+            <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
+          )
+        ) : tab === 'orders' ? (
+          pendingOrders.length ? (
+            <div className="px-list">{pendingOrders.map(renderOrder)}</div>
+          ) : (
+            <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
+          )
+        ) : historyOrders.length ? (
+          <div className="px-list">{historyOrders.map(renderOrder)}</div>
+        ) : (
+          <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
         )}
       </div>
 
-      <BottomNav active="menu" />
+      <BottomNav active="portfolio" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0D162B; color: #F7F8FA;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
-        .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
-        .safe-area::-webkit-scrollbar { display: none; }
-        .pf-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; }
-        .pf-title-col { display: flex; flex-direction: column; gap: 2px; }
-        .pf-title { font-size: 26px; font-weight: 800; margin: 0; letter-spacing: -0.3px; text-shadow: 0 0 12px rgba(255,255,255,0.35); }
-        .pf-sub { font-size: 13px; color: #8f8f8f; }
-        .demo-cap {
-          margin: 10px 0 4px; padding: 11px 13px;
-          background: #15170f; border: 1px solid #3a3a24; border-radius: 14px;
-          display: flex; flex-direction: column; gap: 7px;
+        .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 44px 24px 0; }
+        .acct-capsule {
+          display: flex; align-items: center; gap: 11px; height: 68px;
+          padding: 0 16px 0 13px; background: #172239; border: none; border-radius: 34px;
+          cursor: pointer; min-width: 0; font-family: inherit;
         }
-        .dc-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #b89a55; }
-        .dc-label { display: flex; align-items: center; gap: 5px; color: #f0d28a; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
-        .dc-pct { font-family: 'JetBrains Mono', monospace; color: #D4A843; font-weight: 700; }
-        .dc-row.sub { color: #8a8a8a; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
-        .dc-row.sub span { white-space: nowrap; }
-        .dc-left { color: #d6d6d6; }
-        .dc-track { height: 6px; border-radius: 4px; background: #23231a; overflow: hidden; }
-        .dc-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #D4A843, #b8922f); transition: width 0.4s ease; }
-        .icon-btn {
+        .acct-avatar {
+          width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+          background: #0E3022; color: #2ACB8A;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 17px; font-weight: 700;
+        }
+        .acct-balance {
+          color: #F7F8FA; font-size: 21px; font-weight: 600; white-space: nowrap; letter-spacing: 0.25px;
+        }
+        .acct-chev { color: #8C99AF; flex-shrink: 0; }
+        .top-icons { display: flex; align-items: center; gap: 12px; }
+        .top-icon {
           width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-          background: #1E1E1E; border: none; color: #fff; cursor: pointer; border-radius: 50%;
+          color: #8C99AF; border-radius: 50%; background: none; border: none; cursor: pointer; font-family: inherit;
         }
-        .icon-btn.add { background: rgba(0,200,83,0.12); color: #00C853; }
-        .loading-row { display: flex; justify-content: center; padding: 40px; }
+        .safe-area { flex: 1; overflow-y: auto; padding: 0 0 8px; }
+        .safe-area::-webkit-scrollbar { display: none; }
+        .tt-row { display: flex; align-items: center; justify-content: space-between; margin: 46px 30px 0; }
+        .tt-title { font-size: 36px; font-weight: 700; color: #F7F8FA; margin: 0; letter-spacing: 0.25px; }
+        .tt-filter { color: #8C99AF; }
+        .tx-tabs {
+          display: flex; gap: 10px; overflow-x: auto; padding: 26px 24px 0;
+          scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .tx-tabs::-webkit-scrollbar { display: none; }
+        .tx-tab {
+          flex-shrink: 0; height: 62px; padding: 0 34px; border-radius: 35px; border: none;
+          font-family: inherit; font-size: 20px; letter-spacing: 0.25px; white-space: nowrap; cursor: pointer;
+        }
+        .tx-tab.active { background: #FFFFFF; color: #111111; font-weight: 700; }
+        .tx-tab:not(.active) { background: #1B263D; color: #8996AE; font-weight: 500; }
+        .loading-row { display: flex; justify-content: center; padding: 60px 0; }
         .spinner {
           width: 26px; height: 26px;
-          border: 3px solid #262626; border-top-color: #00C853;
+          border: 3px solid #1B2941; border-top-color: #2ACB8A;
           border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .empty-box {
-          display: flex; flex-direction: column; align-items: center; gap: 10px;
-          padding: 56px 20px; text-align: center;
+        .pf-empty {
+          display: flex; flex-direction: column; align-items: center;
+          padding: 90px 24px 40px; text-align: center;
         }
-        .empty-title { font-size: 15px; font-weight: 700; }
-        .empty-sub { font-size: 12px; color: #666; line-height: 1.5; }
-        .empty-btn {
-          margin-top: 6px; background: #00C853; color: #00130a;
-          border: none; border-radius: 12px; padding: 10px 22px;
-          font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit;
+        .rings { position: relative; width: 260px; height: 260px; }
+        .ring {
+          position: absolute; left: 50%; top: 50%;
+          transform: translate(-50%, -50%); border-radius: 50%;
         }
-        .value-card {
-          background: linear-gradient(160deg, #0f2a1f, #101018);
-          border: 1px solid rgba(0,200,83,0.2);
-          border-radius: 20px; padding: 22px; margin: 12px 0 16px;
+        .ring.r3 { width: 260px; height: 260px; border: 1.5px solid #1B2941; }
+        .ring.r2 { width: 190px; height: 190px; border: 2px solid #22304A; }
+        .ring.r1 { width: 120px; height: 120px; border: 5px solid #46536A; }
+        .plus-h, .plus-v {
+          position: absolute; left: 50%; top: 50%;
+          transform: translate(-50%, -50%);
+          background: #8C99AF; border-radius: 7px;
         }
-        .vc-label { font-size: 13px; color: #8f8f8f; }
-        .vc-top { display: flex; align-items: center; justify-content: space-between; }
-        .vc-periods { display: flex; gap: 3px; background: rgba(255,255,255,0.05); border-radius: 8px; padding: 2px; }
-        .vc-period {
-          border: none; background: none; color: #8f8f8f; font-size: 10px; font-weight: 700;
-          padding: 4px 8px; border-radius: 6px; cursor: pointer; font-family: inherit;
-          transition: background 120ms ease-out, color 120ms ease-out;
+        .plus-h { width: 46px; height: 11px; }
+        .plus-v { width: 11px; height: 46px; }
+        .pf-empty-title { font-size: 23px; font-weight: 500; color: #8996AC; margin: 34px 0 0; letter-spacing: 0.25px; }
+        .pf-empty-sub { font-size: 14px; font-weight: 400; color: #5F6D85; margin: 10px 0 0; line-height: 1.5; }
+        .pf-empty-btn {
+          margin-top: 30px; width: min(460px, 100%); height: 76px;
+          background: transparent; border: 2px solid #46536A; border-radius: 16px;
+          color: #F7F8FA; font-size: 20px; font-weight: 700; cursor: pointer; font-family: inherit;
+          letter-spacing: 0.25px;
         }
-        .vc-period.active { background: #00C853; color: #00130a; }
-        .vc-value {
-          font-size: 40px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin: 6px 0 10px;
-          text-shadow: 0 0 14px rgba(255,255,255,0.5), 0 0 34px rgba(255,255,255,0.2);
-        }
-        .vc-meta { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; }
-        .vc-day { display: flex; align-items: center; gap: 5px; font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .vc-total { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .vc-stats { display: flex; justify-content: space-between; margin-top: 8px; }
-        .vc-minmax { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
-        .vc-minmax .dot { width: 7px; height: 7px; border-radius: 50%; }
-        .dot.up { background: #00C853; }
-        .dot.down { background: #FF4D4F; }
-        .up {
-          color: #00C853;
-          text-shadow: 0 0 10px rgba(0,200,83,0.85), 0 0 24px rgba(0,200,83,0.35);
-        }
-        .down {
-          color: #FF4D4F;
-          text-shadow: 0 0 10px rgba(255,77,79,0.85), 0 0 24px rgba(255,77,79,0.35);
-        }
-        .warn { color: #facc15; }
-        .vc-chart { display: flex; justify-content: center; }
-        .chart-empty { color: #555; padding: 50px 0; font-size: 12px; }
-        .breakdown-card, .sector-card, .positions-card {
-          background: #1E1E1E; border-radius: 20px; padding: 20px; margin-bottom: 16px;
-        }
-        .card-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; text-shadow: 0 0 10px rgba(255,255,255,0.25); }
-        .bd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .bd-item {
-          background: #141414; border-radius: 14px; padding: 13px 14px;
-          display: flex; flex-direction: column; gap: 4px;
-        }
-        .bd-label { font-size: 11px; color: #8f8f8f; }
-        .bd-value { font-size: 17px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .sec-body { display: flex; align-items: center; gap: 20px; }
-        .sec-legend { flex: 1; display: flex; flex-direction: column; gap: 10px; }
-        .sec-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #a3a3a3; }
-        .sec-item .sec-pct { margin-left: auto; color: #fff; font-weight: 600; text-shadow: 0 0 8px rgba(255,255,255,0.35); }
-        .sw { width: 12px; height: 12px; border-radius: 3px; }
-        .sec-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .px-list { padding: 26px 24px 24px; display: flex; flex-direction: column; }
         .pos-row {
           display: flex; align-items: center; gap: 14px;
-          padding: 13px 0; border-bottom: 1px solid #2a2a2a; cursor: pointer;
+          padding: 15px 0; border-bottom: 1px solid #1B2941; cursor: pointer;
         }
         .pos-row:last-child { border-bottom: none; }
         .pos-logo {
-          width: 54px; height: 54px; border-radius: 14px; flex-shrink: 0;
+          width: 54px; height: 54px; border-radius: 16px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           font-weight: 700; font-size: 17px; overflow: hidden;
         }
         .pos-logo img { width: 100%; height: 100%; object-fit: cover; }
         .pos-info { flex: 1; min-width: 0; }
         .pos-name {
-          font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-          text-shadow: 0 0 10px rgba(255,255,255,0.35), 0 0 22px rgba(255,255,255,0.12);
+          font-size: 18px; font-weight: 700; color: #F7F8FA;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .pos-sub { font-size: 13px; color: #8f8f8f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pos-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-        .pos-value {
-          font-size: 17px; font-weight: 700;
-          text-shadow: 0 0 12px rgba(255,255,255,0.4), 0 0 26px rgba(255,255,255,0.15);
+        .pos-sub {
+          font-size: 14px; font-weight: 400; color: #8C99AF;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .pos-pl { display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 700; }
-        .pos-bar { width: 100%; height: 4px; border-radius: 2px; background: #2a2a2a; overflow: hidden; margin-top: 4px; }
-        .pos-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-        .pos-bar-fill.up { background: #00C853; }
-        .pos-bar-fill.down { background: #FF4D4F; }
-        .mono { font-family: 'JetBrains Mono', monospace; }
-        .ct-ico { color: #a78bfa; }
-        .movers-card, .alloc-card {
-          background: #1E1E1E; border-radius: 20px; padding: 20px; margin-bottom: 16px;
-        }
-        .movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-        .mover-head {
-          display: flex; align-items: center; gap: 5px;
-          font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
-          margin-bottom: 10px; text-transform: uppercase;
-        }
-        .mover-head.gainers { color: #00C853; }
-        .mover-head.losers { color: #FF4D4F; }
-        .mover-row {
-          display: flex; align-items: center; gap: 7px;
-          padding: 7px 0; cursor: pointer;
-        }
-        .mover-sym {
-          font-size: 13px; font-weight: 700; color: #fff; width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          text-shadow: 0 0 8px rgba(255,255,255,0.3);
-        }
-        .mover-track { flex: 1; height: 5px; border-radius: 3px; background: #26262f; overflow: hidden; }
-        .mover-fill { height: 100%; border-radius: 3px; }
-        .mover-fill.up { background: rgba(0,200,83,0.75); }
-        .mover-fill.down { background: rgba(255,77,79,0.75); }
-        .mover-chg { font-size: 12px; font-weight: 700; min-width: 50px; text-align: right; }
-        .mover-empty { color: #555; font-size: 12px; padding: 8px 0; }
-        .alloc-row {
-          display: flex; align-items: center; gap: 9px;
-          padding: 7px 0; cursor: pointer;
-        }
-        .alloc-sym {
-          font-size: 13px; font-weight: 700; color: #fff; width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          text-shadow: 0 0 8px rgba(255,255,255,0.3);
-        }
-        .alloc-track { flex: 1; height: 9px; border-radius: 5px; background: #26262f; overflow: hidden; }
-        .alloc-fill {
-          height: 100%; border-radius: 5px;
-          background: linear-gradient(90deg, #7266D9, #00C853);
-          transition: width 0.3s;
-        }
-        .alloc-pct { font-size: 12px; font-weight: 700; color: #a3a3a3; min-width: 46px; text-align: right; }
-        .alloc-top {
-          display: flex; align-items: center; gap: 6px;
-          margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a2a2a;
-          font-size: 12px; color: #a3a3a3;
-        }
-        .alloc-top b { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.35); }
-        .ai-ico { vertical-align: -1px; color: #a78bfa; margin-right: 3px; }
-        .ai-card {
-          background: linear-gradient(160deg, #181a24, #101018);
-          border: 1px solid rgba(114,102,217,0.25);
-          border-radius: 20px; padding: 20px; margin-bottom: 16px;
-        }
-        .ai-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .ai-badge { display: flex; align-items: center; gap: 6px; color: #a78bfa; font-size: 14px; font-weight: 700; text-shadow: 0 0 10px rgba(167,139,250,0.6); }
-        .ai-premium {
-          font-size: 10px; font-weight: 800; letter-spacing: 1px;
-          color: #a78bfa; background: rgba(114,102,217,0.15);
-          padding: 4px 9px; border-radius: 7px;
-        }
-        .ai-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-        .ai-stat {
-          background: #14141c; border-radius: 14px; padding: 13px 14px;
-          display: flex; flex-direction: column; gap: 5px;
-        }
-        .ai-stat-label { font-size: 11px; color: #8f8f8f; }
-        .ai-stat-value {
-          font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
-          text-shadow: 0 0 10px rgba(255,255,255,0.35);
-        }
-        .risk-wrap { display: flex; flex-direction: column; gap: 7px; }
-        .risk-text { font-size: 13px; font-weight: 700; }
-        .risk-bar { width: 100%; height: 6px; border-radius: 3px; background: #26262f; overflow: hidden; }
-        .risk-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-        .ai-recos { border-top: 1px solid #26262f; padding-top: 14px; }
-        .reco-title { font-size: 13px; font-weight: 700; color: #a3a3a3; margin-bottom: 10px; }
-        .reco-item {
-          display: flex; align-items: center; gap: 8px;
-          padding: 10px 12px; border-radius: 12px; margin-bottom: 8px;
-          font-size: 13px;
-        }
-        .reco-item.ok { background: rgba(0,200,83,0.06); color: #d8f7ec; }
-        .reco-item.warn { background: rgba(250,204,21,0.06); color: #fdf3d3; }
-        .reco-item.info { background: rgba(114,102,217,0.08); color: #e2defc; }
-        .reco-icon {
-          width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 12px; font-weight: 800;
-        }
-        .reco-item.ok .reco-icon { background: rgba(0,200,83,0.2); color: #00C853; text-shadow: 0 0 8px rgba(0,200,83,0.8); }
-        .reco-item.warn .reco-icon { background: rgba(250,204,21,0.2); color: #facc15; text-shadow: 0 0 8px rgba(250,204,21,0.8); }
-        .reco-item.info .reco-icon { background: rgba(114,102,217,0.25); color: #a78bfa; text-shadow: 0 0 8px rgba(167,139,250,0.8); }
-        .reco-v { margin-left: auto; font-size: 12px; font-weight: 600; }
-        .orders-card {
-          background: #1E1E1E; border-radius: 20px; padding: 20px; margin-bottom: 16px;
-        }
-        .orders-empty { font-size: 13px; color: #666; padding: 10px 0; }
-        .orders-list { display: flex; flex-direction: column; }
+        .pos-tpsl { margin-left: 8px; font-size: 11px; font-weight: 700; }
+        .pos-tpsl.up { color: #2ACB8A; }
+        .pos-tpsl.down { color: #F04438; }
+        .pos-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+        .pos-value { font-size: 18px; font-weight: 700; color: #F7F8FA; }
+        .pos-pl { display: flex; align-items: center; gap: 5px; font-size: 16px; font-weight: 500; }
+        .mono { font-variant-numeric: tabular-nums; }
+        .up { color: #2ACB8A; }
+        .down { color: #F04438; }
         .order-row {
-          display: flex; align-items: center; gap: 9px;
-          padding: 11px 0; border-bottom: 1px solid #2a2a2a;
-          font-size: 13px;
+          display: flex; align-items: center; gap: 12px;
+          padding: 15px 0; border-bottom: 1px solid #1B2941;
         }
         .order-row:last-child { border-bottom: none; }
         .order-side {
-          flex-shrink: 0; font-size: 11px; font-weight: 800;
-          padding: 4px 9px; border-radius: 9px; min-width: 52px; text-align: center;
+          flex-shrink: 0; font-size: 12px; font-weight: 700;
+          padding: 5px 11px; border-radius: 10px; min-width: 58px; text-align: center;
         }
-        .order-side.buy { background: rgba(0,200,83,0.15); color: #00C853; text-shadow: 0 0 8px rgba(0,200,83,0.7); }
-        .order-side.sell { background: rgba(255,77,79,0.15); color: #FF4D4F; text-shadow: 0 0 8px rgba(255,77,79,0.7); }
-        .order-sym { font-weight: 700; color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.3); }
-        .order-detail { flex: 1; min-width: 0; color: #8f8f8f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .order-status { margin-left: 6px; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 7px; }
-        .order-status.executed { background: rgba(0,200,83,0.12); color: #00C853; }
-        .order-status.pending { background: rgba(255,209,102,0.12); color: #ffd166; }
-        .order-status.cancelled { background: rgba(255,77,79,0.12); color: #FF4D4F; }
-        .pos-tpsl { margin-left: 8px; font-size: 10px; font-weight: 700; }
-        .pos-tpsl.up { color: #00C853; }
-        .pos-tpsl.down { color: #FF4D4F; }
-        .order-total {
-          color: #fff; font-weight: 600;
-          text-shadow: 0 0 10px rgba(255,255,255,0.35);
+        .order-side.buy { background: rgba(42,203,138,0.16); color: #2ACB8A; }
+        .order-side.sell { background: rgba(240,68,56,0.16); color: #F04438; }
+        .order-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .order-sym { font-size: 16px; font-weight: 700; color: #F7F8FA; }
+        .order-detail {
+          font-size: 13px; font-weight: 400; color: #8C99AF;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .footnote { text-align: center; font-size: 10px; color: #555; padding: 8px 0 4px; }
+        .order-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+        .order-status { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px; }
+        .order-status.executed { background: rgba(42,203,138,0.14); color: #2ACB8A; }
+        .order-status.pending { background: rgba(255,209,102,0.14); color: #ffd166; }
+        .order-status.cancelled { background: rgba(240,68,56,0.14); color: #F04438; }
+        .order-total { font-size: 15px; font-weight: 600; color: #F7F8FA; }
       `}</style>
     </div>
   )

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getCompanyFull, getPosition, placeOrder, ingestPdf, fetchFinancials, getFetchStatus } from '../services/api'
+import { getCompanyFull, getPosition, placeOrder, ingestPdf, fetchFinancials, getFetchStatus, getMarketCalendar, getMarketLive } from '../services/api'
 import { useAuth } from '../lib/auth'
 import {
   ArrowLeft, Star, Share2, Building2, Users, MapPin, Calendar,
@@ -74,7 +74,7 @@ function ScoreRing({ score, size = 88, stroke = 9 }) {
   const circ = 2 * Math.PI * r
   const v = Math.max(0, Math.min(10, score || 0))
   const frac = v / 10
-  const color = v >= 7 ? '#00C853' : v >= 5 ? '#facc15' : '#FF4D4F'
+  const color = v >= 7 ? '#18C27C' : v >= 5 ? '#facc15' : '#F04438'
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#262626" strokeWidth={stroke} />
@@ -84,7 +84,7 @@ function ScoreRing({ score, size = 88, stroke = 9 }) {
         strokeDasharray={`${circ * frac} ${circ}`}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
-      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" fill="#fff" fontSize={size * 0.26} fontWeight="800" fontFamily="JetBrains Mono, monospace">
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle" fill="#fff" fontSize={size * 0.26} fontWeight="700" fontFamily="Inter, sans-serif">
         {v.toFixed(1)}
       </text>
     </svg>
@@ -133,6 +133,8 @@ export default function Company() {
   const [error, setError] = useState(false)
   const [period, setPeriod] = useState('1A')
   const [isFav, setIsFav] = useState(false)
+  const [activeSection, setActiveSection] = useState('profile')
+  const [calEvents, setCalEvents] = useState(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -147,11 +149,26 @@ export default function Company() {
         setFull(res.data)
         setIsFav(loadJSON(FAV_KEY, []).includes(res.data.company.symbol))
         try { localStorage.setItem('bluerock_last_symbol', res.data.company.symbol) } catch {}
+        getMarketCalendar()
+          .then(r => { if (mounted.current) setCalEvents(r.data.items || []) })
+          .catch(() => { if (mounted.current) setCalEvents([]) })
       })
       .catch(() => { if (mounted.current) setError(true) })
       .finally(() => { if (mounted.current) setLoading(false) })
     return () => { mounted.current = false }
   }, [id])
+
+  useEffect(() => {
+    let cancelled = false
+    const check = () => {
+      getMarketLive()
+        .then(r => { if (!cancelled) setMarketOpen(r.data?.market_open !== false) })
+        .catch(() => {})
+    }
+    check()
+    const iv = setInterval(check, 15000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [])
 
   const reloadFull = () => {
     if (!id) return
@@ -217,6 +234,7 @@ export default function Company() {
       await fetchFinancials(company?.symbol, 2, impToken)
       setSyncMsg(t(lang, 'finSyncStarted'))
       const iv = setInterval(async () => {
+        if (document.hidden) return
         try {
           const st = (await getFetchStatus()).data
           if (st?.status === 'done') {
@@ -255,11 +273,18 @@ export default function Company() {
   const [tradeSl, setTradeSl] = useState('')
   const [owned, setOwned] = useState(0)
   const [sending, setSending] = useState(false)
+  const [marketOpen, setMarketOpen] = useState(true)
+  const [mcNote, setMcNote] = useState('')
   const [tradeMsg, setTradeMsg] = useState('')
   const [tradeErr, setTradeErr] = useState('')
 
   const openTrade = (side) => {
     if (!full) return
+    if (!marketOpen) {
+      setMcNote(t(lang, 'marketClosedHint'))
+      return
+    }
+    setMcNote('')
     if (!user) {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
@@ -284,6 +309,10 @@ export default function Company() {
 
   const submitTrade = () => {
     if (!full || !trade) return
+    if (!marketOpen) {
+      setTradeErr(t(lang, 'marketClosedHint'))
+      return
+    }
     const qty = Math.floor(Number(tradeQty))
     const px = Number(tradePrice)
     if (!qty || qty <= 0) { setTradeErr(t(lang, 'tradeQtyErr')); return }
@@ -325,9 +354,9 @@ export default function Company() {
         <div className="loading-center"><div className="spinner" /></div>
         <BottomNav />
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
-          .spinner { width: 26px; height: 26px; border: 3px solid #262626; border-top-color: #00C853; border-radius: 50%; animation: spin 0.8s linear infinite; }
+          .spinner { width: 26px; height: 26px; border: 3px solid #262626; border-top-color: #18C27C; border-radius: 50%; animation: spin 0.8s linear infinite; }
           @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
       </div>
@@ -348,11 +377,11 @@ export default function Company() {
         </div>
         <BottomNav />
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
-          .err-box { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #a3a3a3; font-size: 14px; }
-          .err-title { font-size: 32px; font-weight: 800; color: #fff; }
-          .retry-btn { background: #00C853; border: none; border-radius: 12px; color: #00130a; padding: 10px 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; margin-top: 6px; }
+          .err-box { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #9AA3B2; font-size: 14px; }
+          .err-title { font-size: 32px; font-weight: 700; color: #fff; }
+          .retry-btn { background: #18C27C; border: none; border-radius: 12px; color: #00130a; padding: 10px 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; margin-top: 6px; }
         `}</style>
       </div>
     )
@@ -430,7 +459,7 @@ export default function Company() {
   const sh = profile?.shareholders || {}
   const pieSlices = [
     { label: t(lang, 'shInstitutional'), value: sh.institutional || 0, color: '#7266D9' },
-    { label: t(lang, 'shState'), value: sh.state || 0, color: '#00C853' },
+    { label: t(lang, 'shState'), value: sh.state || 0, color: '#18C27C' },
     { label: t(lang, 'shFounders'), value: sh.founders || 0, color: '#facc15' },
     { label: t(lang, 'shPublic'), value: sh.public || 0, color: '#3a3a3a' },
   ]
@@ -463,6 +492,16 @@ export default function Company() {
   const statements = full?.statements || []
   const sessions = [...(history || [])].reverse()
   const visSessions = sessions.slice(0, histLimit)
+
+  const companyEvents = (calEvents || [])
+    .filter(e => {
+      const sym = (e.symbol || '').toUpperCase()
+      const co = (e.company || '').toLowerCase()
+      const name = (company?.name || '').toLowerCase()
+      const symbol = (company?.symbol || '').toUpperCase()
+      return sym === symbol || (co.length > 3 && name.includes(co)) || (co.length > 3 && co.includes(name))
+    })
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
 
   return (
     <div className="mobile-root">
@@ -571,10 +610,31 @@ export default function Company() {
         </section>
 
         <section className="trade-row">
+          {mcNote && <div className="mc-note"><AlertTriangle size={13} /> {mcNote}</div>}
           <button className="trade-btn buy" onClick={() => openTrade('buy')}>{t(lang, 'buy')}</button>
           <button className="trade-btn sell" onClick={() => openTrade('sell')}>{t(lang, 'sell')}</button>
         </section>
 
+        <div className="co-tabs">
+          {[
+            { key: 'profile', label: t(lang, 'coTabCompany') },
+            { key: 'finance', label: t(lang, 'coTabFinance') },
+            { key: 'dividends', label: t(lang, 'coTabDividends') },
+            { key: 'analysis', label: t(lang, 'coTabAnalysis') },
+            { key: 'news', label: t(lang, 'coTabNews') },
+            { key: 'agenda', label: t(lang, 'coTabAgenda') },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              className={`co-tab ${activeSection === tab.key ? 'active' : ''}`}
+              onClick={() => setActiveSection(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeSection === 'profile' && (<>
         <section className="info-card">
           <div className="card-title"><Building2 size={16} /> {t(lang, 'companyInfo')}</div>
           {profile ? (
@@ -629,7 +689,9 @@ export default function Company() {
             <p className="info-empty">{t(lang, 'noProfileData')}</p>
           )}
         </section>
+        </>)}
 
+        {activeSection === 'finance' && (<>
         <section className="fin-card">
           <div className="card-title">{t(lang, 'financials')}</div>
           {hasRatios || company.revenue != null || company.net_income != null ? (
@@ -648,24 +710,6 @@ export default function Company() {
             <p className="info-empty">{t(lang, 'noFinancialData')}</p>
           )}
         </section>
-
-        {dividends?.length > 0 && (
-          <section className="div-card">
-            <div className="card-title">{t(lang, 'dividends')}</div>
-            <div className="div-head">
-              <span>{t(lang, 'fiscalYear')}<InfoDot text={t(lang, 'hFiscalYear')} /></span>
-              <span>{t(lang, 'dividendPerShare')}<InfoDot text={t(lang, 'hDivPerShare')} /></span>
-              <span>{t(lang, 'yield')}<InfoDot text={t(lang, 'hYield')} /></span>
-            </div>
-            {dividends.slice(-6).reverse().map((d, i) => (
-              <div key={i} className="div-row">
-                <span className="mono">{d.fiscal_year}</span>
-                <span className="mono">{fmtPrice(lang, d.dividend_per_share)}</span>
-                <span className="mono up">{d.yield_pct != null ? d.yield_pct.toFixed(2) + '%' : '—'}</span>
-              </div>
-            ))}
-          </section>
-        )}
 
         <section className="fr-card">
           <button className={`card-toggle ${reportsOpen ? '' : 'closed'}`} onClick={() => setReportsOpen(o => !o)}>
@@ -764,7 +808,29 @@ export default function Company() {
             )}
           </section>
         )}
+        </>)}
 
+        {activeSection === 'dividends' && (<>
+        {dividends?.length > 0 && (
+          <section className="div-card">
+            <div className="card-title">{t(lang, 'dividends')}</div>
+            <div className="div-head">
+              <span>{t(lang, 'fiscalYear')}<InfoDot text={t(lang, 'hFiscalYear')} /></span>
+              <span>{t(lang, 'dividendPerShare')}<InfoDot text={t(lang, 'hDivPerShare')} /></span>
+              <span>{t(lang, 'yield')}<InfoDot text={t(lang, 'hYield')} /></span>
+            </div>
+            {dividends.slice(-6).reverse().map((d, i) => (
+              <div key={i} className="div-row">
+                <span className="mono">{d.fiscal_year}</span>
+                <span className="mono">{fmtPrice(lang, d.dividend_per_share)}</span>
+                <span className="mono up">{d.yield_pct != null ? d.yield_pct.toFixed(2) + '%' : '—'}</span>
+              </div>
+            ))}
+          </section>
+        )}
+        </>)}
+
+        {activeSection === 'profile' && (<>
         {profile?.shareholders && (
           <section className="sh-card">
             <div className="card-title">{t(lang, 'shareholders')}</div>
@@ -782,7 +848,10 @@ export default function Company() {
             </div>
           </section>
         )}
+        </>)}
 
+        {activeSection === 'analysis' && (
+        <>
         {hasAnalysis ? (
           <section className="ai-card">
             <div className="ai-head">
@@ -894,7 +963,10 @@ export default function Company() {
             <p className="info-empty">{t(lang, 'noAnalysisData')}</p>
           </section>
         )}
+        </>
+        )}
 
+        {activeSection === 'news' && (<>
         <section className="news-card">
           <div className="card-title"><Newspaper size={16} /> {t(lang, 'news')}</div>
           {(news || []).length === 0 ? (
@@ -916,6 +988,26 @@ export default function Company() {
             ))
           )}
         </section>
+        </>)}
+
+        {activeSection === 'agenda' && (<>
+        <section className="co-cal-card">
+          <div className="card-title"><Calendar size={16} /> {t(lang, 'coCalendar')}</div>
+          {calEvents == null ? (
+            <div className="news-empty">{t(lang, 'loading')}</div>
+          ) : companyEvents.length === 0 ? (
+            <div className="news-empty">{t(lang, 'coCalEmpty')}</div>
+          ) : (
+            companyEvents.map((e, i) => (
+              <div key={i} className="co-cal-row" onClick={() => e.detail && /^https?:/i.test(e.detail) && window.open(e.detail, '_blank', 'noopener')}>
+                <span className="co-cal-date mono">{e.date ? new Date(e.date + 'T00:00:00').toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</span>
+                <span className="co-cal-title">{e.title}</span>
+                {e.source && <span className="co-cal-src">{e.source}</span>}
+              </div>
+            ))
+          )}
+        </section>
+        </>)}
 
         {importOpen && (
           <div className="trade-overlay" onClick={() => setImportOpen(false)}>
@@ -990,7 +1082,7 @@ export default function Company() {
               </div>
               {tradeMsg ? (
                 <div className="tm-done">
-                  <span className="tm-done-icon"><Check size={40} color="#00C853" /></span>
+                  <span className="tm-done-icon"><Check size={40} color="#18C27C" /></span>
                   <span className="tm-done-title">{tradeMsg}</span>
                   <span className="tm-done-sub">
                     {company.symbol} · {tradeQty} {t(lang, 'shares').toLowerCase()} @ {fmtPrice(lang, Number(tradePrice))}
@@ -1087,7 +1179,7 @@ export default function Company() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -1102,7 +1194,7 @@ export default function Company() {
         .icon-btn:hover { background: #1a1a1a; }
         .fav-active { background: rgba(255,209,102,0.1); }
         .co-actions { display: flex; gap: 2px; }
-        .co-title span { font-size: 17px; font-weight: 700; }
+        .co-title span { font-size: 18px; font-weight: 700; color: #F8F8FA; }
         .hero { display: flex; flex-direction: column; align-items: center; padding: 8px 0 16px; }
         .hero-logo-wrap {
           width: 76px; height: 76px; border-radius: 22px; overflow: hidden;
@@ -1110,22 +1202,22 @@ export default function Company() {
           display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
         }
         .hero-logo { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
-        .hero-logo-fallback { font-size: 30px; font-weight: 800; color: #8b5cf6; }
-        .hero-name { font-size: 24px; font-weight: 800; text-align: center; margin: 0 0 8px; }
+        .hero-logo-fallback { font-size: 30px; font-weight: 700; color: #8b5cf6; }
+        .hero-name { font-size: 24px; font-weight: 700; color: #F8F8FA; text-align: center; margin: 0 0 8px; }
         .hero-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; }
         .tag {
-          font-size: 12px; font-weight: 600; color: #a3a3a3;
+          font-size: 12px; font-weight: 600; color: #9AA3B2;
           background: #1E1E1E; border: 1px solid #2a2a2a;
           border-radius: 8px; padding: 5px 12px;
         }
-        .tag.ticker { color: #00C853; background: rgba(0,200,83,0.1); border-color: rgba(0,200,83,0.3); font-family: 'JetBrains Mono', monospace; }
+        .tag.ticker { color: #18C27C; background: rgba(24,194,124,0.1); border-color: rgba(24,194,124,0.3); font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .tag.synth { color: #ffd166; background: rgba(255,209,102,0.1); border-color: rgba(255,209,102,0.35); }
         .hero-price-row { display: flex; align-items: center; gap: 12px; }
-        .hero-price { font-size: 40px; font-weight: 800; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 18px rgba(255,255,255,0.25), 0 0 44px rgba(255,255,255,0.12); }
-        .hero-chg { font-size: 17px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .hero-chg.up { color: #00C853; text-shadow: 0 0 14px rgba(0,200,83,0.5); }
-        .hero-chg.down { color: #FF4D4F; text-shadow: 0 0 14px rgba(255,77,79,0.5); }
-        .hero-chg.flat { color: #8f8f8f; }
+        .hero-price { font-size: 40px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
+        .hero-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .hero-chg.up { color: #18C27C;  }
+        .hero-chg.down { color: #F04438;  }
+        .hero-chg.flat { color: #9AA3B2; }
         .stats-card {
           display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
           margin-bottom: 12px;
@@ -1135,8 +1227,8 @@ export default function Company() {
           padding: 12px 10px; display: flex; flex-direction: column; gap: 4px;
           align-items: center;
         }
-        .stat-label { font-size: 11px; color: #8f8f8f; }
-        .stat-value { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .stat-label { font-size: 14px; font-weight: 400; color: #9AA3B2; }
+        .stat-value { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .label-row { display: inline-flex; align-items: center; gap: 4px; }
         .stats-card .label-row { justify-content: center; }
         .chart-card {
@@ -1146,33 +1238,70 @@ export default function Company() {
         }
         @keyframes tvIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
         .chart-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-        .chart-price { font-size: 30px; font-weight: 800; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 16px rgba(255,255,255,0.22), 0 0 40px rgba(255,255,255,0.1); }
-        .chart-chg { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .chart-chg.up { color: #00C853; text-shadow: 0 0 12px rgba(0,200,83,0.5); }
-        .chart-chg.down { color: #FF4D4F; text-shadow: 0 0 12px rgba(255,77,79,0.5); }
+        .chart-price { font-size: 30px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
+        .chart-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .chart-chg.up { color: #18C27C;  }
+        .chart-chg.down { color: #F04438;  }
         .chart-wrap { display: flex; flex-direction: column; height: clamp(420px, 62vh, 680px); min-height: 420px; }
         .periods { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 150px; }
         .period {
-          background: none; border: none; color: #8f8f8f;
+          background: none; border: none; color: #9AA3B2;
           font-size: 13px; font-weight: 600; padding: 6px 10px;
           border-radius: 8px; cursor: pointer; font-family: inherit;
         }
-        .period.active { background: #00C853; color: #00130a; font-weight: 700; }
+        .period.active { background: #18C27C; color: #00130a; font-weight: 700; }
         .chart-empty { color: #555; padding: 60px 0; font-size: 12px; }
         .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 8px; }
-        .lg { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #8f8f8f; }
-        .lg-candle-up { width: 8px; height: 10px; border-radius: 1px; background: #00C853; border-left: 1px solid #00C853; }
-        .lg-candle-down { width: 8px; height: 10px; border-radius: 1px; background: #FF4D4F; border-left: 1px solid #FF4D4F; }
+        .lg { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9AA3B2; }
+        .lg-candle-up { width: 8px; height: 10px; border-radius: 1px; background: #18C27C; border-left: 1px solid #18C27C; }
+        .lg-candle-down { width: 8px; height: 10px; border-radius: 1px; background: #F04438; border-left: 1px solid #F04438; }
         .lg-vol { width: 8px; height: 4px; border-radius: 1px; background: rgba(255,255,255,0.4); }
-        .lg.up { color: #00C853; }
-        .lg.down { color: #FF4D4F; }
-        .trade-row { display: flex; gap: 10px; margin-bottom: 16px; }
+        .lg.up { color: #18C27C; }
+        .lg.down { color: #F04438; }
+        .trade-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .mc-note {
+          width: 100%; display: flex; align-items: center; gap: 7px;
+          font-size: 12.5px; line-height: 1.35; color: #f0b4b4;
+          background: #261010; border: 1px solid rgba(240,68,56,0.35);
+          border-radius: 12px; padding: 10px 12px;
+        }
         .trade-btn {
           flex: 1; height: 48px; border: none; border-radius: 14px;
-          font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+          font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
-        .trade-btn.buy { background: #00C853; color: #00130a; }
-        .trade-btn.sell { background: #FF4D4F; color: #fff; }
+        .trade-btn.buy { background: #18C27C; color: #00130a; }
+        .trade-btn.sell { background: #F04438; color: #fff; }
+        .co-tabs {
+          display: flex; gap: 8px; margin-bottom: 16px;
+          overflow-x: auto; padding-bottom: 2px;
+        }
+        .co-tabs::-webkit-scrollbar { display: none; }
+        .co-tab {
+          flex: 1; white-space: nowrap; padding: 10px 8px;
+          background: #141414; border: 1px solid #262626; border-radius: 14px;
+          color: #9AA3B2; font-size: 13px; font-weight: 600;
+          cursor: pointer; font-family: inherit;
+          transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+        }
+        .co-tab.active {
+          background: #18C27C; border-color: #18C27C; color: #00130a;
+        }
+        .co-cal-card { padding: 16px; background: #141414; border-radius: 18px; margin-bottom: 14px; }
+        .co-cal-row {
+          display: flex; align-items: center; gap: 10px;
+          padding: 10px 0; border-bottom: 1px solid #1a1a1a;
+          cursor: pointer;
+        }
+        .co-cal-row:last-child { border-bottom: none; }
+        .co-cal-date {
+          flex: none; font-size: 12px; color: #9AA3B2;
+          background: #1e1e1e; border-radius: 8px; padding: 4px 8px;
+        }
+        .co-cal-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+        .co-cal-src {
+          flex: none; font-size: 10.5px; font-weight: 700; color: #8b5cf6;
+          background: rgba(139,92,246,0.12); border-radius: 8px; padding: 3px 8px;
+        }
         .trade-overlay {
           position: fixed; inset: 0; z-index: 60;
           background: rgba(0,0,0,0.72);
@@ -1187,31 +1316,31 @@ export default function Company() {
         }
         .tm-head { display: flex; align-items: center; justify-content: space-between; }
         .tm-side {
-          font-size: 15px; font-weight: 800; padding: 5px 12px; border-radius: 10px;
-          font-family: 'JetBrains Mono', monospace;
+          font-size: 15px; font-weight: 700; padding: 5px 12px; border-radius: 10px;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
         }
-        .tm-side.buy { background: rgba(0,200,83,0.15); color: #00C853; }
-        .tm-side.sell { background: rgba(255,77,79,0.15); color: #FF4D4F; }
+        .tm-side.buy { background: rgba(24,194,124,0.15); color: #18C27C; }
+        .tm-side.sell { background: rgba(240,68,56,0.15); color: #F04438; }
         .tm-close {
           width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
           background: #1E1E1E; border: none; color: #fff; cursor: pointer; border-radius: 50%;
         }
         .tm-owned {
-          font-size: 12px; color: #a3a3a3;
+          font-size: 12px; color: #9AA3B2;
           background: #1E1E1E; border-radius: 10px; padding: 9px 12px;
         }
         .tm-owned b { color: #fff; font-weight: 700; }
         .tm-row { display: flex; flex-direction: column; gap: 6px; }
-        .tm-label { font-size: 11px; color: #8f8f8f; font-weight: 600; }
+        .tm-label { font-size: 11px; color: #9AA3B2; font-weight: 600; }
         .tm-otype { display: flex; gap: 8px; }
         .tm-otype-btn {
           flex: 1; height: 38px;
-          background: #1B1B1B; color: #a3a3a3;
+          background: #1B1B1B; color: #9AA3B2;
           border: 1px solid #2a2a2a; border-radius: 10px;
           font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
         }
         .tm-otype-btn.on {
-          background: rgba(0,200,83,0.12); color: #00C853; border-color: rgba(0,200,83,0.4);
+          background: rgba(24,194,124,0.12); color: #18C27C; border-color: rgba(24,194,124,0.4);
         }
         .tm-input {
           background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 12px;
@@ -1221,45 +1350,45 @@ export default function Company() {
         .tm-input:focus { border-color: #3d3d3d; }
         .tm-total {
           display: flex; align-items: center; justify-content: space-between;
-          font-size: 13px; color: #a3a3a3;
+          font-size: 13px; color: #9AA3B2;
           background: #1E1E1E; border-radius: 10px; padding: 10px 12px;
         }
-        .tm-total .mono { font-size: 15px; font-weight: 800; color: #fff; }
+        .tm-total .mono { font-size: 15px; font-weight: 700; color: #fff; }
         .tm-err {
           display: flex; align-items: center; gap: 6px;
           font-size: 12px; color: #ff8a8a;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           padding: 9px 12px; border-radius: 10px;
         }
         .tm-btn {
           height: 48px; border: none; border-radius: 14px;
           font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
-          background: #00C853; color: #00130a;
+          background: #18C27C; color: #00130a;
         }
-        .tm-btn.sell { background: #FF4D4F; color: #fff; }
+        .tm-btn.sell { background: #F04438; color: #fff; }
         .tm-btn:disabled { opacity: 0.6; cursor: default; }
         .tm-done { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 4px; }
         .tm-done-icon {
           width: 64px; height: 64px; border-radius: 50%;
-          background: rgba(0,200,83,0.12);
+          background: rgba(24,194,124,0.12);
           display: flex; align-items: center; justify-content: center;
         }
-        .tm-done-title { font-size: 15px; font-weight: 800; }
-        .tm-done-sub { font-size: 12px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
+        .tm-done-title { font-size: 15px; font-weight: 700; }
+        .tm-done-sub { font-size: 12px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .tm-done .tm-btn { width: 100%; margin-top: 6px; }
         .imp-drop {
           display: flex; align-items: center; gap: 10px;
           background: #1B1B1B; border: 1px dashed #3a3a3a; border-radius: 12px;
-          padding: 14px 12px; color: #8f8f8f; font-size: 13px;
+          padding: 14px 12px; color: #9AA3B2; font-size: 13px;
           cursor: pointer; font-family: inherit; text-align: left; width: 100%;
         }
-        .imp-drop.has-file { border-color: #00C853; color: #00C853; }
+        .imp-drop.has-file { border-color: #18C27C; color: #18C27C; }
         .imp-drop span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .imp-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .imp-row2 select.tm-input { height: auto; }
         .imp-ok {
-          font-size: 12px; color: #00C853;
-          background: rgba(0,200,83,0.1); border: 1px solid rgba(0,200,83,0.3);
+          font-size: 12px; color: #18C27C;
+          background: rgba(24,194,124,0.1); border: 1px solid rgba(24,194,124,0.3);
           padding: 9px 12px; border-radius: 10px;
         }
         .fr-actions { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -1275,7 +1404,7 @@ export default function Company() {
         .fr-msg {
           font-size: 12px; padding: 9px 12px; border-radius: 10px; margin-bottom: 10px;
         }
-        .fr-msg.ok { color: #00C853; background: rgba(0,200,83,0.1); }
+        .fr-msg.ok { color: #18C27C; background: rgba(24,194,124,0.1); }
         .fr-note { font-size: 11px; color: #6f6f6f; margin-bottom: 10px; }
         .stmt-block {
           border: 1px solid #2a2a2a; border-radius: 12px; margin-bottom: 8px;
@@ -1288,8 +1417,8 @@ export default function Company() {
         }
         .stmt-type { font-size: 12px; font-weight: 700; color: #a78bfa; white-space: nowrap; }
         .stmt-meta {
-          flex: 1; min-width: 0; font-size: 11px; color: #8f8f8f;
-          font-family: 'JetBrains Mono', monospace;
+          flex: 1; min-width: 0; font-size: 11px; color: #9AA3B2;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .stmt-chev { color: #6f6f6f; transition: transform 0.2s; flex-shrink: 0; }
@@ -1310,7 +1439,7 @@ export default function Company() {
         .line-item:last-child { border-bottom: none; }
         .li-account { color: #d0d0d0; min-width: 0; }
         .li-val {
-          font-family: 'JetBrains Mono', monospace; color: #fff; text-align: right;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #fff; text-align: right;
           white-space: nowrap; flex-shrink: 0;
         }
         .stmt-more { font-size: 11px; color: #666; text-align: center; padding: 8px 0; }
@@ -1320,7 +1449,7 @@ export default function Company() {
           gap: 4px; align-items: center;
         }
         .hist-head {
-          font-size: 10px; color: #8f8f8f; font-weight: 600;
+          font-size: 10px; color: #9AA3B2; font-weight: 600;
           text-transform: uppercase; letter-spacing: 0.3px;
           padding: 8px 6px; border-bottom: 1px solid #2a2a2a;
         }
@@ -1329,12 +1458,12 @@ export default function Company() {
           font-size: 11px;
         }
         .hist-row:last-child { border-bottom: none; }
-        .hist-date { color: #a3a3a3; font-size: 10px; }
+        .hist-date { color: #9AA3B2; font-size: 10px; }
         .hist-close { color: #fff; font-weight: 700; }
-        .hist-vol { color: #8f8f8f; }
+        .hist-vol { color: #9AA3B2; }
         .hist-chg { text-align: right; }
-        .hist-chg.up { color: #00C853; }
-        .hist-chg.down { color: #FF4D4F; }
+        .hist-chg.up { color: #18C27C; }
+        .hist-chg.down { color: #F04438; }
         .hist-more {
           width: 100%; margin-top: 10px; height: 40px;
           background: #2A2A2A; border: none; border-radius: 12px;
@@ -1366,34 +1495,34 @@ export default function Company() {
           background: rgba(139,92,246,0.12); color: #a78bfa;
           display: flex; align-items: center; justify-content: center;
         }
-        .ii-label { font-size: 11px; color: #8f8f8f; margin-bottom: 2px; }
+        .ii-label { font-size: 11px; color: #9AA3B2; margin-bottom: 2px; }
         .ii-value { font-size: 14px; font-weight: 600; word-break: break-word; }
-        .ii-value.mono { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+        .ii-value.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 12.5px; }
         .ii-value.link { color: #a78bfa; }
-        .activity { font-size: 13px; color: #a3a3a3; line-height: 1.5; margin: 14px 0 0; }
-        .info-empty { font-size: 13px; color: #8f8f8f; line-height: 1.6; margin: 4px 0; }
+        .activity { font-size: 13px; color: #9AA3B2; line-height: 1.35; margin: 14px 0 0; }
+        .info-empty { font-size: 13px; color: #9AA3B2; line-height: 1.35; margin: 4px 0; }
         .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .fin-item {
           background: #141414; border-radius: 14px; padding: 12px 14px;
           display: flex; flex-direction: column; gap: 3px;
         }
-        .fin-label { font-size: 11px; color: #8f8f8f; }
-        .fin-value { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .fin-label { font-size: 11px; color: #9AA3B2; }
+        .fin-value { font-size: 16px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .div-head, .div-row {
           display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px;
           padding: 8px 0; border-bottom: 1px solid #2a2a2a;
         }
-        .div-head { font-size: 11px; color: #8f8f8f; text-transform: uppercase; letter-spacing: 0.5px; }
+        .div-head { font-size: 11px; color: #9AA3B2; text-transform: uppercase; letter-spacing: 0.5px; }
         .div-head span { display: inline-flex; align-items: center; gap: 3px; }
         .div-row { font-size: 13px; }
         .div-head span:last-child, .div-row span:last-child { text-align: right; }
         .div-head span:nth-child(2), .div-row span:nth-child(2) { text-align: center; }
-        .mono { font-family: 'JetBrains Mono', monospace; }
-        .up { color: #00C853; }
-        .down { color: #FF4D4F; }
+        .mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .up { color: #18C27C; }
+        .down { color: #F04438; }
         .sh-body { display: flex; align-items: center; gap: 20px; }
         .sh-legend { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-        .sh-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #a3a3a3; }
+        .sh-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9AA3B2; }
         .sh-legend-item .mono { margin-left: auto; color: #fff; font-weight: 600; }
         .sw { width: 10px; height: 10px; border-radius: 3px; }
         .ai-card {
@@ -1407,40 +1536,40 @@ export default function Company() {
           color: #a78bfa; font-size: 13px; font-weight: 700;
         }
         .ai-premium {
-          font-size: 9px; font-weight: 800; letter-spacing: 1px;
+          font-size: 9px; font-weight: 700; letter-spacing: 1px;
           color: #a78bfa; background: rgba(114,102,217,0.15);
           padding: 3px 8px; border-radius: 6px;
         }
         .ai-score-row { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; }
         .ai-score-info { display: flex; flex-direction: column; gap: 6px; }
         .rec-badge {
-          align-self: flex-start; font-size: 13px; font-weight: 800;
+          align-self: flex-start; font-size: 13px; font-weight: 700;
           padding: 4px 14px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px;
         }
-        .rec-badge.buy { color: #00C853; background: rgba(0,200,83,0.12); }
+        .rec-badge.buy { color: #18C27C; background: rgba(24,194,124,0.12); }
         .rec-badge.hold { color: #facc15; background: rgba(250,204,21,0.12); }
-        .rec-badge.sell { color: #FF4D4F; background: rgba(255,77,79,0.12); }
-        .ai-score-label { font-size: 12px; color: #a3a3a3; }
-        .ai-confidence { font-size: 11px; color: #8f8f8f; font-family: 'JetBrains Mono', monospace; }
+        .rec-badge.sell { color: #F04438; background: rgba(240,68,56,0.12); }
+        .ai-score-label { font-size: 12px; color: #9AA3B2; }
+        .ai-confidence { font-size: 11px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .ai-score-label, .ai-confidence { display: inline-flex; align-items: center; gap: 5px; }
-        .ai-summary { font-size: 12px; color: #c9c9c9; line-height: 1.6; margin: 0 0 14px; }
+        .ai-summary { font-size: 12px; color: #c9c9c9; line-height: 1.35; margin: 0 0 14px; }
         .ai-col { margin-bottom: 12px; }
         .ai-col-title {
           display: flex; align-items: center; gap: 6px;
           font-size: 13px; font-weight: 700; margin-bottom: 8px;
         }
-        .ai-col-title.good { color: #00C853; }
-        .ai-col-title.bad { color: #FF4D4F; }
+        .ai-col-title.good { color: #18C27C; }
+        .ai-col-title.bad { color: #F04438; }
         .ai-list-item {
           display: flex; align-items: center; gap: 8px;
           padding: 8px 10px; border-radius: 10px; margin-bottom: 6px;
           font-size: 12px;
         }
-        .ai-list-item.good { background: rgba(0,200,83,0.06); color: #d8f7ec; }
-        .ai-list-item.bad { background: rgba(255,77,79,0.06); color: #ffd6d6; }
+        .ai-list-item.good { background: rgba(24,194,124,0.06); color: #d8f7ec; }
+        .ai-list-item.bad { background: rgba(240,68,56,0.06); color: #ffd6d6; }
         .ai-list-item .mono { margin-left: auto; font-size: 11px; }
-        .ai-list-item.good .mono { color: #00C853; }
-        .ai-list-item.bad .mono { color: #FF4D4F; }
+        .ai-list-item.good .mono { color: #18C27C; }
+        .ai-list-item.bad .mono { color: #F04438; }
         .ai-none { font-size: 11px; color: #666; }
         .ai-forecast { margin-top: 14px; padding-top: 14px; border-top: 1px solid #26262f; }
         .fc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -1448,8 +1577,8 @@ export default function Company() {
           background: #14141c; border-radius: 10px; padding: 9px 10px;
           display: flex; flex-direction: column; gap: 3px;
         }
-        .fc-label { font-size: 10px; color: #8f8f8f; display: inline-flex; align-items: center; gap: 4px; }
-        .fc-value { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .fc-label { font-size: 10px; color: #9AA3B2; display: inline-flex; align-items: center; gap: 4px; }
+        .fc-value { font-size: 13px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .news-item {
           padding: 10px 0; border-bottom: 1px solid #2a2a2a;
           cursor: pointer;
@@ -1457,9 +1586,9 @@ export default function Company() {
         .news-item:last-child { border-bottom: none; }
         .news-row { display: flex; align-items: center; gap: 10px; }
         .news-text { flex: 1; min-width: 0; }
-        .news-source { font-size: 10px; color: #00C853; font-weight: 600; margin-right: 8px; }
+        .news-source { font-size: 10px; color: #18C27C; font-weight: 600; margin-right: 8px; }
         .news-date { font-size: 10px; color: #666; }
-        .news-title { font-size: 13px; font-weight: 600; color: #e8e8e8; margin-top: 4px; line-height: 1.4; }
+        .news-title { font-size: 13px; font-weight: 600; color: #e8e8e8; margin-top: 4px; line-height: 1.35; }
         .news-empty { font-size: 12px; color: #666; padding: 8px 0; }
         .footnote { text-align: center; font-size: 10px; color: #555; padding: 8px 0 4px; }
       `}</style>

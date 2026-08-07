@@ -186,7 +186,7 @@ export default function Analyst() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -205,8 +205,8 @@ export default function Analyst() {
           display: flex; align-items: center; gap: 4px;
           font-size: 11px;
         }
-        .an-status.open { color: #00C853; }
-        .an-status.closed { color: #a3a3a3; }
+        .an-status.open { color: #18C27C; }
+        .an-status.closed { color: #9AA3B2; }
         .chat-messages {
           flex: 1; overflow-y: auto; padding: 8px 16px;
           display: flex; flex-direction: column; gap: 10px;
@@ -214,7 +214,7 @@ export default function Analyst() {
         .chat-messages::-webkit-scrollbar { display: none; }
         .chat-bubble {
           max-width: 85%; padding: 10px 14px;
-          font-size: 14px; line-height: 1.5;
+          font-size: 14px; line-height: 1.35;
           word-break: break-word;
         }
         .chat-bubble.assistant { align-self: flex-start; }
@@ -241,13 +241,13 @@ export default function Analyst() {
         .retry-msg {
           display: flex; align-items: center; gap: 5px;
           margin-top: 8px; padding: 6px 10px;
-          background: #261010; border: 1px solid #FF4D4F55; border-radius: 10px;
+          background: #261010; border: 1px solid #F0443855; border-radius: 10px;
           color: #f0b4b4; font-size: 12px; cursor: pointer; font-family: inherit;
         }
         .retry-msg:hover { background: #331616; }
         .typing { display: flex; gap: 4px; padding: 2px 0; }
         .dot {
-          width: 6px; height: 6px; border-radius: 50%; background: #a3a3a3;
+          width: 6px; height: 6px; border-radius: 50%; background: #9AA3B2;
           animation: bounce 1.2s infinite;
         }
         .dot:nth-child(2) { animation-delay: 0.15s; }
@@ -261,7 +261,7 @@ export default function Analyst() {
         .suggestion {
           flex-shrink: 0; padding: 8px 14px;
           background: #1B1B1B; border: none; border-radius: 14px;
-          color: #a3a3a3; font-size: 12px; cursor: pointer; font-family: inherit;
+          color: #9AA3B2; font-size: 12px; cursor: pointer; font-family: inherit;
           white-space: nowrap;
         }
         .suggestion:hover { background: #262626; color: #fff; }

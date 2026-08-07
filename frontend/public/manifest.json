@@ -4,14 +4,26 @@
   "description": "Plateforme d'investissement BRVM : cours en temps réel, analyse IA, portefeuille.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#0D162B",
+  "theme_color": "#0D162B",
   "lang": "fr",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%2300C853'/%3E%3Ctext x='96' y='124' font-size='96' font-family='Arial, sans-serif' font-weight='bold' fill='%23000' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E",
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any"
     }
   ]

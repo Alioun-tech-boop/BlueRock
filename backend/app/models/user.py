@@ -45,7 +45,7 @@ class User(Base):
 
     positions = relationship("Position", back_populates="user", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="user", cascade="all, delete-orphan")
-    premium_plan = relationship("PremiumPlan", back_populates="user", cascade="all, delete-orphan", uselist=False)
+    premium_plans = relationship("PremiumPlan", back_populates="user", cascade="all, delete-orphan")
     broker_accounts = relationship("BrokerAccount", back_populates="user", cascade="all, delete-orphan")
 
 

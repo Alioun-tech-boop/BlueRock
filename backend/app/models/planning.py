@@ -12,6 +12,7 @@ class PremiumPlan(Base):
     monthly = Column(Float, nullable=False, default=0)
     horizon_years = Column(Integer, nullable=False, default=5)
     risk_level = Column(String(20), nullable=False, default="balanced")
+    plan_type = Column(String(30), nullable=False, default="epargne")  # epargne | retraite | etudes | succession
 
     # Cycle de vie : le plan émis persiste jusqu'à maturité ou annulation
     status = Column(String(20), nullable=False, default="active")  # active | completed | cancelled
@@ -33,7 +34,7 @@ class PremiumPlan(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    user = relationship("User", back_populates="premium_plan")
+    user = relationship("User", back_populates="premium_plans")
     snapshots = relationship("PremiumSnapshot", back_populates="plan", cascade="all, delete-orphan")
 
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getBrokers } from '../services/api'
@@ -9,7 +9,7 @@ const PALETTES = [
   ['#42E8F4', '#0d3540'],
   ['#0A63FF', '#0a1f4a'],
   ['#8b5cf6', '#241a4d'],
-  ['#00C853', '#0b3320'],
+  ['#18C27C', '#0b3320'],
   ['#ff6b9d', '#3d1226'],
 ]
 
@@ -189,7 +189,7 @@ export default function Brokers() {
                       ))}
                     </span>
                     <span className="b-check" title={t(lang, 'brokersVerified')}>
-                      <Check size={11} strokeWidth={3.5} />
+                      <Check size={11} strokeWidth={2} />
                     </span>
                   </div>
 
@@ -210,7 +210,7 @@ export default function Brokers() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -224,7 +224,7 @@ export default function Brokers() {
         }
         .icon-btn:hover { background: #1a1a1a; }
         .b-title {
-          font-size: 30px; font-weight: 900; letter-spacing: -0.5px;
+          font-size: 30px; font-weight: 700; letter-spacing: 0.25px;
           text-transform: lowercase; line-height: 1;
         }
         .b-hero { padding: 6px 0 18px; }
@@ -243,8 +243,8 @@ export default function Brokers() {
           font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
         }
         .b-orders {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 44px; font-weight: 800; letter-spacing: -1.5px; line-height: 1;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          font-size: 44px; font-weight: 700; letter-spacing: 0.25px; line-height: 1;
           white-space: nowrap;
         }
         .b-head-digits { color: #fff; }
@@ -254,27 +254,27 @@ export default function Brokers() {
           animation: tickIn 0.28s ease both;
         }
         @keyframes tickIn { from { opacity: 0; transform: translateY(7px); } }
-        .b-sub { font-size: 16px; color: #9B9B9B; margin-top: 8px; }
+        .b-sub { font-size: 16px; color: #9AA3B2; margin-top: 8px; }
         .b-cats { display: flex; gap: 8px; padding: 2px 0 4px; }
         .b-cat-pill {
           height: 42px; padding: 0 20px; border-radius: 16px;
-          border: none; background: transparent; color: #9B9B9B;
-          font-size: 15px; font-weight: 600; cursor: pointer;
+          border: none; background: transparent; color: #A5ADBB;
+          font-size: 17px; font-weight: 600; cursor: pointer;
           transition: background 0.2s, color 0.2s;
         }
-        .b-cat-pill.active { background: #2D2D2D; color: #fff; }
+        .b-cat-pill.active { background: #F8F8FA; color: #111111; }
         .b-sort {
           position: relative; display: flex; align-items: center; gap: 6px;
           padding: 14px 4px 12px; font-size: 14px;
         }
-        .b-sort-label { color: #9B9B9B; }
+        .b-sort-label { color: #9AA3B2; }
         .b-sort-btn {
           display: flex; align-items: center; gap: 4px;
           background: none; border: none; color: #fff; font-size: 14px;
           font-weight: 600; cursor: pointer; padding: 0;
         }
         .b-sort-value { color: #fff; }
-        .b-sort-chev { color: #9B9B9B; transition: transform 0.2s; }
+        .b-sort-chev { color: #9AA3B2; transition: transform 0.2s; }
         .b-sort-chev.open { transform: rotate(180deg); }
         .b-sort-menu {
           position: absolute; top: 42px; left: 4px; z-index: 10;
@@ -285,13 +285,13 @@ export default function Brokers() {
         @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } }
         .b-sort-opt {
           display: block; width: 100%; text-align: left;
-          background: none; border: none; color: #e6e6e6; font-size: 14px;
+          background: none; border: none; color: #F2F4F7; font-size: 16px; font-weight: 600;
           padding: 9px 12px; border-radius: 8px; cursor: pointer;
         }
         .b-sort-opt:hover { background: #242424; }
         .b-country {
-          font-size: 11px; font-weight: 600; text-transform: uppercase;
-          letter-spacing: 0.8px; color: #6f6f6f;
+          font-size: 14px; font-weight: 600; text-transform: uppercase;
+          letter-spacing: 0.25px; color: #F2F4F7;
           margin: 18px 4px 10px;
         }
         .b-card {
@@ -321,18 +321,18 @@ export default function Brokers() {
           box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
           z-index: 2;
         }
-        .b-logo span { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: 0.5px; }
+        .b-logo span { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.25px; }
         .b-head-main {
           flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
         }
-        .b-name { font-size: 24px; font-weight: 800; line-height: 1.1; word-break: break-word; }
+        .b-name { font-size: 18px; font-weight: 700; color: #F8F8FA; line-height: 1.1; word-break: break-word; }
         .b-badge {
-          font-size: 13px; font-weight: 800; letter-spacing: 1.2px;
+          font-size: 13px; font-weight: 700; letter-spacing: 0.25px;
           text-transform: uppercase; color: #fff;
           padding: 3px 10px; border-radius: 8px;
         }
         .b-rating { display: flex; align-items: center; gap: 9px; }
-        .b-score { font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+        .b-score { font-size: 20px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #8E95A3; }
         .b-stars { display: flex; gap: 1px; }
         .star-on { color: #fff; fill: #fff; }
         .star-off { color: #5a5a5a; }
@@ -341,14 +341,14 @@ export default function Brokers() {
           background: #fff; color: #000;
           display: flex; align-items: center; justify-content: center;
         }
-        .b-stats { display: flex; gap: 22px; font-size: 14px; color: #fff; }
+        .b-stats { display: flex; gap: 22px; font-size: 14px; color: #8E95A3; font-variant-numeric: tabular-nums; }
         .b-stat { display: flex; align-items: center; gap: 6px; }
-        .b-stat svg { color: #9B9B9B; }
+        .b-stat svg { color: #9AA3B2; }
         .b-cta {
           display: flex; align-items: center; justify-content: center;
           height: 50px; border-radius: 25px;
-          background: #fff; color: #000;
-          font-size: 18px; font-weight: 600;
+          background: #F8F8FA; color: #111111;
+          font-size: 17px; font-weight: 600;
         }
       `}</style>
     </div>

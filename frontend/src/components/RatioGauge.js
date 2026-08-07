@@ -1,4 +1,4 @@
-export default function RatioGauge({ label, value, suffix = '' }) {
+﻿export default function RatioGauge({ label, value, suffix = '' }) {
   const getColor = (val) => {
     if (val === null || val === undefined) return 'var(--text-muted)'
     if (typeof val === 'number') {

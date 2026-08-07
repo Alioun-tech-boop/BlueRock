@@ -37,7 +37,7 @@ export default function Menu() {
     {
       title: t('menuAnalysis'),
       items: [
-        { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Compass, path: '/premium' },
+        { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Compass, path: '/patrimoine' },
         { label: t('aiAnalyst'), desc: t('menuAnalystDesc'), icon: Sparkles, path: '/analyst' },
         { label: t('community'), desc: t('menuCommunityDesc'), icon: LayoutGrid, path: '/community' },
         { label: t('portfolio'), desc: t('menuPortfolioDesc'), icon: Briefcase, path: '/portfolio' },
@@ -118,14 +118,14 @@ export default function Menu() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
         .safe-area::-webkit-scrollbar { display: none; }
         .mn-header { display: flex; flex-direction: column; justify-content: center; height: 72px; }
-        .mn-brand { font-size: 22px; font-weight: 800; }
-        .mn-sub { font-size: 12px; color: #a3a3a3; }
+        .mn-brand { font-size: 22px; font-weight: 700; }
+        .mn-sub { font-size: 12px; color: #9AA3B2; }
         .section-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; margin-top: 10px; }
         .card-list {
           background: #141414; border-radius: 18px;
@@ -143,13 +143,13 @@ export default function Menu() {
         }
         .row-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .row-label { font-size: 14px; font-weight: 600; }
-        .row-desc { font-size: 12px; color: #a3a3a3; }
+        .row-desc { font-size: 12px; color: #9AA3B2; }
         .row-arrow { font-size: 20px; color: #666; }
         .row-badge {
           min-width: 20px; height: 20px; border-radius: 999px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          background: rgba(0,200,83,0.15); color: #00C853;
-          font-size: 11px; font-weight: 800; padding: 0 6px;
+          background: rgba(24,194,124,0.15); color: #18C27C;
+          font-size: 11px; font-weight: 700; padding: 0 6px;
         }
         .acct-card {
           display: flex; align-items: center; gap: 12px;
@@ -160,11 +160,11 @@ export default function Menu() {
         .acct-avatar {
           width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          background: rgba(0,200,83,0.12); color: #00C853;
+          background: rgba(24,194,124,0.12); color: #18C27C;
         }
         .acct-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
         .acct-name { font-size: 14px; font-weight: 700; }
-        .acct-email { font-size: 11px; color: #8f8f8f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .acct-email { font-size: 11px; color: #9AA3B2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .acct-type-badge {
           align-self: flex-start; font-size: 10px; font-weight: 700;
           padding: 2px 8px; border-radius: 8px; margin-top: 2px;
@@ -174,7 +174,7 @@ export default function Menu() {
         .acct-logout {
           width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          background: rgba(255,77,79,0.12); color: #FF4D4F;
+          background: rgba(240,68,56,0.12); color: #F04438;
           border: none; cursor: pointer;
         }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 12px 0; }

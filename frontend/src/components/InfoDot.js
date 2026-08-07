@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+﻿import { useState, useRef, useEffect } from 'react'
 
 export default function InfoDot({ text }) {
   const [open, setOpen] = useState(false)
@@ -32,19 +32,19 @@ export default function InfoDot({ text }) {
         .idot-wrap { position: relative; display: inline-flex; align-items: center; }
         .idot {
           width: 15px; height: 15px; border-radius: 50%;
-          border: 1px solid #4a4a4a; background: #262626; color: #b5b5b5;
-          font-size: 10px; font-weight: 700; font-style: italic;
+          border: 1px solid #4a4a4a; background: #262626; color: #9AA3B2;
+          font-size: 14px; font-weight: 500;
           display: inline-flex; align-items: center; justify-content: center;
           padding: 0; cursor: pointer; font-family: inherit; line-height: 1;
           flex-shrink: 0;
         }
-        .idot.open { border-color: #00C853; color: #00C853; }
+        .idot.open { border-color: #18C27C; color: #18C27C; }
         .idot-pop {
           position: absolute; z-index: 60;
           top: 21px; left: 50%; transform: translateX(-50%);
           width: 210px; max-width: 72vw;
           background: #2a2a2a; border: 1px solid #3d3d3d; border-radius: 10px;
-          padding: 8px 10px; font-size: 11px; line-height: 1.5; color: #dcdcdc;
+          padding: 8px 10px; font-size: 14px; line-height: 1.35; color: #9AA3B2;
           text-align: left; font-style: normal; font-weight: 400;
           text-transform: none; letter-spacing: 0;
           box-shadow: 0 8px 24px rgba(0,0,0,0.55);

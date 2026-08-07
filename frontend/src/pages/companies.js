@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { getCompanies } from '../services/api'
@@ -98,7 +98,7 @@ export default function Companies() {
         </div>
 
         <div className="search-bar">
-          <Search size={16} className="sb-icon" />
+          <span className="sb-chip"><img src="/logo-sm.png" alt="" className="sb-logo" /></span>
           <input
             placeholder={t(lang, 'searchPlaceholder')}
             value={search}
@@ -167,7 +167,7 @@ export default function Companies() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -183,14 +183,14 @@ export default function Companies() {
         .spacer { opacity: 0; }
         .co-title { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .co-title span:first-child { font-size: 17px; font-weight: 700; }
-        .co-count { font-size: 11px; color: #a3a3a3; }
+        .co-count { font-size: 11px; color: #9AA3B2; }
         .type-tabs {
           display: flex; gap: 6px; margin-bottom: 12px;
         }
         .type-tab {
           flex: 1; height: 34px;
           background: #1B1B1B; border: none; border-radius: 12px;
-          color: #8b8b8b; font-size: 12px; font-weight: 600;
+          color: #9AA3B2; font-size: 12px; font-weight: 600;
           cursor: pointer; font-family: inherit;
           transition: background 160ms ease-out, color 160ms ease-out;
         }
@@ -200,7 +200,11 @@ export default function Companies() {
           background: #1B1B1B; border-radius: 14px;
           padding: 0 14px; height: 44px; margin-bottom: 14px;
         }
-        .sb-icon { color: #a3a3a3; flex-shrink: 0; }
+        .sb-chip {
+          width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px;
+          background: #FFFFFF; display: flex; align-items: center; justify-content: center;
+        }
+        .sb-logo { width: 18px; height: 18px; }
         .search-bar input {
           flex: 1; background: none; border: none; outline: none;
           color: #fff; font-size: 14px; font-family: inherit;
@@ -208,12 +212,12 @@ export default function Companies() {
         .search-bar input::placeholder { color: #666; }
         .error-bar {
           display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           border-radius: 12px; padding: 10px 12px; margin-bottom: 14px;
           font-size: 12px; color: #ff9d9d;
         }
         .error-bar button {
-          background: rgba(255,77,79,0.2); border: none; border-radius: 8px;
+          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
           color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
         }
         .stock-list { display: flex; flex-direction: column; padding-bottom: 16px; }
@@ -236,18 +240,18 @@ export default function Companies() {
         .stock-logo-img { width: 100%; height: 100%; object-fit: cover; }
         .stock-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .stock-name { font-size: 14px; font-weight: 600; }
-        .stock-sub { font-size: 11px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stock-sub { font-size: 11px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .stock-tags { display: flex; gap: 6px; align-items: center; }
         .sm-rating {
-          font-size: 9px; font-weight: 700; color: #00C853;
-          background: rgba(0,200,83,0.12); padding: 1px 6px; border-radius: 8px;
+          font-size: 9px; font-weight: 700; color: #18C27C;
+          background: rgba(24,194,124,0.12); padding: 1px 6px; border-radius: 8px;
         }
         .stock-right { text-align: right; display: flex; flex-direction: column; gap: 2px; min-width: 68px; }
-        .stock-price { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .stock-chg { font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-        .stock-chg.up { color: #00C853; }
-        .stock-chg.down { color: #FF4D4F; }
-        .stock-chg.flat { color: #a3a3a3; }
+        .stock-price { font-size: 14px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stock-chg { font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stock-chg.up { color: #18C27C; }
+        .stock-chg.down { color: #F04438; }
+        .stock-chg.flat { color: #9AA3B2; }
         .row-actions { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
         .act-btn {
           width: 32px; height: 30px;
@@ -265,7 +269,7 @@ export default function Companies() {
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-box {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
-          padding: 44px 20px; color: #a3a3a3; font-size: 14px;
+          padding: 44px 20px; color: #9AA3B2; font-size: 14px;
         }
       `}</style>
     </div>

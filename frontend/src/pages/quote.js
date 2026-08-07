@@ -5,7 +5,7 @@ import MarketChart from '../components/MarketChart'
 import { getCompany, getCompanyMarketData, getMarketLive, getCompanies, getPosition, getPortfolio, placeOrder } from '../services/api'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, ChevronDown, Search } from 'lucide-react'
+import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, ChevronDown, Search, AlertTriangle } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtCompact, fmtChange } from '../lib/i18n'
 import { aggregateOhlc } from '../lib/ohlc'
 
@@ -52,6 +52,7 @@ export default function Quote() {
   const [tp, setTp] = useState('')
   const [sl, setSl] = useState('')
   const [orderErr, setOrderErr] = useState('')
+  const [marketNote, setMarketNote] = useState('')
   const [flash, setFlash] = useState(null)
   const [liveInfo, setLiveInfo] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -262,8 +263,27 @@ export default function Quote() {
   const yearHigh = useMemo(() => yearData.length ? Math.max(...yearData.map(d => d.high_price ?? d.close_price)) : null, [yearData])
   const yearLow = useMemo(() => yearData.length ? Math.min(...yearData.map(d => d.low_price ?? d.close_price)) : null, [yearData])
 
+  const openOrder = (side) => {
+    if (liveInfo && liveInfo.market_open === false) {
+      setMarketNote(t(lang, 'marketClosedHint'))
+      return
+    }
+    setMarketNote('')
+    if (side === 'buy' && !user) {
+      router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
+      return
+    }
+    setOrderQty(side === 'sell' ? String(position?.qty ?? 1) : '100')
+    setOrderErr('')
+    setOrderModal(side)
+  }
+
   const executeOrder = async () => {
     if (orderModal !== 'buy' && orderModal !== 'sell') return
+    if (liveInfo && liveInfo.market_open === false) {
+      setOrderErr(t(lang, 'marketClosedHint'))
+      return
+    }
     if (!user) {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
@@ -443,13 +463,14 @@ export default function Quote() {
               </button>
             </div>
 
+            {marketNote && <div className="market-closed"><AlertTriangle size={13} /> {marketNote}</div>}
             <div className="order-section">
-              <div className="order-box buy" onClick={() => { if (!user) { router.push(`/login?next=${encodeURIComponent(router.asPath)}`); return } setOrderQty('100'); setOrderErr(''); setOrderModal('buy') }}>
+              <div className="order-box buy" onClick={() => openOrder('buy')}>
                 <span className="order-label">{t(lang, 'buy')}</span>
                 <span className="order-val">+{fmtPrice(lang, price)}</span>
               </div>
               {position && position.qty > 0 && (
-                <div className="order-box sell" onClick={() => { setOrderQty(String(position?.qty ?? 1)); setOrderErr(''); setOrderModal('sell') }}>
+                <div className="order-box sell" onClick={() => openOrder('sell')}>
                   <span className="order-label">{t(lang, 'sell')} · {position.qty} {t(lang, 'shares')}</span>
                   <span className="order-val">−{fmtPrice(lang, price)}</span>
                 </div>
@@ -589,7 +610,7 @@ export default function Quote() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif;
         }
         .quote-area {
@@ -609,8 +630,8 @@ export default function Quote() {
         .q-title { display: flex; flex-direction: column; align-items: center; gap: 1px; background: none; border: none; color: inherit; font-family: inherit; padding: 0 8px; cursor: pointer; border-radius: 10px; }
         .q-title:active { background: #1a1a1a; }
         .q-chev { vertical-align: middle; opacity: 0.7; }
-        .q-symbol { font-size: 19px; font-weight: 700; }
-        .q-name { font-size: 14px; color: #a3a3a3; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .q-symbol { font-size: 18px; font-weight: 700; color: #F8F8FA; }
+        .q-name { font-size: 14px; color: #9AA3B2; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .q-hero { padding: 8px 4px 12px; flex-shrink: 0; }
         .q-pair { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .q-logo-fallback {
@@ -621,52 +642,52 @@ export default function Quote() {
         }
         .q-logo-img { width: 100%; height: 100%; object-fit: cover; }
         .q-pair-text { display: flex; align-items: center; gap: 3px; }
-        .q-base { font-size: 18px; font-weight: 700; }
+        .q-base { font-size: 18px; font-weight: 700; color: #F8F8FA; }
         .q-div { color: #666; font-size: 14px; }
-        .q-quote { color: #a3a3a3; font-size: 14px; }
+        .q-quote { color: #9AA3B2; font-size: 14px; }
         .q-sector {
-          font-size: 11px; color: #a3a3a3; background: #1B1B1B;
+          font-size: 11px; color: #9AA3B2; background: #1B1B1B;
           padding: 4px 10px; border-radius: 12px;
         }
         .q-live-badge {
           display: inline-flex; align-items: center; gap: 5px;
-          font-size: 11px; font-weight: 600; color: #00C853;
-          background: rgba(0,200,83,0.12); border: 1px solid rgba(0,200,83,0.35);
+          font-size: 11px; font-weight: 600; color: #18C27C;
+          background: rgba(24,194,124,0.12); border: 1px solid rgba(24,194,124,0.35);
           padding: 3px 10px; border-radius: 12px; margin-top: 6px;
         }
-        .status-dot.open { width: 7px; height: 7px; border-radius: 50%; background: #00C853; box-shadow: 0 0 6px #00C853; }
+        .status-dot.open { width: 7px; height: 7px; border-radius: 50%; background: #18C27C; box-shadow: 0 0 6px #18C27C; }
         .status-dot.open.pulse { animation: pulseDot 1.6s ease-in-out infinite; }
         @keyframes pulseDot {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.35; }
         }
         .q-price {
-          font-size: 42px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
-          display: inline-block; border-radius: 8px; line-height: 1.2;
+          font-size: 42px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          display: inline-block; border-radius: 8px; line-height: 1.25;
         }
-        .q-price.up { color: #00C853; text-shadow: 0 0 18px rgba(0,200,83,0.55), 0 0 46px rgba(0,200,83,0.3); }
-        .q-price.down { color: #FF4D4F; text-shadow: 0 0 18px rgba(255,77,79,0.55), 0 0 46px rgba(255,77,79,0.3); }
+        .q-price.up { color: #18C27C;  }
+        .q-price.down { color: #F04438;  }
         .flash-up { animation: flashUp 1s ease; }
         .flash-down { animation: flashDown 1s ease; }
         @keyframes flashUp {
-          0% { background: rgba(0,200,83,0.3); }
+          0% { background: rgba(24,194,124,0.3); }
           100% { background: transparent; }
         }
         @keyframes flashDown {
-          0% { background: rgba(255,77,79,0.3); }
+          0% { background: rgba(240,68,56,0.3); }
           100% { background: transparent; }
         }
         .q-change {
-          font-size: 18px; font-weight: 600; font-family: 'JetBrains Mono', monospace;
+          font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           display: flex; align-items: center; gap: 6px; margin-top: 2px;
         }
-        .q-change.up { color: #00C853; text-shadow: 0 0 14px rgba(0,200,83,0.5); }
-        .q-change.down { color: #FF4D4F; text-shadow: 0 0 14px rgba(255,77,79,0.5); }
+        .q-change.up { color: #18C27C;  }
+        .q-change.down { color: #F04438;  }
         .q-period {
-          font-size: 13px; color: #a3a3a3; background: #1B1B1B;
+          font-size: 14px; color: #9AA3B2; background: #1B1B1B;
           padding: 3px 10px; border-radius: 8px;
         }
-        .q-range { font-size: 13px; color: #a3a3a3; margin-top: 3px; }
+        .q-range { font-size: 14px; color: #9AA3B2; margin-top: 3px; }
         .q-stats {
           display: flex; gap: 8px; overflow-x: auto;
           margin-bottom: 8px; flex-shrink: 0;
@@ -678,14 +699,14 @@ export default function Quote() {
           padding: 12px 14px; background: #1B1B1B; border-radius: 14px;
           min-width: 118px; flex: none;
         }
-        .qs-label { font-size: 11px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .qs-label { font-size: 14px; font-weight: 400; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .qs-value {
-          font-size: 15px; font-weight: 700;
-          font-family: 'JetBrains Mono', monospace;
+          font-size: 16px; font-weight: 500;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .qs-value.up { color: #00C853; }
-        .qs-value.down { color: #FF4D4F; }
+        .qs-value.up { color: #18C27C; }
+        .qs-value.down { color: #F04438; }
         .chart-area {
           display: flex; flex-direction: column;
           height: clamp(560px, 84vh, 900px);
@@ -708,27 +729,34 @@ export default function Quote() {
         .ql-btn {
           flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
           background: #1B1B1B; border: none; border-radius: 12px;
-          color: #a3a3a3; font-size: 12.5px; font-weight: 500;
+          color: #9AA3B2; font-size: 12.5px; font-weight: 500;
           cursor: pointer; font-family: inherit; height: 40px;
         }
         .ql-btn:hover { color: #fff; background: #232323; }
         .order-section {
           display: flex; gap: 8px; padding: 8px 0 10px; flex-shrink: 0;
         }
+        .market-closed {
+          display: flex; align-items: center; gap: 7px;
+          font-size: 12.5px; line-height: 1.35; color: #f0b4b4;
+          background: #261010; border: 1px solid rgba(240,68,56,0.35);
+          border-radius: 12px; padding: 10px 12px; margin: 4px 0;
+        }
         .order-box {
           flex: 1; display: flex; flex-direction: column; gap: 2px;
           padding: 12px 14px; border-radius: 14px; cursor: pointer;
         }
-        .order-box.sell { background: rgba(255,77,79,0.15); }
-        .order-box.buy { background: rgba(0,200,83,0.15); }
-        .order-label { font-size: 12.5px; color: #a3a3a3; }
-        .order-val { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .order-box.sell .order-val { color: #FF4D4F; }
-        .order-box.buy .order-val { color: #00C853; }
+        .order-box.sell { background: rgba(240,68,56,0.15); }
+        .order-box.buy { background: rgba(24,194,124,0.15); }
+        .order-box.buy.disabled, .order-box.sell.disabled { opacity: 0.45; cursor: default; }
+        .order-label { font-size: 12.5px; color: #9AA3B2; }
+        .order-val { font-size: 18px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .order-box.sell .order-val { color: #F04438; }
+        .order-box.buy .order-val { color: #18C27C; }
         .loading-screen {
           flex: 1; display: flex; flex-direction: column;
           align-items: center; justify-content: center; gap: 12px;
-          color: #a3a3a3; font-size: 14px;
+          color: #9AA3B2; font-size: 14px;
         }
         .err-title { font-size: 20px; font-weight: 700; color: #fff; }
         .err-sub { color: #666; font-size: 12px; }
@@ -758,29 +786,29 @@ export default function Quote() {
           display: flex; justify-content: space-between; align-items: center;
           background: #1B1B1B; border-radius: 12px; padding: 12px 14px;
         }
-        .mp-label { font-size: 12px; color: #a3a3a3; }
-        .mp-val { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .mp-label { font-size: 12px; color: #9AA3B2; }
+        .mp-val { font-size: 16px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .otype-row { display: flex; gap: 8px; }
         .otype-btn {
           flex: 1; height: 38px;
-          background: #1B1B1B; color: #a3a3a3;
+          background: #1B1B1B; color: #9AA3B2;
           border: 1px solid #2a2a2a; border-radius: 12px;
           font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
         }
         .otype-btn.on {
-          background: rgba(0,200,83,0.12); color: #00C853; border-color: rgba(0,200,83,0.4);
+          background: rgba(24,194,124,0.12); color: #18C27C; border-color: rgba(24,194,124,0.4);
         }
         .tpsl-grid { display: flex; gap: 10px; }
         .tpsl-grid .tpsl-row { flex: 1; min-width: 0; }
         .tpsl-row { display: flex; flex-direction: column; gap: 5px; }
-        .tpsl-label { font-size: 11px; color: #8f8f8f; }
+        .tpsl-label { font-size: 11px; color: #9AA3B2; }
         .tpsl-input {
           width: 100%; box-sizing: border-box;
           background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 10px;
           color: #fff; font-size: 14px; padding: 9px 12px; outline: none;
         }
-        .tpsl-input:focus { border-color: rgba(0,200,83,0.5); }
-        .order-err { font-size: 12px; color: #FF4D4F; text-align: center; }
+        .tpsl-input:focus { border-color: rgba(24,194,124,0.5); }
+        .order-err { font-size: 12px; color: #F04438; text-align: center; }
         .qty-row { display: flex; align-items: center; gap: 10px; }
         .qty-btn {
           width: 44px; height: 44px; flex-shrink: 0;
@@ -791,19 +819,19 @@ export default function Quote() {
           flex: 1; text-align: center;
           background: #1B1B1B; border: none; border-radius: 12px;
           color: #fff; font-size: 18px; font-weight: 700;
-          font-family: 'JetBrains Mono', monospace; outline: none; height: 44px;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; outline: none; height: 44px;
         }
         .modal-total {
           display: flex; justify-content: space-between; align-items: center;
-          padding: 4px 2px; font-size: 13px; color: #a3a3a3;
+          padding: 4px 2px; font-size: 13px; color: #9AA3B2;
         }
-        .mt-val { font-size: 15px; font-weight: 700; color: #fff; font-family: 'JetBrains Mono', monospace; }
+        .mt-val { font-size: 15px; font-weight: 700; color: #fff; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .modal-exec {
           height: 46px; border: none; border-radius: 14px;
           color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
         }
-        .modal-exec.buy { background: #00C853; }
-        .modal-exec.sell { background: #FF4D4F; }
+        .modal-exec.buy { background: #18C27C; }
+        .modal-exec.sell { background: #F04438; }
         .modal-exec:disabled { opacity: 0.4; }
         .picker { max-height: 75vh; }
         .pick-search {
@@ -827,9 +855,9 @@ export default function Quote() {
         .pick-item:active, .pick-item.active { background: #232323; }
         .pick-sym {
           font-weight: 700; font-size: 13px; color: #fff;
-          font-family: 'JetBrains Mono', monospace; min-width: 52px;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; min-width: 52px;
         }
-        .pick-name { font-size: 12px; color: #a3a3a3; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .pick-name { font-size: 12px; color: #9AA3B2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .pick-empty { padding: 14px; text-align: center; color: #666; font-size: 13px; }
       `}</style>
     </div>

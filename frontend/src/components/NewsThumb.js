@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 
 export default function NewsThumb({ image, label, size = 56, radius = 10 }) {
   const [failed, setFailed] = useState(false)

@@ -27,7 +27,7 @@ const IMPORTANCE = [
 ]
 
 const FLAGS = {
-  CI: '🇨🇮', BJ: '🇧🇯', BF: '🇧🇫', ML: '🇲🇱', NE: '🇳🇪', SN: '🇸🇳', TG: '🇹🇬', UEMOA: '🏛️',
+  CI: 'ðŸ‡¨ðŸ‡®', BJ: 'ðŸ‡§ðŸ‡¯', BF: 'ðŸ‡§ðŸ‡«', ML: 'ðŸ‡²ðŸ‡±', NE: 'ðŸ‡³ðŸ‡ª', SN: 'ðŸ‡¸ðŸ‡³', TG: 'ðŸ‡¹ðŸ‡¬', UEMOA: 'ðŸ›ï¸',
 }
 
 function ImportanceBars({ level }) {
@@ -35,7 +35,7 @@ function ImportanceBars({ level }) {
   return (
     <svg width="13" height="24" viewBox="0 0 16 30" fill="none">
       {heights.map((h, i) => (
-        <rect key={i} x={i * 6} y={30 - h} width="4" height={h} rx="1" fill={h > 0 ? '#8B8B8B' : '#333333'} />
+        <rect key={i} x={i * 6} y={30 - h} width="4" height={h} rx="1" fill={h > 0 ? '#9AA3B2' : '#333333'} />
       ))}
     </svg>
   )
@@ -130,7 +130,7 @@ export default function Calendar() {
     <div className="mobile-root">
       <div className="top-bar">
         <button className="back-btn" onClick={() => router.back()} aria-label={t('back')}>
-          <ArrowLeft size={24} strokeWidth={1.5} color="#fff" />
+          <ArrowLeft size={24} strokeWidth={2} color="#fff" />
         </button>
       </div>
 
@@ -169,7 +169,7 @@ export default function Calendar() {
                   <div className="event-main">
                     <div className="event-title">{e.title}</div>
                     <div className="event-meta">
-                      <span className="flag">{FLAGS[e.country] || '🏳️'}</span>
+                      <span className="flag">{FLAGS[e.country] || 'ðŸ³ï¸'}</span>
                       <span className="imp-icon">
                         <ImportanceBars level={e.importance || 1} />
                       </span>
@@ -192,7 +192,7 @@ export default function Calendar() {
                       </div>
                     </div>
                   </div>
-                  <ChevronRight size={16} strokeWidth={1.5} color="#8B8B8B" className="chevron" />
+                  <ChevronRight size={16} strokeWidth={2} color="#9AA3B2" className="chevron" />
                 </div>
               ))}
             </div>
@@ -205,14 +205,14 @@ export default function Calendar() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, 'SF Pro Display', sans-serif;
           overflow: hidden;
         }
         .top-bar {
           height: 52px; flex-shrink: 0;
           display: flex; align-items: center;
-          background: #000000;
+          background: #0E1627;
           padding: 0 4px;
         }
         .back-btn {
@@ -226,8 +226,8 @@ export default function Calendar() {
         }
         .content::-webkit-scrollbar { display: none; }
         .title {
-          font-size: 34px; font-weight: 800;
-          letter-spacing: -1px; line-height: 1.05;
+          font-size: 34px; font-weight: 700;
+          letter-spacing: 0.25px; line-height: 1.05;
           margin: 4px 0 20px; text-align: left;
         }
         .filter-row {
@@ -249,15 +249,15 @@ export default function Calendar() {
           height: 40px;
           display: flex; align-items: center;
           padding: 0 14px;
-          font-size: 20px; font-weight: 800;
-          letter-spacing: -0.3px;
+          font-size: 14px; font-weight: 600; color: #F2F4F7;
+          letter-spacing: 0.25px;
           margin: 6px -14px 0;
         }
         .event-row {
           display: flex; align-items: center; gap: 12px;
           padding: 16px 14px;
           border-bottom: 1px solid #1B1B1B;
-          background: #000000;
+          background: #0E1627;
           cursor: pointer;
         }
         .event-row:active { opacity: 0.7; }
@@ -271,8 +271,8 @@ export default function Calendar() {
         .time-pill.soon { background: #FF3B57; }
         .event-main { flex: 1; min-width: 0; }
         .event-title {
-          font-size: 18px; font-weight: 600;
-          line-height: 1.15; letter-spacing: -0.2px;
+          font-size: 18px; font-weight: 700; color: #F8F8FA;
+          line-height: 1.25; letter-spacing: 0.25px;
           margin-bottom: 8px;
         }
         .event-meta { display: flex; align-items: center; gap: 10px; }
@@ -288,13 +288,13 @@ export default function Calendar() {
           display: flex; gap: 18px; flex: 1; min-width: 0;
         }
         .value-col { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-        .v-label { font-size: 12px; color: #8B8B8B; }
-        .v-value { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
+        .v-label { font-size: 14px; color: #9AA3B2; }
+        .v-value { font-size: 14px; font-weight: 500; color: #8E95A3; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .countdown { font-size: 13px; font-weight: 600; color: #FF3B57; }
         .chevron { flex-shrink: 0; }
         .state-box {
           padding: 40px 24px; text-align: center;
-          color: #8B8B8B; font-size: 14px;
+          color: #6B7A94; font-size: 14px;
         }
       `}</style>
     </div>

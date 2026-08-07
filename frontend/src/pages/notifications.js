@@ -14,10 +14,10 @@ const TYPE_ICON = {
 }
 
 const TYPE_COLOR = {
-  plan: '#00C853',
+  plan: '#18C27C',
   price: '#4ea8ff',
   alert: '#ffd166',
-  system: '#a3a3a3',
+  system: '#9AA3B2',
 }
 
 export default function Notifications() {
@@ -65,7 +65,7 @@ export default function Notifications() {
             <ChevronLeft size={22} />
           </button>
           <div className="pg-title-wrap">
-            <div className="pg-title"><Bell size={18} color="#00C853" /> {t(lang, 'notifTitle')}</div>
+            <div className="pg-title"><Bell size={18} color="#18C27C" /> {t(lang, 'notifTitle')}</div>
             <div className="pg-sub">{t(lang, 'notifSub')}</div>
           </div>
           {items.some(n => !n.read) && (
@@ -86,7 +86,7 @@ export default function Notifications() {
           <div className="list">
             {items.map(n => {
               const Icon = TYPE_ICON[n.type] || Info
-              const color = TYPE_COLOR[n.type] || '#a3a3a3'
+              const color = TYPE_COLOR[n.type] || '#9AA3B2'
               return (
                 <div key={n.id} className={`notif ${n.read ? 'read' : ''}`} onClick={() => open(n)}>
                   <div className="notif-ic" style={{ color, background: `${color}1f` }}>
@@ -111,7 +111,7 @@ export default function Notifications() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -123,12 +123,12 @@ export default function Notifications() {
           background: #141414; color: #fff;
         }
         .pg-title-wrap { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-        .pg-title { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 800; }
-        .pg-sub { font-size: 11px; color: #a3a3a3; }
+        .pg-title { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; }
+        .pg-sub { font-size: 11px; color: #9AA3B2; }
         .read-all {
           display: flex; align-items: center; gap: 5px;
-          font-size: 11px; font-weight: 700; color: #00C853;
-          background: rgba(0,200,83,0.1); border: 1px solid rgba(0,200,83,0.3);
+          font-size: 11px; font-weight: 700; color: #18C27C;
+          background: rgba(24,194,124,0.1); border: 1px solid rgba(24,194,124,0.3);
           border-radius: 10px; padding: 7px 10px; cursor: pointer; flex-shrink: 0;
         }
         .list { display: flex; flex-direction: column; gap: 10px; }
@@ -143,15 +143,15 @@ export default function Notifications() {
           display: flex; align-items: center; justify-content: center;
         }
         .notif-body { flex: 1; min-width: 0; }
-        .notif-title { font-size: 13px; font-weight: 700; line-height: 1.4; }
-        .notif-text { font-size: 11.5px; color: #a3a3a3; line-height: 1.55; margin-top: 3px; }
+        .notif-title { font-size: 16px; font-weight: 600; color: #F8F8FA; line-height: 1.35; }
+        .notif-text { font-size: 14px; font-weight: 400; color: #9AA3B2; line-height: 1.35; margin-top: 3px; }
         .notif-date { font-size: 10px; color: #666; margin-top: 5px; }
-        .dot { width: 8px; height: 8px; border-radius: 999px; background: #00C853; flex-shrink: 0; margin-top: 5px; }
+        .dot { width: 8px; height: 8px; border-radius: 999px; background: #18C27C; flex-shrink: 0; margin-top: 5px; }
         .empty {
           display: flex; flex-direction: column; align-items: center; gap: 12px;
           padding: 60px 0; color: #555;
         }
-        .empty-txt { font-size: 13px; color: #a3a3a3; text-align: center; }
+        .empty-txt { font-size: 13px; color: #9AA3B2; text-align: center; }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 12px 0; }
       `}</style>
     </div>

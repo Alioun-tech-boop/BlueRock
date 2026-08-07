@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.user import User
 from ..models.planning import PremiumPlan, PremiumSnapshot, Notification
-from ..schemas.premium import PremiumPlanRequest, RISK_LEVELS
+from ..schemas.premium import PremiumPlanRequest, RISK_LEVELS, PLAN_TYPES
 from ..services.premium import PremiumService
 from ..services.premium_tracking import track_plan, coverage_of, _notify
 from .auth import get_current_user
@@ -22,18 +22,18 @@ EMITTED_FIELDS = [
 ]
 
 
-def _latest_plan(db: Session, user_id: int) -> PremiumPlan | None:
-    return (db.query(PremiumPlan)
-            .filter(PremiumPlan.user_id == user_id)
-            .order_by(PremiumPlan.id.desc())
-            .first())
+def _latest_plan(db: Session, user_id: int, plan_type: str | None = None) -> PremiumPlan | None:
+    q = db.query(PremiumPlan).filter(PremiumPlan.user_id == user_id)
+    if plan_type:
+        q = q.filter(PremiumPlan.plan_type == plan_type)
+    return q.order_by(PremiumPlan.id.desc()).first()
 
 
-def _active_plan(db: Session, user_id: int) -> PremiumPlan | None:
-    return (db.query(PremiumPlan)
-            .filter(PremiumPlan.user_id == user_id, PremiumPlan.status == "active")
-            .order_by(PremiumPlan.id.desc())
-            .first())
+def _active_plan(db: Session, user_id: int, plan_type: str | None = None) -> PremiumPlan | None:
+    q = db.query(PremiumPlan).filter(PremiumPlan.user_id == user_id, PremiumPlan.status == "active")
+    if plan_type:
+        q = q.filter(PremiumPlan.plan_type == plan_type)
+    return q.order_by(PremiumPlan.id.desc()).first()
 
 
 def _plan_payload(db: Session, plan: PremiumPlan, service: PremiumService) -> dict:
@@ -43,7 +43,7 @@ def _plan_payload(db: Session, plan: PremiumPlan, service: PremiumService) -> di
         emitted = json.loads(plan.allocation_snapshot or "{}")
     except Exception:
         emitted = {}
-    payload = {"id": plan.id, "status": plan.status, "issued_at": plan.issued_at,
+    payload = {"id": plan.id, "plan_type": plan.plan_type, "status": plan.status, "issued_at": plan.issued_at,
                "matured_at": plan.matured_at, "cancelled_at": plan.cancelled_at,
                "completed_at": plan.completed_at,
                "start_value": plan.start_value, "last_value": plan.last_value,
@@ -98,6 +98,9 @@ def emit_plan(req: PremiumPlanRequest, user: User = Depends(get_current_user),
     if req.risk_level not in RISK_LEVELS:
         raise HTTPException(status_code=422,
                             detail="risk_level doit être conservative, balanced ou growth")
+    if req.plan_type not in PLAN_TYPES:
+        raise HTTPException(status_code=422,
+                            detail="plan_type doit être epargne, retraite, etudes ou succession")
     service = PremiumService(db)
     try:
         built = service.build_plan(user, amount=req.amount, monthly=req.monthly,
@@ -106,8 +109,8 @@ def emit_plan(req: PremiumPlanRequest, user: User = Depends(get_current_user),
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    # Un plan actif ne peut pas être remplacé silencieusement : il est annulé explicitement
-    previous = _active_plan(db, user.id)
+    # Un plan actif du même type ne peut pas être remplacé silencieusement
+    previous = _active_plan(db, user.id, req.plan_type)
     if previous and previous.id:
         previous.status = "cancelled"
         previous.cancelled_at = datetime.now()
@@ -121,6 +124,7 @@ def emit_plan(req: PremiumPlanRequest, user: User = Depends(get_current_user),
         monthly=req.monthly or 0,
         horizon_years=req.horizon_years,
         risk_level=req.risk_level,
+        plan_type=req.plan_type,
         status="active",
         issued_at=datetime.now(),
         matured_at=datetime.now() + timedelta(days=365 * req.horizon_years),
@@ -174,3 +178,13 @@ def trigger_track(plan_id: int, user: User = Depends(get_current_user),
     result = track_plan(db, plan)
     db.refresh(plan)
     return {"plan": _plan_payload(db, plan, PremiumService(db)), "track": result}
+
+
+@router.get("/plans")
+def list_plans(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    plans = (db.query(PremiumPlan)
+             .filter(PremiumPlan.user_id == user.id)
+             .order_by(PremiumPlan.id.desc())
+             .limit(50).all())
+    service = PremiumService(db)
+    return {"plans": [_plan_payload(db, p, service) for p in plans]}

@@ -1,4 +1,4 @@
-/* ===== BLUEROCK - ADAPTATION AUTOMATIQUE AU TYPE D'ÉCRAN =====
+﻿/* ===== BLUEROCK - ADAPTATION AUTOMATIQUE AU TYPE D'ÉCRAN =====
    Mobile (< 768px) : layout actuel inchangé (navigation en bas)
    Tablette (768-1199px) : contenu centré, navigation en bas limitée
    PC (>= 1200px) : contenu centré large + navigation latérale à gauche
@@ -12,10 +12,10 @@
      vw/vh et les éléments position:fixed restent parfaitement calés. */
   html {
     zoom: 0.87;
-    background: #000;
+    background: #0E1627;
   }
   body {
-    background: #000 !important;
+    background: #0E1627 !important;
   }
   /* Unités dvh : hauteur réelle visible (barre d'adresse mobile masquée).
      Le zoom 0.87 du <html> réduit le rendu de toute hauteur CSS de 13% :
@@ -40,7 +40,7 @@
     z-index: 50 !important;
     height: calc(60px + env(safe-area-inset-bottom)) !important;
     padding: 6px 0 env(safe-area-inset-bottom) !important;
-    background: #000 !important;
+    background: #0E1627 !important;
     border-top: 1px solid #2a2a2a !important;
   }
   .mobile-root {

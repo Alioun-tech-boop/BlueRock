@@ -1,4 +1,4 @@
-export function getMarketStatus(now = new Date()) {
+﻿export function getMarketStatus(now = new Date()) {
   // BRVM: Africa/Abidjan = UTC+0 (GMT), Monday-Friday
   const abidjan = new Date(now.getTime() + now.getTimezoneOffset() * 60000 + 0 * 3600000)
   const day = abidjan.getUTCDay()

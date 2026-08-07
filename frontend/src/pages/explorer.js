@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import NewsThumb from '../components/NewsThumb'
@@ -32,15 +32,15 @@ function fmt(n, lang) {
 function Sparkline({ series, up }) {
   if (!series || series.length < 2) return <div className="gc-empty" />
   const points = series.slice(-25)
-  const h = 45; const w = 80
+  const h = 54; const w = 96
   const max = Math.max(...points); const min = Math.min(...points)
   const r = h / (max - min || 1)
   const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i / (points.length - 1)) * w} ${h - (p - min) * r}`).join(' ')
   const area = `${d} L${w} ${h} L0 ${h} Z`
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-      <path d={d} fill="none" stroke={up ? '#00C853' : '#FF4D4F'} strokeWidth={2} />
-      <path d={area} fill={up ? 'rgba(0,200,83,0.15)' : 'rgba(255,77,79,0.15)'} />
+      <path d={d} fill="none" stroke={up ? '#18C27C' : '#F04438'} strokeWidth={2} />
+      <path d={area} fill={up ? 'rgba(24,194,124,0.15)' : 'rgba(240,68,56,0.15)'} />
     </svg>
   )
 }
@@ -100,8 +100,10 @@ export default function Explorer() {
   useEffect(() => { load() }, [])
 
   useEffect(() => {
-    const interval = setInterval(load, 60000)
-    return () => clearInterval(interval)
+    const interval = setInterval(() => { if (!document.hidden) load() }, 300000)
+    const onVis = () => { if (!document.hidden) load() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis) }
   }, [])
 
   const grouped = {}
@@ -139,7 +141,7 @@ export default function Explorer() {
 
         {error && (
           <div className="error-bar">
-            <AlertTriangle size={14} color="#FF4D4F" />
+            <AlertTriangle size={14} color="#F04438" />
             <span>{error}</span>
             <button onClick={load} className="retry-btn"><RefreshCw size={13} /></button>
           </div>
@@ -147,19 +149,19 @@ export default function Explorer() {
 
         <div className="action-buttons">
           <button className="action-btn" onClick={() => { setActiveTab('announcements'); document.querySelector('.news-section')?.scrollIntoView({ behavior: 'smooth' }) }}>
-            <Newspaper size={24} color="#fff" />
+            <Newspaper size={28} color="#fff" />
             <span>{t('announcements')}</span>
           </button>
           <button className="action-btn" onClick={() => router.push('/calendar')}>
-            <Calendar size={24} color="#fff" />
+            <Calendar size={28} color="#fff" />
             <span>{t('calendar')}</span>
           </button>
           <button className="action-btn" onClick={() => router.push('/brokers')}>
-            <Briefcase size={24} color="#fff" />
+            <Briefcase size={28} color="#fff" />
             <span>{t('brokers')}</span>
           </button>
-          <button className="action-btn plan-btn" onClick={() => router.push('/premium')}>
-            <Compass size={24} color="#00C853" />
+          <button className="action-btn plan-btn" onClick={() => router.push('/patrimoine')}>
+            <Compass size={28} color="#18C27C" />
             <span>{t('premiumTitle')}</span>
           </button>
         </div>
@@ -252,7 +254,7 @@ export default function Explorer() {
                   {news.filter(n => n.category === 'Société').slice(0, 8).map((item, i) => (
                     <button key={`s${i}`} className="news-item" onClick={() => openArticle(item)}>
                       <div className="news-row">
-                        <NewsThumb image={item.image} label={item.source} size={54} />
+                        <NewsThumb image={item.image} label={item.source} size={62} />
                         <div className="news-text">
                           <div className="news-meta">
                             <span className="news-src societe">{item.source}</span>
@@ -272,7 +274,7 @@ export default function Explorer() {
                   {news.filter(n => n.category === 'BRVM').map((item, i) => (
                     <button key={`b${i}`} className="news-item" onClick={() => openArticle(item)}>
                       <div className="news-row">
-                        <NewsThumb image={item.image} label={item.source} size={54} />
+                        <NewsThumb image={item.image} label={item.source} size={62} />
                         <div className="news-text">
                           <div className="news-meta">
                             <span className="badge-official">{t('newsOfficial')}</span>
@@ -292,7 +294,7 @@ export default function Explorer() {
                   {news.filter(n => n.category === 'Presse').slice(0, 8).map((item, i) => (
                     <button key={`p${i}`} className="news-item" onClick={() => openArticle(item)}>
                       <div className="news-row">
-                        <NewsThumb image={item.image} label={item.source} size={54} />
+                        <NewsThumb image={item.image} label={item.source} size={62} />
                         <div className="news-text">
                           <div className="news-meta">
                             <span className="news-src">{item.source}</span>
@@ -352,7 +354,7 @@ export default function Explorer() {
                 {news.filter(n => n.category === 'Société').slice(0, 15).map((item, i) => (
                   <button key={`s${i}`} className="news-item" onClick={() => openArticle(item)}>
                     <div className="news-row">
-                      <NewsThumb image={item.image} label={item.source} size={54} />
+                      <NewsThumb image={item.image} label={item.source} size={62} />
                       <div className="news-text">
                         <div className="news-meta">
                           <span className="news-src societe">{item.source}</span>
@@ -372,7 +374,7 @@ export default function Explorer() {
                 {news.filter(n => n.category === 'BRVM').map((item, i) => (
                   <button key={`b${i}`} className="news-item" onClick={() => openArticle(item)}>
                     <div className="news-row">
-                      <NewsThumb image={item.image} label={item.source} size={54} />
+                      <NewsThumb image={item.image} label={item.source} size={62} />
                       <div className="news-text">
                         <div className="news-meta">
                           <span className="badge-official">{t('newsOfficial')}</span>
@@ -392,7 +394,7 @@ export default function Explorer() {
                 {news.filter(n => n.category === 'Presse').slice(0, 15).map((item, i) => (
                   <button key={`p${i}`} className="news-item" onClick={() => openArticle(item)}>
                     <div className="news-row">
-                      <NewsThumb image={item.image} label={item.source} size={54} />
+                      <NewsThumb image={item.image} label={item.source} size={62} />
                       <div className="news-text">
                         <div className="news-meta">
                           <span className="news-src">{item.source}</span>
@@ -457,7 +459,7 @@ export default function Explorer() {
           display: flex;
           flex-direction: column;
           height: 100vh;
-          background: #000;
+          background: #0E1627;
           color: #fff;
           font-family: Inter, -apple-system, sans-serif;
           overflow: hidden;
@@ -469,74 +471,74 @@ export default function Explorer() {
         }
         .safe-area::-webkit-scrollbar { display: none; }
         .explorer-title {
-          font-size: 42px;
+          font-size: 44px;
           font-weight: 700;
-          margin: 16px 0;
-          letter-spacing: -1px;
+          margin: 18px 0;
+          letter-spacing: 0.25px;
         }
         .error-bar {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 10px 12px;
+          gap: 9px;
+          padding: 13px 15px;
           background: #261010;
-          border: 1px solid #FF4D4F55;
-          border-radius: 12px;
-          font-size: 13px;
+          border: 1px solid #F0443855;
+          border-radius: 14px;
+          font-size: 15px;
           color: #f0b4b4;
-          margin-bottom: 14px;
+          margin-bottom: 16px;
         }
         .retry-btn {
           margin-left: auto;
           background: none;
           border: none;
-          color: #FF4D4F;
+          color: #F04438;
           cursor: pointer;
           padding: 2px;
         }
         .action-buttons {
           display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
+          gap: 12px;
+          margin-bottom: 22px;
         }
         .action-btn {
           flex: 1;
-          height: 100px;
+          height: 120px;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 8px;
+          gap: 10px;
           background: #262626;
           border: none;
-          border-radius: 18px;
+          border-radius: 20px;
           color: #fff;
-          font-size: 13px;
+          font-size: 15px;
           cursor: pointer;
           font-family: inherit;
           text-decoration: none;
         }
         .action-btn:hover { background: #333; }
         .action-btn.plan-btn {
-          background: linear-gradient(160deg, rgba(0,200,83,0.16), rgba(139,92,246,0.12));
-          border: 1px solid rgba(0,200,83,0.35);
+          background: linear-gradient(160deg, rgba(24,194,124,0.16), rgba(139,92,246,0.12));
+          border: 1px solid rgba(24,194,124,0.35);
         }
-        .action-btn.plan-btn:hover { background: linear-gradient(160deg, rgba(0,200,83,0.26), rgba(139,92,246,0.2)); }
+        .action-btn.plan-btn:hover { background: linear-gradient(160deg, rgba(24,194,124,0.26), rgba(139,92,246,0.2)); }
         .tabs-strip {
           display: flex;
-          gap: 8px;
-          margin-bottom: 16px;
+          gap: 10px;
+          margin-bottom: 18px;
           overflow-x: auto;
           padding-bottom: 4px;
         }
         .tabs-strip::-webkit-scrollbar { display: none; }
         .tab-btn {
-          padding: 8px 16px;
+          padding: 10px 20px;
           background: none;
           border: none;
-          border-radius: 15px;
+          border-radius: 17px;
           color: #666;
-          font-size: 14px;
+          font-size: 16px;
           cursor: pointer;
           white-space: nowrap;
           font-family: inherit;
@@ -547,8 +549,8 @@ export default function Explorer() {
         }
         .indices-strip {
           display: flex;
-          gap: 10px;
-          margin-bottom: 16px;
+          gap: 12px;
+          margin-bottom: 18px;
           overflow-x: auto;
           padding-bottom: 4px;
         }
@@ -556,22 +558,22 @@ export default function Explorer() {
         .index-card {
           display: flex;
           flex-direction: column;
-          gap: 2px;
-          padding: 12px 14px;
+          gap: 3px;
+          padding: 15px 17px;
           background: #1B1B1B;
-          border-radius: 16px;
-          min-width: 130px;
+          border-radius: 18px;
+          min-width: 150px;
           flex-shrink: 0;
         }
-        .idx-name { font-size: 12px; color: #a3a3a3; }
-        .idx-val { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-        .idx-chg { font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-        .idx-chg.up { color: #00C853; }
-        .idx-chg.down { color: #FF4D4F; }
+        .idx-name { font-size: 13.5px; color: #9AA3B2; }
+        .idx-val { font-size: 18px; font-weight: 700; color: #8E95A3; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .idx-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .idx-chg.up { color: #18C27C; }
+        .idx-chg.down { color: #F04438; }
         .topflop-section {
           display: flex;
-          gap: 12px;
-          margin-bottom: 20px;
+          gap: 14px;
+          margin-bottom: 22px;
         }
         .topflop-section.vertical {
           flex-direction: column;
@@ -580,115 +582,115 @@ export default function Explorer() {
           flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          padding: 14px;
+          gap: 10px;
+          padding: 17px;
           background: #141414;
-          border-radius: 18px;
+          border-radius: 20px;
         }
         .topflop-header {
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 700;
-          margin-bottom: 2px;
+          margin-bottom: 3px;
         }
-        .topflop-header.top { color: #00C853; }
-        .topflop-header.flop { color: #FF4D4F; }
+        .topflop-header.top { color: #18C27C; }
+        .topflop-header.flop { color: #F04438; }
         .topflop-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 12px;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          font-size: 14px;
           cursor: pointer;
-          padding: 2px 0;
+          padding: 4px 0;
         }
-        .tf-symbol { font-weight: 600; color: #fff; }
-        .tf-logo { width: 22px; height: 22px; border-radius: 50%; background: #1e1e1e; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+        .tf-symbol { font-weight: 700; color: #F8F8FA; }
+        .tf-logo { width: 28px; height: 28px; border-radius: 50%; background: #1e1e1e; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
         .tf-logo img { width: 100%; height: 100%; object-fit: cover; }
-        .tf-price { color: #a3a3a3; }
-        .tf-chg { font-weight: 600; }
-        .tf-chg.up { color: #00C853; }
-        .tf-chg.down { color: #FF4D4F; }
+        .tf-price { color: #8E95A3; font-weight: 700; }
+        .tf-chg { font-weight: 500; font-size: 16px; }
+        .tf-chg.up { color: #18C27C; }
+        .tf-chg.down { color: #F04438; }
         .grid-2 {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-bottom: 20px;
+          gap: 14px;
+          margin-bottom: 22px;
         }
         .grid-card {
           display: flex;
           flex-direction: column;
-          gap: 4px;
-          padding: 14px;
+          gap: 5px;
+          padding: 17px;
           background: #141414;
-          border-radius: 18px;
+          border-radius: 20px;
           cursor: pointer;
         }
         .grid-card:hover { background: #1c1c1c; }
         .gc-top {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 7px;
         }
         .gc-dot {
-          width: 8px; height: 8px;
+          width: 10px; height: 10px;
           border-radius: 50%;
         }
-        .gc-name { font-size: 12px; color: #a3a3a3; }
-        .gc-value { font-size: 20px; font-weight: 700; }
-        .gc-chg { font-size: 12px; font-weight: 600; }
-        .gc-chg.up { color: #00C853; }
-        .gc-chg.down { color: #FF4D4F; }
-        .gc-chart { margin-top: 4px; }
+        .gc-name { font-size: 13.5px; color: #9AA3B2; }
+        .gc-value { font-size: 24px; font-weight: 700; color: #F8F8FA; }
+        .gc-chg { font-size: 16px; font-weight: 500; }
+        .gc-chg.up { color: #18C27C; }
+        .gc-chg.down { color: #F04438; }
+        .gc-chart { margin-top: 5px; }
         .gc-empty { height: 45px; }
         .section-title {
-          font-size: 16px;
+          font-size: 18px;
           font-weight: 700;
-          margin: 8px 0 12px;
-          letter-spacing: -0.3px;
+          margin: 10px 0 14px;
+          letter-spacing: 0.25px;
         }
         .news-section {
           display: flex;
           flex-direction: column;
-          gap: 12px;
-          padding-bottom: 16px;
+          gap: 14px;
+          padding-bottom: 18px;
         }
         .news-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 16px;
+          font-size: 18px;
           font-weight: 600;
         }
         .news-group-title {
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 600;
-          color: #a3a3a3;
-          margin: 14px 0 4px;
+          color: #9AA3B2;
+          margin: 16px 0 5px;
           text-transform: uppercase;
           letter-spacing: 0.4px;
         }
         .news-group-title.societes { color: #D4A843; }
         .badge-official {
-          font-size: 10px;
+          font-size: 11px;
           font-weight: 700;
-          color: #00C853;
-          background: rgba(0,200,83,0.12);
-          padding: 2px 8px;
-          border-radius: 9px;
+          color: #18C27C;
+          background: rgba(24,194,124,0.12);
+          padding: 3px 9px;
+          border-radius: 10px;
         }
-        .news-src { font-size: 12px; color: #8b5cf6; font-weight: 600; }
+        .news-src { font-size: 13px; color: #8b5cf6; font-weight: 600; }
         .news-src.societe { color: #D4A843; }
         .news-empty {
-          padding: 24px 0;
+          padding: 26px 0;
           text-align: center;
           color: #666;
-          font-size: 13px;
+          font-size: 15px;
         }
         .news-item {
           display: flex;
           flex-direction: column;
-          gap: 4px;
-          padding: 8px 0;
+          gap: 5px;
+          padding: 11px 0;
           border: none;
           border-bottom: 1px solid #1a1a1a;
           background: none;
@@ -703,21 +705,22 @@ export default function Explorer() {
         .news-row {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
           width: 100%;
         }
         .news-text { flex: 1; min-width: 0; }
         .news-meta {
           display: flex;
           align-items: center;
-          gap: 6px;
-          font-size: 12px;
-          color: #a3a3a3;
+          gap: 7px;
+          font-size: 13px;
+          color: #9AA3B2;
         }
         .dot { color: #333; }
         .news-title {
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 500;
+          line-height: 1.35;
         }
         .article-overlay {
           position: fixed;
@@ -749,7 +752,7 @@ export default function Explorer() {
           padding: 16px 16px 0;
         }
         .article-src {
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 700;
           letter-spacing: 0.5px;
           color: #8b5cf6;
@@ -758,8 +761,8 @@ export default function Explorer() {
           background: #262626;
           border: none;
           border-radius: 50%;
-          width: 32px;
-          height: 32px;
+          width: 36px;
+          height: 36px;
           color: #fff;
           display: flex;
           align-items: center;
@@ -768,72 +771,72 @@ export default function Explorer() {
         }
         .article-body {
           overflow-y: auto;
-          padding: 14px 18px 28px;
+          padding: 16px 20px 30px;
         }
         .article-body::-webkit-scrollbar { display: none; }
         .article-title {
-          font-size: 18px;
+          font-size: 20px;
           font-weight: 700;
           line-height: 1.35;
-          margin: 4px 0 12px;
+          margin: 5px 0 14px;
         }
         .article-cover {
           width: 100%;
-          max-height: 220px;
+          max-height: 240px;
           object-fit: cover;
-          border-radius: 12px;
-          margin: 0 0 12px;
+          border-radius: 14px;
+          margin: 0 0 14px;
         }
         .article-loading {
           display: flex;
           align-items: center;
-          gap: 8px;
-          color: #a3a3a3;
-          font-size: 13px;
-          padding: 20px 0;
+          gap: 9px;
+          color: #9AA3B2;
+          font-size: 15px;
+          padding: 22px 0;
         }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .article-fallback {
           display: flex;
-          gap: 10px;
+          gap: 11px;
           align-items: flex-start;
           background: #221a08;
           border: 1px solid #f59e0b33;
-          border-radius: 12px;
-          padding: 12px;
-          font-size: 13px;
+          border-radius: 14px;
+          padding: 14px;
+          font-size: 15px;
           color: #e8d9b5;
-          margin: 8px 0;
+          margin: 9px 0;
         }
         .article-fallback p { margin: 0; }
         .article-summary {
           background: #1d1d1d;
           border-left: 3px solid #8b5cf6;
-          border-radius: 10px;
-          padding: 12px;
-          font-size: 13px;
+          border-radius: 12px;
+          padding: 14px;
+          font-size: 15px;
           color: #d6d6d6;
-          line-height: 1.6;
-          margin-bottom: 14px;
+          line-height: 1.35;
+          margin-bottom: 16px;
         }
         .article-para {
-          font-size: 14px;
-          line-height: 1.7;
+          font-size: 16px;
+          line-height: 1.35;
           color: #e5e5e5;
-          margin: 0 0 12px;
+          margin: 0 0 14px;
         }
         .article-open {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
-          margin-top: 6px;
-          padding: 10px 14px;
+          gap: 7px;
+          margin-top: 8px;
+          padding: 12px 16px;
           background: #262626;
           border: 1px solid #333;
-          border-radius: 12px;
+          border-radius: 14px;
           color: #fff;
-          font-size: 13px;
+          font-size: 15px;
           text-decoration: none;
         }
       `}</style>

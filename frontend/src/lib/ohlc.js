@@ -1,4 +1,4 @@
-export function aggregateOhlc(series, kind) {
+﻿export function aggregateOhlc(series, kind) {
   const valid = series.filter(d => d && d.date && d.close != null && !Number.isNaN(+d.close))
   if (!valid.length) return []
   if (kind === '1j' || kind === 'max') return valid

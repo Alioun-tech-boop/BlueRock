@@ -1,4 +1,4 @@
-export default function ScoreCardView({ scorecard }) {
+﻿export default function ScoreCardView({ scorecard }) {
   if (!scorecard) return <p className="text-muted text-sm">Aucune donnée</p>
 
   const items = [
@@ -15,7 +15,7 @@ export default function ScoreCardView({ scorecard }) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="text-xs text-muted">Score Global</div>
-          <div className="font-bold" style={{ fontSize: '2rem', color: 'var(--accent-cyan)' }}>{scorecard.total_score?.toFixed(1) || '-'}</div>
+          <div className="font-bold" style={{ fontSize: '18px', color: '#8E95A3' }}>{scorecard.total_score?.toFixed(1) || '-'}</div>
         </div>
         <div>
           <div className="text-xs text-muted">Rating</div>
@@ -52,6 +52,12 @@ export default function ScoreCardView({ scorecard }) {
           </div>
         ))}
       </div>
+      <style jsx>{`
+        .text-xs.text-muted { font-size: 14px; font-weight: 400; color: #9AA3B2; }
+        .font-bold { font-size: 18px; font-weight: 700; color: #8E95A3; font-variant-numeric: tabular-nums; }
+        .font-semibold { font-size: 14px; font-weight: 500; color: #9AA3B2; font-variant-numeric: tabular-nums; }
+        p.text-muted.text-sm { font-size: 14px; color: #6B7A94; }
+      `}</style>
     </div>
   )
 }

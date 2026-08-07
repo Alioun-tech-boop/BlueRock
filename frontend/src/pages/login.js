@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -251,7 +251,7 @@ export default function AuthPage() {
   const strength = passwordScore(password)
   const scoreTxt = t(lang, 'authPwdStrength')
   const strengthLabel = strength > 0 ? scoreTxt[strength - 1] : ''
-  const scoreColor = ['#FF4D4F', '#FF4D4F', '#f59e0b', '#00C853', '#00C853', '#00C853'][strength]
+  const scoreColor = ['#F04438', '#F04438', '#f59e0b', '#18C27C', '#18C27C', '#18C27C'][strength]
   const isReal = accountType === 'real'
 
   const renderHeader = () => (
@@ -261,7 +261,7 @@ export default function AuthPage() {
         <span className="auth-logo-name">Blue<span className="green">Rock</span></span>
       </div>
       <div className="auth-badge">
-        <Shield size={13} color="#00C853" />
+        <Shield size={13} color="#18C27C" />
         <span>{t(lang, 'authSecurityBadge')}</span>
       </div>
       <div className="auth-badge-sub">{t(lang, 'authSecurityBadgeSub')}</div>
@@ -394,7 +394,7 @@ export default function AuthPage() {
         {/* ============ VÉRIFICATION EMAIL ============ */}
         {step === STEPS.verifyEmail && (
           <div className="auth-card">
-            <div className="card-ico"><Mail size={22} color="#00C853" /></div>
+            <div className="card-ico"><Mail size={22} color="#18C27C" /></div>
             <h2 className="card-title">{t(lang, 'authEmailVerify')}</h2>
             <p className="card-sub">{t(lang, 'authEmailVerifySub')}</p>
             <div className="email-chip">{email}</div>
@@ -409,7 +409,7 @@ export default function AuthPage() {
         {/* ============ LOGIN 2FA ============ */}
         {step === STEPS.login2fa && (
           <div className="auth-card">
-            <div className="card-ico"><KeyRound size={22} color="#00C853" /></div>
+            <div className="card-ico"><KeyRound size={22} color="#18C27C" /></div>
             <h2 className="card-title">{t(lang, 'auth2faTitle')}</h2>
             {!recoveryMode ? (
               <>
@@ -447,7 +447,7 @@ export default function AuthPage() {
         {/* ============ MOT DE PASSE OUBLIÉ ============ */}
         {step === STEPS.forgot && (
           <div className="auth-card">
-            <div className="card-ico"><Lock size={22} color="#00C853" /></div>
+            <div className="card-ico"><Lock size={22} color="#18C27C" /></div>
             <h2 className="card-title">{t(lang, 'authForgotTitle')}</h2>
             <p className="card-sub">{t(lang, 'authForgotSub')}</p>
             <form onSubmit={submitForgot} className="auth-form">
@@ -466,7 +466,7 @@ export default function AuthPage() {
         {/* ============ RÉINITIALISATION ============ */}
         {step === STEPS.reset && (
           <div className="auth-card">
-            <div className="card-ico"><KeyRound size={22} color="#00C853" /></div>
+            <div className="card-ico"><KeyRound size={22} color="#18C27C" /></div>
             <h2 className="card-title">{t(lang, 'authPasswordReset')}</h2>
             <p className="card-sub">{t(lang, 'authPasswordResetSub')}</p>
             {info && <div className="auth-info"><Check size={14} /> <span>{info}</span></div>}
@@ -496,7 +496,7 @@ export default function AuthPage() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .auth-area {
@@ -508,17 +508,17 @@ export default function AuthPage() {
         .auth-logo { display: flex; align-items: center; gap: 10px; }
         .auth-logo-mark {
           width: 38px; height: 38px; border-radius: 12px;
-          background: linear-gradient(135deg, #00C853, #00994a);
+          background: linear-gradient(135deg, #18C27C, #00994a);
           display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 20px; color: #00130a;
+          font-weight: 700; font-size: 20px; color: #00130a;
         }
-        .auth-logo-name { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
-        .green { color: #00C853; }
+        .auth-logo-name { font-size: 24px; font-weight: 700; color: #F8F8FA; letter-spacing: 0.25px; }
+        .green { color: #18C27C; }
         .auth-badge {
           display: inline-flex; align-items: center; gap: 6px;
           margin-top: 16px; padding: 6px 12px; border-radius: 20px;
-          background: rgba(0,200,83,0.08); border: 1px solid rgba(0,200,83,0.25);
-          font-size: 11px; font-weight: 600; color: #00C853;
+          background: rgba(24,194,124,0.08); border: 1px solid rgba(24,194,124,0.25);
+          font-size: 11px; font-weight: 600; color: #18C27C;
         }
         .auth-badge-sub { font-size: 11px; color: #666; margin: 6px 0 20px; text-align: center; }
         .mode-switch {
@@ -527,10 +527,10 @@ export default function AuthPage() {
         }
         .mode-btn {
           flex: 1; padding: 10px 0; border: none; border-radius: 11px;
-          background: none; color: #888; font-size: 14px; font-weight: 600;
+          background: none; color: #A5ADBB; font-size: 17px; font-weight: 600;
           cursor: pointer; font-family: inherit;
         }
-        .mode-btn.active { background: #00C853; color: #00130a; }
+        .mode-btn.active { background: #F8F8FA; color: #111111; }
         .auth-form {
           width: 100%; max-width: 360px;
           display: flex; flex-direction: column; gap: 10px;
@@ -543,29 +543,29 @@ export default function AuthPage() {
         }
         .auth-input {
           height: 48px; border-radius: 14px; border: 1px solid #262626;
-          background: #141414; color: #fff; padding: 0 42px;
-          font-size: 15px; font-family: inherit; outline: none; width: 100%;
+          background: #141414; color: #F8F8FA; padding: 0 42px;
+          font-size: 15px; font-weight: 500; font-family: inherit; outline: none; width: 100%;
         }
-        .auth-input:focus { border-color: #00C853; }
+        .auth-input:focus { border-color: #18C27C; }
         .forgot-row { display: flex; justify-content: flex-end; }
         .forgot-link {
-          background: none; border: none; color: #00C853; font-size: 12.5px;
+          background: none; border: none; color: #18C27C; font-size: 14px;
           cursor: pointer; font-family: inherit; font-weight: 500;
         }
         .auth-error {
           display: flex; align-items: flex-start; gap: 8px;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           color: #ff8a8c; border-radius: 12px; padding: 10px 14px; font-size: 12.5px;
-          line-height: 1.5;
+          line-height: 1.35;
         }
         .auth-info {
           display: flex; align-items: center; gap: 8px;
-          background: rgba(0,200,83,0.08); border: 1px solid rgba(0,200,83,0.3);
+          background: rgba(24,194,124,0.08); border: 1px solid rgba(24,194,124,0.3);
           color: #7ee2a4; border-radius: 12px; padding: 10px 14px; font-size: 12.5px;
         }
         .auth-submit {
           height: 50px; border: none; border-radius: 14px;
-          background: #00C853; color: #00130a; font-size: 15px; font-weight: 700;
+          background: #18C27C; color: #00130a; font-size: 17px; font-weight: 600;
           cursor: pointer; font-family: inherit; margin-top: 4px;
           display: flex; align-items: center; justify-content: center; gap: 8px;
           width: 100%; max-width: 360px;
@@ -577,9 +577,9 @@ export default function AuthPage() {
           cursor: pointer; font-family: inherit; margin-top: 8px;
           display: inline-flex; align-items: center; gap: 6px;
         }
-        .ghost-btn.copy { border-color: rgba(0,200,83,0.3); color: #00C853; }
+        .ghost-btn.copy { border-color: rgba(24,194,124,0.3); color: #18C27C; }
         .ghost-btn:disabled { opacity: 0.5; }
-        .pwd-policy { font-size: 11px; color: #666; line-height: 1.5; padding: 0 4px; }
+        .pwd-policy { font-size: 11px; color: #666; line-height: 1.35; padding: 0 4px; }
         .strength-box { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
         .strength-bar { flex: 1; height: 4px; border-radius: 2px; background: #1c1c1c; overflow: hidden; }
         .strength-fill { height: 100%; border-radius: 2px; transition: width 0.25s ease; }
@@ -590,17 +590,17 @@ export default function AuthPage() {
           background: #141414; border: 1px solid #262626; border-radius: 14px;
           padding: 12px 14px; cursor: pointer; text-align: left; color: inherit; font-family: inherit;
         }
-        .acct-card.active { border-color: #00C853; background: rgba(0,200,83,0.06); }
-        .acct-card.active .acct-label { color: #00C853; }
+        .acct-card.active { border-color: #18C27C; background: rgba(24,194,124,0.06); }
+        .acct-card.active .acct-label { color: #18C27C; }
         .acct-ico.demo { color: #4ea8ff; }
         .acct-ico.real { color: #ffd166; }
         .acct-txt { display: flex; flex-direction: column; gap: 2px; }
-        .acct-label { font-size: 14px; font-weight: 700; }
-        .acct-desc { font-size: 11px; color: #8f8f8f; }
+        .acct-label { font-size: 16px; font-weight: 600; color: #F8F8FA; }
+        .acct-desc { font-size: 14px; font-weight: 400; color: #9AA3B2; }
         .broker-box { display: flex; flex-direction: column; gap: 8px; }
         .auth-note {
           margin-top: 16px; font-size: 11px; color: #666; text-align: center;
-          max-width: 340px; line-height: 1.5;
+          max-width: 340px; line-height: 1.35;
         }
         .back-btn {
           align-self: flex-start; background: none; border: none; color: #888;
@@ -617,23 +617,23 @@ export default function AuthPage() {
         }
         .card-ico {
           width: 48px; height: 48px; border-radius: 14px;
-          background: rgba(0,200,83,0.08); border: 1px solid rgba(0,200,83,0.2);
+          background: rgba(24,194,124,0.08); border: 1px solid rgba(24,194,124,0.2);
           display: flex; align-items: center; justify-content: center;
         }
-        .card-title { font-size: 18px; font-weight: 700; text-align: center; }
-        .card-sub { font-size: 12.5px; color: #8f8f8f; text-align: center; line-height: 1.6; }
+        .card-title { font-size: 18px; font-weight: 700; color: #F8F8FA; text-align: center; }
+        .card-sub { font-size: 14px; font-weight: 400; color: #9AA3B2; text-align: center; line-height: 1.35; }
         .email-chip {
-          font-size: 12px; color: #00C853; background: rgba(0,200,83,0.06);
-          border: 1px solid rgba(0,200,83,0.2); padding: 4px 12px; border-radius: 12px;
+          font-size: 12px; color: #18C27C; background: rgba(24,194,124,0.06);
+          border: 1px solid rgba(24,194,124,0.2); padding: 4px 12px; border-radius: 12px;
         }
         .code-row { display: flex; gap: 8px; justify-content: center; width: 100%; }
         .code-cell {
           width: 44px; height: 52px; border-radius: 12px;
           background: #141414; border: 1px solid #2a2a2a; color: #fff;
-          text-align: center; font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+          text-align: center; font-size: 20px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           outline: none;
         }
-        .code-cell:focus { border-color: #00C853; }
+        .code-cell:focus { border-color: #18C27C; }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>

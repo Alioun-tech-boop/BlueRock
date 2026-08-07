@@ -151,7 +151,7 @@ export default function Screen() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #000; color: #fff;
+          background: #0E1627; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -166,7 +166,7 @@ export default function Screen() {
         .icon-btn:hover { background: #1a1a1a; }
         .sc-title { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .sc-title span:first-child { font-size: 17px; font-weight: 700; }
-        .sc-count { font-size: 11px; color: #a3a3a3; }
+        .sc-count { font-size: 11px; color: #9AA3B2; }
         .filters { display: flex; gap: 8px; margin-bottom: 14px; }
         .filters select {
           flex: 1; min-width: 0;
@@ -183,12 +183,12 @@ export default function Screen() {
         }
         .error-bar {
           display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(255,77,79,0.1); border: 1px solid rgba(255,77,79,0.3);
+          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
           border-radius: 12px; padding: 10px 12px; margin-bottom: 14px;
           font-size: 12px; color: #ff9d9d;
         }
         .error-bar button {
-          background: rgba(255,77,79,0.2); border: none; border-radius: 8px;
+          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
           color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
         }
         .result-list { display: flex; flex-direction: column; padding-bottom: 16px; }
@@ -197,16 +197,16 @@ export default function Screen() {
           min-height: 58px; padding: 8px 4px; cursor: pointer;
           border-bottom: 1px solid #1a1a1a;
         }
-        .rr-rank { font-size: 12px; color: #666; width: 22px; font-family: 'JetBrains Mono', monospace; }
+        .rr-rank { font-size: 12px; color: #9AA3B2; width: 22px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .rr-logo { width: 28px; height: 28px; border-radius: 50%; background: #1a1a1a; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
         .rr-logo img { width: 100%; height: 100%; object-fit: cover; }
-        .rr-symbol { font-size: 15px; font-weight: 700; width: 74px; }
+        .rr-symbol { font-size: 18px; font-weight: 700; color: #F8F8FA; width: 74px; }
         .rr-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-        .rr-sector { font-size: 11px; color: #a3a3a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .rr-rating { font-size: 10px; font-weight: 600; align-self: flex-start; padding: 1px 7px; border-radius: 9px; color: #00C853; background: rgba(0,200,83,0.12); }
+        .rr-sector { font-size: 14px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rr-rating { font-size: 10px; font-weight: 600; align-self: flex-start; padding: 1px 7px; border-radius: 9px; color: #18C27C; background: rgba(24,194,124,0.12); }
         .rr-right { text-align: right; display: flex; flex-direction: column; gap: 2px; }
-        .rr-score { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: #a78bfa; }
-        .rr-pe { font-size: 11px; color: #a3a3a3; font-family: 'JetBrains Mono', monospace; }
+        .rr-score { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #8E95A3; }
+        .rr-pe { font-size: 14px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .loading-row { display: flex; justify-content: center; padding: 40px; }
         .spinner {
           width: 26px; height: 26px;
@@ -216,9 +216,9 @@ export default function Screen() {
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
-          padding: 48px 20px; color: #a3a3a3; font-size: 14px;
+          padding: 48px 20px; color: #6B7A94; font-size: 14px;
         }
-        .empty-sub { font-size: 12px; color: #666; }
+        .empty-sub { font-size: 12px; color: #6B7A94; }
         .clear-btn-lg {
           margin-top: 6px; background: #8b5cf6; border: none; border-radius: 12px;
           color: #fff; padding: 9px 18px; font-size: 13px; font-weight: 600;
