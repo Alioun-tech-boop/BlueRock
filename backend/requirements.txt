@@ -13,6 +13,9 @@ pytesseract==0.3.13
 numpy==2.5.1
 scikit-learn==1.9.0
 openai==2.51.0
+requests==2.34.2
+pyotp==2.9.0
+Pillow==12.3.0
 python-multipart==0.0.32
 apscheduler==3.11.3
 pyjwt==2.10.1
