@@ -23,7 +23,7 @@ export default function Contributions() {
                   <div className="stat"><span className="stat-l">{t(lang, 'premiumInvested')}</span><span className="stat-v">{fmtFCFA(plan.invested)}</span></div>
                   <div className="stat"><span className="stat-l">{t(lang, 'premiumCashBuffer')}</span><span className="stat-v">{fmtFCFA(plan.cash_buffer)}</span></div>
                   <div className="stat up"><span className="stat-l">{t(lang, 'premiumContributions')}</span><span className="stat-v">{fmtFCFA(plan.total_contributions)}</span></div>
-                  <div className="stat gold"><span className="stat-l">{t(lang, 'premiumGain')}</span><span className="stat-v">+{fmtFCFA(plan.gain)}</span></div>
+                  <div className="stat gold"><span className="stat-l">{t(lang, 'premiumGain')}</span><span className="stat-v">{plan.gain >= 0 ? '+' : ''}{fmtFCFA(plan.gain)}</span></div>
                 </div>
                 <div className="sum-hint">{t(lang, 'premiumCashHint')}</div>
               </div>
@@ -53,7 +53,7 @@ export default function Contributions() {
               <div className="disclaimer">{t(lang, 'premiumDisclaimer')}</div>
             </>
           )}
-          <div className="footer-note">BlueRock © 2026</div>
+          <div className="footer-note">Bluerock © 2026</div>
         </>
       )}
     </PatrimoineShell>

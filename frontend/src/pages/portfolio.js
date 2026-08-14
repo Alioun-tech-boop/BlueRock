@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getCompanies, getPortfolio, placeOrder } from '../services/api'
+import TriLoader from '../components/TriLoader'
+import {
+  getCompanies, getPortfolio, placeOrder,
+  createPortfolioAccount, depositPortfolioAccount, withdrawPortfolioAccount,
+  renamePortfolioAccount, deletePortfolioAccount,
+  initiateDeposit, verifyDepositOrder, getDepositOrders,
+} from '../services/api'
 import { useAuth } from '../lib/auth'
 import {
   Bell, Wallet, CircleUserRound, ChevronDown, SlidersHorizontal,
-  ArrowUpRight, ArrowDownRight, UserRound,
+  ArrowUpRight, ArrowDownRight, ArrowDownToLine, ArrowUpFromLine,
+  Plus, X, Minus, Landmark, FlaskConical, Trash2, Check, Pencil, Lock,
 } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import { getActiveAccountId, setActiveAccountId as persistActiveAccountId, clearActiveAccountId } from '../lib/accounts'
 
 const PORT_KEY = 'bluerock_portfolio_v1'
 
@@ -31,6 +40,39 @@ function EmptyState({ title, sub, btn, onClick }) {
       <p className="pf-empty-title">{title}</p>
       {sub && <p className="pf-empty-sub">{sub}</p>}
       {btn && <button className="pf-empty-btn" onClick={onClick}>{btn}</button>}
+      <style jsx>{`
+        .pf-empty {
+          display: flex; flex-direction: column; align-items: center;
+          padding: 90px 24px 40px; text-align: center;
+        }
+        .rings { position: relative; width: 260px; height: 260px; }
+        .ring {
+          position: absolute; left: 50%; top: 50%;
+          transform: translate(-50%, -50%); border-radius: 50%;
+        }
+        .ring.r3 { width: 260px; height: 260px; border: 1.5px solid #1C1C1C; }
+        .ring.r2 { width: 190px; height: 190px; border: 2px solid #262626; }
+        .ring.r1 { width: 120px; height: 120px; border: 5px solid #3A3A3A; }
+        .plus-h, .plus-v {
+          position: absolute; left: 50%; top: 50%;
+          transform: translate(-50%, -50%);
+          background: #8C99AF; border-radius: 7px;
+        }
+        .plus-h { width: 46px; height: 11px; }
+        .plus-v { width: 11px; height: 46px; }
+        .pf-empty-title { font-size: 23px; font-weight: 500; color: #8996AC; margin: 34px 0 0; letter-spacing: 0; }
+        .pf-empty-sub { font-size: 14px; font-weight: 400; color: #5F6D85; margin: 10px 0 0; line-height: 1.5; }
+        .pf-empty-btn {
+          margin-top: 26px; width: min(340px, 100%); height: 50px;
+          background: linear-gradient(135deg, #18C27C, #00A843);
+          border: none; border-radius: 14px;
+          color: #00130a; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
+          letter-spacing: 0;
+          box-shadow: 0 8px 22px rgba(24, 194, 124, 0.22);
+          transition: transform 160ms ease-out, opacity 160ms ease-out;
+        }
+        .pf-empty-btn:active { transform: scale(0.98); opacity: 0.92; }
+      `}</style>
     </div>
   )
 }
@@ -43,8 +85,43 @@ export default function Portfolio() {
   const [positions, setPositions] = useState({})
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [stocksReady, setStocksReady] = useState(false)
   const [migrated, setMigrated] = useState(false)
   const [tab, setTab] = useState('positions')
+  const [sort, setSort] = useState('value')
+  const [accounts, setAccounts] = useState([])
+  const [account, setAccount] = useState(null)
+  const [activeAccountId, setActiveAccountId] = useState(() => getActiveAccountId())
+
+  const applyActiveAccount = id => {
+    setActiveAccountId(id)
+    persistActiveAccountId(id)
+  }
+
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [switchModal, setSwitchModal] = useState(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createType, setCreateType] = useState('demo')
+  const [createCurrency, setCreateCurrency] = useState('XOF')
+  const [createName, setCreateName] = useState('')
+  const [moneyModal, setMoneyModal] = useState(null)
+  const [moneyAmt, setMoneyAmt] = useState('')
+  const [moneyErr, setMoneyErr] = useState('')
+  const [payBanner, setPayBanner] = useState(null) // { kind: 'confirmed'|'pending'|'failed', amount, accountName }
+  const [accBusy, setAccBusy] = useState(false)
+  const [accErr, setAccErr] = useState('')
+  const [sellPos, setSellPos] = useState(null)
+  const [sellQty, setSellQty] = useState('1')
+  const [sellType, setSellType] = useState('market')
+  const [sellLimit, setSellLimit] = useState('')
+  const [sellTp, setSellTp] = useState('')
+  const [sellSl, setSellSl] = useState('')
+  const [sellErr, setSellErr] = useState('')
+  const [sellBusy, setSellBusy] = useState(false)
+  const [renameModal, setRenameModal] = useState(null)
+  const [renameVal, setRenameVal] = useState('')
+  const [renameBusy, setRenameBusy] = useState(false)
+  const [renameErr, setRenameErr] = useState('')
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -62,24 +139,29 @@ export default function Portfolio() {
       return
     }
     let cancelled = false
-    getPortfolio()
+    const load = () => getPortfolio(activeAccountId)
       .then(res => {
         if (cancelled) return
         const pos = {}
         ;(res.data.positions || []).forEach(p => { pos[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
         setPositions(pos)
         setOrders(res.data.orders || [])
+        setAccounts(res.data.accounts || [])
+        setAccount(res.data.account || null)
+        if (res.data.account && !activeAccountId) {
+          applyActiveAccount(res.data.account.id)
+        }
         const local = loadJSON(PORT_KEY, {})
         const localEntries = Object.entries(local).filter(([, p]) => p.qty > 0)
         if (localEntries.length && (!res.data.positions || !res.data.positions.length) && !migrated) {
           setMigrated(true)
           Promise.all(localEntries.map(([sym, p]) =>
-            placeOrder({ symbol: sym, side: 'buy', qty: p.qty, price: p.avgPrice || 1 }).catch(() => null)
+            placeOrder({ symbol: sym, side: 'buy', qty: p.qty, price: p.avgPrice || 1, account_id: res.data.account?.id }).catch(() => null)
           )).then(orders => {
             if (cancelled) return
             const imported = orders.filter(Boolean).length
             if (imported > 0) {
-              getPortfolio().then(r => {
+              getPortfolio(activeAccountId).then(r => {
                 if (cancelled) return
                 const pos2 = {}
                 ;(r.data.positions || []).forEach(p => { pos2[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
@@ -92,12 +174,59 @@ export default function Portfolio() {
       })
       .catch(() => { if (!cancelled) setPositions({}) })
       .finally(() => { if (!cancelled) setLoading(false) })
+    load()
     return () => { cancelled = true }
-  }, [user, authLoading, migrated])
+  }, [user, authLoading, migrated, activeAccountId])
+
+  // Retour de paiement Stripe (?pay=return) : on re-vérifie l'ordre le plus
+  // récent auprès du backend, qui crédite le solde si le paiement est accepté.
+  useEffect(() => {
+    if (authLoading || !user) return
+    if (router.query.pay !== 'return') return
+    let cancelled = false
+    getDepositOrders()
+      .then(res => {
+        if (cancelled) return
+        const orders = res.data.orders || []
+        if (!orders.length) return null
+        const order = orders[0]
+        return verifyDepositOrder(order.id).then(r => {
+          if (cancelled) return
+          const st = r.data.order?.status
+          const amount = r.data.order?.amount ?? order.amount
+          const accountName = r.data.account?.name || ''
+          if (st === 'accepted') {
+            setPayBanner({ kind: 'confirmed', amount, accountName, orderId: order.id })
+            refreshPortfolio()
+          } else if (st === 'pending') {
+            setPayBanner({ kind: 'pending', amount, accountName, orderId: order.id })
+          } else {
+            setPayBanner({ kind: 'failed', amount, accountName, orderId: order.id })
+          }
+        })
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) router.replace('/portfolio', undefined, { shallow: true }).catch(() => {})
+      })
+    return () => { cancelled = true }
+  }, [user, authLoading, router.query.pay])
 
   useEffect(() => {
-    getCompanies({ limit: 47 }).then(r => r.data.companies || []).catch(() => [])
+    if (!payBanner || payBanner.kind === 'pending') return
+    const id = setTimeout(() => setPayBanner(null), 8000)
+    return () => clearTimeout(id)
+  }, [payBanner])
+
+  useEffect(() => {
+    Promise.all([
+      getCompanies({ instrument_type: 'equity', limit: 100 }),
+      getCompanies({ instrument_type: 'obligation', limit: 100 }),
+      getCompanies({ instrument_type: 'fcp', limit: 100 }),
+    ]).then(([e, o, f]) => e.data.companies.concat(o.data.companies, f.data.companies))
+      .catch(() => [])
       .then(list => { if (mounted.current) setStocks(list) })
+      .finally(() => { if (mounted.current) setStocksReady(true) })
     return () => { mounted.current = false }
   }, [])
 
@@ -112,25 +241,243 @@ export default function Portfolio() {
       const cost = avg * qty
       const pl = value - cost
       const plPct = cost ? (pl / cost) * 100 : 0
-      return { symbol, stock, qty, avg, price, chg, value, cost, pl, plPct, id: stock?.id }
+      const dayPl = value * (chg / 100)
+      return { symbol, stock, qty, avg, price, chg, value, cost, pl, plPct, dayPl, id: stock?.id }
     }).filter(p => p.qty > 0)
   }, [positions, stocks])
 
   const totals = useMemo(() => {
     const value = positionList.reduce((s, p) => s + p.value, 0)
     const cost = positionList.reduce((s, p) => s + p.cost, 0)
-    const dayPl = positionList.reduce((s, p) => s + p.value * (p.chg / 100), 0)
+    const dayPl = positionList.reduce((s, p) => s + p.dayPl, 0)
     const totalPl = value - cost
     const totalPlPct = cost ? (totalPl / cost) * 100 : 0
     const dayPlPct = value ? (dayPl / value) * 100 : 0
     return { value, cost, dayPl, dayPlPct, totalPl, totalPlPct }
   }, [positionList])
 
-  const fmtMoney = n => n != null ? n.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '—'
+  const sortedList = useMemo(() => {
+    const list = positionList.map(p => ({
+      ...p,
+      weight: totals.value ? (p.value / totals.value) * 100 : 0,
+    }))
+    if (sort === 'pl') return [...list].sort((a, b) => b.pl - a.pl)
+    if (sort === 'day') return [...list].sort((a, b) => b.dayPl - a.dayPl)
+    return [...list].sort((a, b) => b.value - a.value)
+  }, [positionList, totals.value, sort])
+
+  const colorOf = symbol => {
+    let h = 0
+    for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) % 360
+    return `hsl(${h}, 62%, 45%)`
+  }
+
+  const fmtMoney = (n, cur) => {
+    if (n == null) return '—'
+    const v = n.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    return cur === 'NGN' ? `₦${v}` : v
+  }
+  const curLabel = cur => (cur === 'NGN' ? '₦' : 'FCFA')
   const fmtPlPct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 
   const pendingOrders = orders.filter(o => o.status === 'pending')
   const historyOrders = orders.filter(o => o.status !== 'pending')
+
+  const refreshPortfolio = (accId = activeAccountId) => {
+    setLoading(true)
+    getPortfolio(accId).then(res => {
+      const pos = {}
+      ;(res.data.positions || []).forEach(p => { pos[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
+      setPositions(pos)
+      setOrders(res.data.orders || [])
+      setAccounts(res.data.accounts || [])
+      setAccount(res.data.account || null)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }
+
+  // Bascule d'un compte à l'autre : demande toujours confirmation explicite
+  // pour éviter de mélanger les ordres entre les sous-portefeuilles.
+  const requestSwitch = acc => {
+    if (acc.id === activeAccountId) return
+    setSwitchModal(acc)
+  }
+
+  const confirmSwitch = () => {
+    if (!switchModal) return
+    const id = switchModal.id
+    setSwitchModal(null)
+    applyActiveAccount(id)
+    setSheetOpen(false)
+    refreshPortfolio(id)
+  }
+
+  const retryPayVerify = async () => {
+    if (!payBanner?.orderId) return
+    setAccBusy(true)
+    try {
+      const r = await verifyDepositOrder(payBanner.orderId)
+      const st = r.data.order?.status
+      const amount = r.data.order?.amount ?? payBanner.amount
+      const accountName = r.data.account?.name || payBanner.accountName
+      if (st === 'accepted') {
+        setPayBanner({ kind: 'confirmed', amount, accountName, orderId: payBanner.orderId })
+        refreshPortfolio()
+      } else if (st === 'pending') {
+        setPayBanner(b => ({ ...b, kind: 'pending' }))
+      } else {
+        setPayBanner({ kind: 'failed', amount, accountName, orderId: payBanner.orderId })
+      }
+    } catch {
+      setPayBanner(b => ({ ...b, kind: 'failed' }))
+    } finally {
+      setAccBusy(false)
+    }
+  }
+
+  const submitMoney = async () => {
+    const amt = parseFloat(moneyAmt)
+    if (!(amt > 0)) { setMoneyErr(t(lang, 'accAmountInvalid')); return }
+    setAccBusy(true)
+    setMoneyErr('')
+    try {
+      // Compte réel relié à une SGI : le dépôt passe par Stripe (checkout).
+      if (moneyModal.mode === 'deposit' && moneyModal.account.type === 'real') {
+        const accName = moneyModal.account.name
+        const res = await initiateDeposit(moneyModal.account.id, amt)
+        setMoneyModal(null)
+        setMoneyAmt('')
+        if (res.data.payment_url) {
+          setPayBanner({ kind: 'pending', amount: amt, accountName: accName, orderId: res.data.order.id })
+          window.location.href = res.data.payment_url
+        } else {
+          setPayBanner({ kind: 'failed', amount: amt, accountName: accName, orderId: res.data.order.id })
+        }
+        return
+      }
+      const call = moneyModal.mode === 'deposit'
+        ? depositPortfolioAccount(moneyModal.account.id, amt)
+        : withdrawPortfolioAccount(moneyModal.account.id, amt)
+      await call
+      setMoneyModal(null)
+      setMoneyAmt('')
+      refreshPortfolio()
+    } catch (e) {
+      setMoneyErr(e.response?.data?.detail || t(lang, 'loadError'))
+    } finally {
+      setAccBusy(false)
+    }
+  }
+
+  const submitCreate = async () => {
+    if (accounts.length >= 5) { setAccErr(t(lang, 'accMaxAccounts')); return }
+    if (createType === 'real') { setCreateOpen(false); router.push('/compte-titre'); return }
+    setAccBusy(true)
+    setAccErr('')
+    try {
+      const res = await createPortfolioAccount({
+        name: createName || null,
+        type: createType,
+        currency: createCurrency,
+      })
+      const id = res.data.account.id
+      setCreateOpen(false)
+      setCreateName('')
+      setCreateType('demo')
+      setCreateCurrency('XOF')
+      applyActiveAccount(id)
+      setSheetOpen(false)
+      refreshPortfolio(id)
+    } catch (e) {
+      setAccErr(e.response?.data?.detail || t(lang, 'loadError'))
+    } finally {
+      setAccBusy(false)
+    }
+  }
+
+  const deleteAccount = async acc => {
+    if (!window.confirm(t(lang, 'accDeleteConfirm'))) return
+    setAccBusy(true)
+    setAccErr('')
+    try {
+      await deletePortfolioAccount(acc.id)
+      if (acc.id === activeAccountId) {
+        setActiveAccountId(null)
+        clearActiveAccountId()
+        refreshPortfolio(null)
+      } else {
+        refreshPortfolio()
+      }
+    } catch (e) {
+      setAccErr(e.response?.data?.detail || t(lang, 'loadError'))
+    } finally {
+      setAccBusy(false)
+    }
+  }
+
+  const openSell = p => {
+    setSellPos(p)
+    setSellQty(String(p.qty))
+    setSellType('market')
+    setSellLimit('')
+    setSellTp('')
+    setSellSl('')
+    setSellErr('')
+  }
+
+  const submitSell = async () => {
+    const qty = parseFloat(sellQty)
+    if (!(qty > 0)) { setSellErr(t(lang, 'accAmountInvalid')); return }
+    if (qty > sellPos.qty + 1e-9) { setSellErr(t(lang, 'tradeInsufficient')); return }
+    const px = sellType === 'limit' ? parseFloat(sellLimit) : (sellPos.price || 0)
+    if (!(px > 0)) { setSellErr(t(lang, 'accInvalidPrice')); return }
+    const tpV = parseFloat(sellTp) || null
+    const slV = parseFloat(sellSl) || null
+    if (tpV && tpV <= px) { setSellErr(t(lang, 'accTpAbove')); return }
+    if (slV && slV >= px) { setSellErr(t(lang, 'accSlBelow')); return }
+    setSellBusy(true)
+    setSellErr('')
+    try {
+      await placeOrder({
+        symbol: sellPos.symbol,
+        side: 'sell',
+        qty,
+        price: px,
+        order_type: sellType,
+        limit_price: sellType === 'limit' ? px : null,
+        take_profit: tpV,
+        stop_loss: slV,
+        account_id: activeAccountId,
+      })
+      setSellPos(null)
+      refreshPortfolio()
+    } catch (e) {
+      setSellErr(e.response?.data?.detail || t(lang, 'loadError'))
+    } finally {
+      setSellBusy(false)
+    }
+  }
+
+  const openRename = acc => {
+    setRenameVal(acc.name)
+    setRenameErr('')
+    setRenameModal(acc)
+  }
+
+  const submitRename = async () => {
+    const name = renameVal.trim()
+    if (!name) { setRenameErr(t(lang, 'accNameRequired')); return }
+    setRenameBusy(true)
+    setRenameErr('')
+    try {
+      await renamePortfolioAccount(renameModal.id, name)
+      setRenameModal(null)
+      refreshPortfolio()
+    } catch (e) {
+      setRenameErr(e.response?.data?.detail || t(lang, 'loadError'))
+    } finally {
+      setRenameBusy(false)
+    }
+  }
 
   const tabs = [
     { id: 'positions', label: t(lang, 'pfOpenPositions') },
@@ -138,33 +485,12 @@ export default function Portfolio() {
     { id: 'history', label: t(lang, 'pfHistory') },
   ]
 
-  const renderOrder = o => {
-    const buy = o.side === 'buy'
-    const when = o.created_at ? new Date(o.created_at) : null
-    const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
-    return (
-      <div key={o.id} className="order-row">
-        <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
-        <div className="order-info">
-          <div className="order-sym mono">{o.symbol}</div>
-          <div className="order-detail">
-            {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price)}
-          </div>
-        </div>
-        <div className="order-right">
-          <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
-          <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0))}</span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="mobile-root">
       <header className="top-bar">
         <button className="acct-capsule" onClick={() => router.push('/profile')} aria-label={t(lang, 'account')}>
           <span className="acct-avatar">R</span>
-          <span className="acct-balance mono">{fmtMoney(totals.value)}</span>
+          <span className="acct-balance mono">{loading && user ? '···' : fmtMoney(totals.value, account?.currency)}</span>
           <ChevronDown size={16} strokeWidth={2.4} className="acct-chev" />
         </button>
         <div className="top-icons">
@@ -180,9 +506,64 @@ export default function Portfolio() {
         </div>
       </header>
 
+      {payBanner && (
+        <div className={`pay-banner ${payBanner.kind}`}>
+          <div className="pay-banner-txt">
+            <strong>
+              {payBanner.kind === 'confirmed' && t(lang, 'payConfirmed').replace('{amount}', fmtMoney(payBanner.amount))}
+              {payBanner.kind === 'pending' && t(lang, 'payPending')}
+              {payBanner.kind === 'failed' && t(lang, 'payFailed')}
+            </strong>
+            {payBanner.kind === 'confirmed' && (
+              <span className="pay-banner-sub">{t(lang, 'payStripeNote')}</span>
+            )}
+            {payBanner.kind !== 'confirmed' && payBanner.accountName && (
+              <span className="pay-banner-sub">{payBanner.accountName}</span>
+            )}
+          </div>
+          {payBanner.kind === 'pending' && (
+            <button className="pay-banner-btn" onClick={retryPayVerify} disabled={accBusy}>
+              {t(lang, 'payCheckAgain')}
+            </button>
+          )}
+          <button className="pay-banner-x" onClick={() => setPayBanner(null)} aria-label="close"><X size={14} /></button>
+        </div>
+      )}
+
       <div className="safe-area">
+        {user && (
+          <div className="pf-accbar">
+            {accounts.map(a => (
+              <button
+                key={a.id}
+                className={`pf-acc-chip ${a.id === activeAccountId ? 'active' : ''} ${a.type === 'real' ? 'real' : ''}`}
+                onClick={() => a.id === activeAccountId ? setSheetOpen(true) : requestSwitch(a)}
+              >
+                <span className="pf-acc-ico">
+                  {a.type === 'real' ? <Landmark size={14} strokeWidth={2.2} /> : <FlaskConical size={14} strokeWidth={2.2} />}
+                </span>
+                <span className="pf-acc-name">{a.name}</span>
+                <span className="pf-acc-bal mono">{fmtMoney(a.balance, a.currency)}</span>
+                {a.id === activeAccountId && (
+                  <>
+                    <span className="pf-acc-active-tag">{t(lang, 'accActiveTag')}</span>
+                    <ChevronDown size={14} className="pf-acc-chev" />
+                  </>
+                )}
+              </button>
+            ))}
+            <button
+              className="pf-acc-add"
+              aria-label={t(lang, 'accNew')}
+              onClick={() => { setAccErr(''); setCreateOpen(true) }}
+            >
+              <Plus size={20} strokeWidth={2.6} />
+            </button>
+          </div>
+        )}
+
         <div className="tt-row">
-          <h1 className="tt-title">{t(lang, 'transactions')}</h1>
+          <h1 className="tt-title">{t(lang, 'portfolio')}</h1>
           <SlidersHorizontal size={25} strokeWidth={2.2} className="tt-filter" />
         </div>
 
@@ -196,8 +577,53 @@ export default function Portfolio() {
           ))}
         </div>
 
+        {user && !loading && (
+          <div className="pf-money-cards">
+            <button
+              className="pf-money-card deposit"
+              onClick={() => {
+                const acc = account || accounts.find(a => a.id === activeAccountId) || accounts[0]
+                if (!acc) return
+                if (acc.type === 'real') {
+                  router.push({ pathname: '/paiement', query: { account: acc.id, mode: 'deposit' } })
+                  return
+                }
+                setMoneyErr('')
+                setMoneyAmt('')
+                setMoneyModal({ mode: 'deposit', account: acc })
+              }}
+            >
+              <span className="pf-money-ico"><ArrowDownToLine size={20} strokeWidth={2.2} /></span>
+              <span className="pf-money-txt">
+                <strong>{t(lang, 'accDeposit')}</strong>
+                <small>{t(lang, 'pfMoneyDepositSub')}</small>
+              </span>
+            </button>
+            <button
+              className="pf-money-card withdraw"
+              onClick={() => {
+                const acc = account || accounts.find(a => a.id === activeAccountId) || accounts[0]
+                if (!acc) return
+                if (acc.type === 'real') {
+                  router.push({ pathname: '/paiement', query: { account: acc.id, mode: 'withdraw' } })
+                  return
+                }
+                setMoneyErr('')
+                setMoneyAmt('')
+                setMoneyModal({ mode: 'withdraw', account: acc })
+              }}
+            >
+              <span className="pf-money-ico"><ArrowUpFromLine size={20} strokeWidth={2.2} /></span>
+              <span className="pf-money-txt">
+                <strong>{t(lang, 'accWithdraw')}</strong>
+                <small>{t(lang, 'pfMoneyWithdrawSub')}</small>
+              </span>
+            </button>
+          </div>
+        )}
+
         {loading ? (
-          <div className="loading-row"><div className="spinner" /></div>
+          <div className="loading-row"><TriLoader compact /></div>
         ) : !user ? (
           <EmptyState
             title={t(lang, 'authRequired')}
@@ -207,28 +633,118 @@ export default function Portfolio() {
           />
         ) : tab === 'positions' ? (
           positionList.length ? (
+            !stocksReady ? (
+              <div className="loading-row"><TriLoader compact /></div>
+            ) : (
+            <>
+              <div className="pf-stats">
+                <div className="pf-stat">
+                  <span className="pf-stat-l">{t(lang, 'pfTotalValue')} ({curLabel(account?.currency)})</span>
+                  <span className="pf-stat-v mono">{fmtMoney(totals.value, account?.currency)}</span>
+                </div>
+                <div className="pf-stat">
+                  <span className="pf-stat-l">{t(lang, 'pfInvested')}</span>
+                  <span className="pf-stat-v mono">{fmtMoney(totals.cost, account?.currency)}</span>
+                </div>
+                <div className="pf-stat">
+                  <span className="pf-stat-l">{t(lang, 'pfDayPl')}</span>
+                  <span className={`pf-stat-v mono ${totals.dayPl >= 0 ? 'up' : 'down'}`}>
+                    {fmtPlPct(totals.dayPlPct)}
+                    <small className="mono">{totals.dayPl >= 0 ? '+' : ''}{fmtMoney(totals.dayPl, account?.currency)}</small>
+                  </span>
+                </div>
+                <div className="pf-stat">
+                  <span className="pf-stat-l">{t(lang, 'pfTotalPl')}</span>
+                  <span className={`pf-stat-v mono ${totals.totalPl >= 0 ? 'up' : 'down'}`}>
+                    {fmtPlPct(totals.totalPlPct)}
+                    <small className="mono">{totals.totalPl >= 0 ? '+' : ''}{fmtMoney(totals.totalPl, account?.currency)}</small>
+                  </span>
+                </div>
+              </div>
+
+              <div className="pf-sort">
+                {[
+                  { id: 'value', label: t(lang, 'pfSortValue') },
+                  { id: 'pl', label: t(lang, 'pfSortPl') },
+                  { id: 'day', label: t(lang, 'pfSortDay') },
+                ].map(s => (
+                  <button
+                    key={s.id}
+                    className={`pf-sort-btn ${sort === s.id ? 'active' : ''}`}
+                    onClick={() => setSort(s.id)}
+                  >{s.label}</button>
+                ))}
+              </div>
+
+              <div className="px-list">
+                {sortedList.map(p => {
+                  const up = p.pl >= 0
+                  return (
+                    <div key={p.symbol} className="pos-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
+                      <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
+                        {p.stock?.logo_url ? (
+                          <img
+                            crossOrigin="anonymous" src={p.stock.logo_url} alt={p.symbol}
+                            onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
+                            onError={onLogoError}
+                          />
+                        ) : p.symbol?.[0]}
+                      </div>
+                      <div className="pos-info">
+                        <div className="pos-name">{p.stock?.name || p.symbol}</div>
+                        <div className="pos-sub">
+                          {p.symbol} · {p.qty} {t(lang, 'shares')} · {t(lang, 'pfAvgPrice')} {fmtMoney(p.avg, account?.currency)}
+                        </div>
+                        <div className="pos-sub2">
+                          <span className={`pos-day ${p.chg >= 0 ? 'up' : 'down'}`}>
+                            {p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}% {t(lang, 'today')}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="pos-right">
+                        <div className="pos-value mono">{fmtMoney(p.value, account?.currency)}</div>
+                        <div className={`pos-pl mono ${up ? 'up' : 'down'}`}>
+                          {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                          {fmtPlPct(p.plPct)}
+                        </div>
+                        <div className={`pos-pl-amt mono ${up ? 'up' : 'down'}`}>{up ? '+' : ''}{fmtMoney(p.pl, account?.currency)}</div>
+                      </div>
+                      <button
+                        className="pos-sell"
+                        onClick={e => { e.stopPropagation(); openSell(p) }}
+                      >
+                        {t(lang, 'accSell')}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+            )
+          ) : (
+            <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
+          )
+        ) : tab === 'orders' ? (
+          pendingOrders.length ? (
             <div className="px-list">
-              {positionList.map(p => {
-                const up = p.pl >= 0
+              {pendingOrders.map(o => {
+                const buy = o.side === 'buy'
+                const when = o.created_at ? new Date(o.created_at) : null
+                const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
                 return (
-                  <div key={p.symbol} className="pos-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
-                    <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
-                      {p.stock?.logo_url ? <img src={p.stock.logo_url} alt={p.symbol} /> : p.symbol?.[0]}
-                    </div>
-                    <div className="pos-info">
-                      <div className="pos-name">{p.stock?.name || p.symbol}</div>
-                      <div className="pos-sub">
-                        {p.symbol} · {p.qty} {t(lang, 'shares')}
-                        {p.take_profit != null && <span className="pos-tpsl up">TP {fmtMoney(p.take_profit)}</span>}
-                        {p.stop_loss != null && <span className="pos-tpsl down">SL {fmtMoney(p.stop_loss)}</span>}
+                  <div key={o.id} className="order-row">
+                    <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
+                    <div className="order-info">
+<div className="order-sym mono">
+                        {o.symbol}
+                      </div>
+                      <div className="order-detail">
+                        {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price, account?.currency)} {curLabel(account?.currency)}
                       </div>
                     </div>
-                    <div className="pos-right">
-                      <div className="pos-value mono">{fmtMoney(p.value)}</div>
-                      <div className={`pos-pl mono ${up ? 'up' : 'down'}`}>
-                        {up ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                        {fmtPlPct(p.plPct)}
-                      </div>
+                    <div className="order-right">
+                      <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
+                      <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0), account?.currency)} {curLabel(account?.currency)}</span>
                     </div>
                   </div>
                 )
@@ -237,130 +753,403 @@ export default function Portfolio() {
           ) : (
             <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
           )
-        ) : tab === 'orders' ? (
-          pendingOrders.length ? (
-            <div className="px-list">{pendingOrders.map(renderOrder)}</div>
-          ) : (
-            <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
-          )
         ) : historyOrders.length ? (
-          <div className="px-list">{historyOrders.map(renderOrder)}</div>
+          <div className="px-list">
+            {historyOrders.map(o => {
+              const buy = o.side === 'buy'
+              const when = o.created_at ? new Date(o.created_at) : null
+              const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
+              return (
+                <div key={o.id} className="order-row">
+                  <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
+                  <div className="order-info">
+                    <div className="order-sym mono">
+                        {o.symbol}
+                      </div>
+                    <div className="order-detail">
+                      {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price, account?.currency)} {curLabel(account?.currency)}
+                    </div>
+                  </div>
+                  <div className="order-right">
+                    <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
+                    <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0), account?.currency)} {curLabel(account?.currency)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         ) : (
           <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
         )}
       </div>
 
       <BottomNav active="portfolio" />
+
+      {sheetOpen && user && (
+        <div className="modal-overlay" onClick={() => setSheetOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>{t(lang, 'accTitle')}</span>
+              <button className="icon-btn" onClick={() => setSheetOpen(false)}><X size={18} /></button>
+            </div>
+            {accErr && <div className="order-err">{accErr}</div>}
+            <div className="acc-list">
+              {accounts.map(a => (
+                <div key={a.id} className={`acc-item ${a.id === activeAccountId ? 'active' : ''}`}>
+                  <div className="acc-item-head">
+                    <span className={`acc-item-icon ${a.type === 'real' ? 'real' : ''}`}>
+                      {a.type === 'real' ? <Landmark size={16} /> : <FlaskConical size={16} />}
+                    </span>
+                    <div className="acc-item-info">
+                      <div className="acc-item-name">
+                        {a.name}
+                      </div>
+                      <div className="acc-item-sub">
+                        {t(lang, a.type === 'real' ? 'accReal' : 'accDemo')}
+                        {a.broker_name ? ` · ${a.broker_name}` : ''} · {curLabel(a.currency)} · {a.position_count} {t(lang, 'pfPositions')}
+                      </div>
+                    </div>
+                    {a.id === activeAccountId && <Check size={18} className="acc-check" />}
+                  </div>
+                  <div className="acc-item-metrics">
+                    <div className="acc-metric">
+                      <span className="acc-metric-l">{t(lang, 'accBalance')}</span>
+                      <span className="acc-metric-v mono">{fmtMoney(a.balance, a.currency)}</span>
+                    </div>
+                    <div className="acc-metric">
+                      <span className="acc-metric-l">{t(lang, 'accInvested')}</span>
+                      <span className="acc-metric-v mono">{fmtMoney(a.invested, a.currency)}</span>
+                    </div>
+                  </div>
+                  <div className="acc-item-actions">
+                    <button className="acc-act-btn" disabled={accBusy} onClick={() => { if (a.type === 'real') { router.push({ pathname: '/paiement', query: { account: a.id, mode: 'deposit' } }); return } setMoneyErr(''); setMoneyAmt(''); setMoneyModal({ mode: 'deposit', account: a }) }}>
+                      <Plus size={14} /> {t(lang, 'accDeposit')}
+                    </button>
+                    <button className="acc-act-btn" disabled={accBusy} onClick={() => { if (a.type === 'real') { router.push({ pathname: '/paiement', query: { account: a.id, mode: 'withdraw' } }); return } setMoneyErr(''); setMoneyAmt(''); setMoneyModal({ mode: 'withdraw', account: a }) }}>
+                      <Minus size={14} /> {t(lang, 'accWithdraw')}
+                    </button>
+                    <button className="acc-act-btn" disabled={accBusy} onClick={() => openRename(a)}>
+                      <Pencil size={14} /> {t(lang, 'accRename')}
+                    </button>
+                    <button className="acc-act-btn danger" disabled={accBusy} onClick={() => deleteAccount(a)}>
+                      <Trash2 size={14} /> {t(lang, 'accDelete')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="acc-new-btn" disabled={accBusy || accounts.length >= 5} onClick={() => { setCreateOpen(true); setAccErr('') }}>
+              <Plus size={16} /> {t(lang, 'accNew')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {switchModal && (
+        <div className="modal-overlay" onClick={() => setSwitchModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>{t(lang, 'accSwitchTitle')}</span>
+              <button className="icon-btn" onClick={() => setSwitchModal(null)}><X size={18} /></button>
+            </div>
+            <div className="acc-switch-acc">
+              <span className={`acc-item-icon ${switchModal.type === 'real' ? 'real' : ''}`}>
+                {switchModal.type === 'real' ? <Landmark size={16} /> : <FlaskConical size={16} />}
+              </span>
+              <div className="acc-item-info">
+                <div className="acc-item-name">{switchModal.name}</div>
+                <div className="acc-item-sub">
+                  {t(lang, switchModal.type === 'real' ? 'accReal' : 'accDemo')}
+                  {switchModal.broker_name ? ` · ${switchModal.broker_name}` : ''}
+                </div>
+              </div>
+            </div>
+              <div className="acc-item-metrics">
+              <div className="acc-metric">
+                <span className="acc-metric-l">{t(lang, 'accBalance')}</span>
+                <span className="acc-metric-v mono">{fmtMoney(switchModal.balance, switchModal.currency)}</span>
+              </div>
+              <div className="acc-metric">
+                <span className="acc-metric-l">{t(lang, 'accInvested')}</span>
+                <span className="acc-metric-v mono">{fmtMoney(switchModal.invested, switchModal.currency)}</span>
+              </div>
+            </div>
+            <div className="acc-switch-warn">{t(lang, 'accSwitchWarn')}</div>
+            <div className="acc-switch-actions">
+              <button className="modal-exec cancel" onClick={() => setSwitchModal(null)}>
+                {t(lang, 'accSwitchCancel')}
+              </button>
+              <button className="modal-exec buy" onClick={confirmSwitch}>
+                {t(lang, 'accSwitchConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {moneyModal && (
+        <div className="modal-overlay" onClick={() => setMoneyModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>{moneyModal.mode === 'deposit' ? t(lang, 'accDeposit') : t(lang, 'accWithdraw')} · {moneyModal.account.name}</span>
+              <button className="icon-btn" onClick={() => setMoneyModal(null)}><X size={18} /></button>
+            </div>
+            <div className="money-avail mono">{t(lang, 'accAvailable')} : {fmtMoney(moneyModal.account.balance, moneyModal.account.currency)} {curLabel(moneyModal.account.currency)}</div>
+            <input className="money-input mono" type="number" min="0" step="1000" value={moneyAmt}
+              placeholder="50 000" onChange={e => setMoneyAmt(e.target.value)} autoFocus />
+            {moneyModal.mode === 'deposit' && moneyModal.account.type === 'real' && (
+              <div className="money-pay-note">{t(lang, 'payNote')}</div>
+            )}
+            {moneyErr && <div className="order-err">{moneyErr}</div>}
+            <button className="modal-exec buy" disabled={accBusy || !(parseFloat(moneyAmt) > 0)} onClick={submitMoney}>
+              {accBusy ? '...' : (moneyModal.mode === 'deposit' ? t(lang, 'accDeposit') : t(lang, 'accWithdraw'))}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {createOpen && (
+        <div className="modal-overlay" onClick={() => setCreateOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>{t(lang, 'accNew')}</span>
+              <button className="icon-btn" onClick={() => setCreateOpen(false)}><X size={18} /></button>
+            </div>
+            <div className="otype-row">
+              <button className={`otype-btn ${createType === 'demo' ? 'on' : ''}`} onClick={() => setCreateType('demo')}>{t(lang, 'accDemo')}</button>
+              <button className={`otype-btn ${createType === 'real' ? 'on' : ''}`} onClick={() => { setCreateOpen(false); router.push('/compte-titre') }}>{t(lang, 'accReal')}</button>
+            </div>
+            <div className="acc-type-hint">{t(lang, createType === 'demo' ? 'accDemoSub' : 'accRealSub')}</div>
+            {createType === 'demo' && (
+              <div className="otype-row" style={{ marginTop: 8 }}>
+                <button className={`otype-btn ${createCurrency === 'XOF' ? 'on' : ''}`} onClick={() => setCreateCurrency('XOF')}>BRVM · FCFA</button>
+                {user?.tier === 'pro'
+                  ? <button className={`otype-btn ${createCurrency === 'NGN' ? 'on' : ''}`} onClick={() => setCreateCurrency('NGN')}>NGX · ₦</button>
+                  : <button className="otype-btn locked" onClick={() => router.push('/premium')} title={t(lang, 'proLocked')}>NGX · ₦ <Lock size={11} /></button>}
+              </div>
+            )}
+            <label className="f-label">{t(lang, 'accName')}</label>
+            <input className="f-input" type="text" value={createName}
+              placeholder="Compte démo" onChange={e => setCreateName(e.target.value)} />
+            {accErr && <div className="order-err">{accErr}</div>}
+            <button className="modal-exec buy" disabled={accBusy} onClick={submitCreate}>
+              {accBusy ? '...' : t(lang, 'accCreate')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sellPos && (
+        <div className="modal-overlay" onClick={() => setSellPos(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>{t(lang, 'accSell')} {sellPos.symbol}</span>
+              <button className="icon-btn" onClick={() => setSellPos(null)}><X size={18} /></button>
+            </div>
+            <div className="acc-order-banner">
+              <span className="acc-order-ico">
+                {account?.type === 'real' ? <Landmark size={13} /> : <FlaskConical size={13} />}
+              </span>
+              <span className="acc-order-name">{account?.name || '—'}</span>
+              <span className="acc-order-tag">{t(lang, account?.type === 'real' ? 'accReal' : 'accDemo')}</span>
+              <span className="acc-order-bal mono">{fmtMoney(account?.balance, account?.currency)} {curLabel(account?.currency)}</span>
+            </div>
+            <div className="modal-price">
+              <span className="mp-label">{t(lang, 'price')}</span>
+              <span className="mp-val">{fmtMoney(sellPos.price, account?.currency)} {curLabel(account?.currency)}</span>
+            </div>
+            <div className="otype-row">
+              <button className={`otype-btn ${sellType === 'market' ? 'on' : ''}`} onClick={() => setSellType('market')}>{t(lang, 'orderMarket')}</button>
+              <button className={`otype-btn ${sellType === 'limit' ? 'on' : ''}`} onClick={() => setSellType('limit')}>{t(lang, 'orderLimit')}</button>
+            </div>
+            {sellType === 'limit' && (
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'limitPrice')} ({curLabel(account?.currency)})</span>
+                <input className="tpsl-input mono" type="number" min="0" step="0.01" value={sellLimit}
+                  placeholder={String(sellPos.price ?? '')} onChange={e => setSellLimit(e.target.value)} />
+              </div>
+            )}
+            <div className="tpsl-grid">
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'takeProfit')}</span>
+                <input className="tpsl-input mono" type="number" min="0" step="0.01" value={sellTp}
+                  placeholder={t(lang, 'opt')} onChange={e => setSellTp(e.target.value)} />
+              </div>
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'stopLoss')}</span>
+                <input className="tpsl-input mono" type="number" min="0" step="0.01" value={sellSl}
+                  placeholder={t(lang, 'opt')} onChange={e => setSellSl(e.target.value)} />
+              </div>
+            </div>
+            <div className="qty-row">
+              <button className="qty-btn" onClick={() => setSellQty(String(Math.max(1, (parseFloat(sellQty) || 1) - 1)))}><Minus size={16} /></button>
+              <input type="number" min="1" step="any" value={sellQty} max={sellPos.qty}
+                onChange={e => { const v = parseFloat(e.target.value); setSellQty(String(Math.max(1, Math.min(v || 1, sellPos.qty)))) }} />
+              <button className="qty-btn" onClick={() => setSellQty(String(Math.min(sellPos.qty, (parseFloat(sellQty) || 1) + 1)))}><Plus size={16} /></button>
+            </div>
+            <div className="modal-total">
+              <span>{t(lang, 'total')}</span>
+              <span className="mt-val">{fmtMoney((parseFloat(sellQty) || 0) * (sellType === 'limit' && parseFloat(sellLimit) ? parseFloat(sellLimit) : (sellPos.price || 0)), account?.currency)} {curLabel(account?.currency)}</span>
+            </div>
+            {sellErr && <div className="order-err">{sellErr}</div>}
+            <button className="modal-exec sell" disabled={sellBusy || !(parseFloat(sellQty) > 0)} onClick={submitSell}>
+              {sellBusy ? '...' : t(lang, 'tradePlace')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {renameModal && (
+        <div className="modal-overlay" onClick={() => setRenameModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span><Pencil size={15} /> {t(lang, 'accRenameTitle')}</span>
+              <button className="icon-btn" onClick={() => setRenameModal(null)}><X size={18} /></button>
+            </div>
+            <input className="f-input" type="text" value={renameVal} autoFocus
+              onChange={e => setRenameVal(e.target.value)} />
+            {renameErr && <div className="order-err">{renameErr}</div>}
+            <button className="modal-exec buy" disabled={renameBusy} onClick={submitRename}>
+              {renameBusy ? '...' : t(lang, 'accSave')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
+        .pay-banner {
+          display: flex; align-items: center; gap: 10px; margin: 10px 16px 0;
+          padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(24,194,124,0.4);
+          background: #0D0D0D;
+        }
+        .pay-banner.pending { border-color: #2A2A2A; }
+        .pay-banner.failed { border-color: rgba(244,63,94,0.45); }
+        .pay-banner-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .pay-banner-txt strong { font-size: 13.5px; font-weight: 700; color: #F7F8FA; letter-spacing: -0.01em; }
+        .pay-banner-sub { font-size: 11.5px; font-weight: 500; color: #8C99AF; line-height: 1.4; }
+        .pay-banner-btn {
+          flex-shrink: 0; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(24,194,124,0.5);
+          background: rgba(24,194,124,0.12); color: #2ACB8A; font-size: 12px; font-weight: 700;
+          cursor: pointer; font-family: inherit;
+        }
+        .pay-banner-btn:disabled { opacity: 0.5; }
+        .pay-banner-x {
+          flex-shrink: 0; width: 24px; height: 24px; border: none; background: transparent;
+          color: #5F6D85; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 8px;
+        }
+        .pay-banner-x:active { background: #1A1A1A; }
+        .money-pay-note {
+          margin-top: 10px; padding: 10px 12px; border-radius: 12px;
+          border: 1px solid rgba(24,194,124,0.35); background: rgba(24,194,124,0.08);
+          color: #9FACBF; font-size: 12px; font-weight: 500; line-height: 1.5;
+        }
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0D162B; color: #F7F8FA;
+          background: #000000; color: #F7F8FA;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
-        .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 44px 24px 0; }
+        .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 28px 24px 0; }
         .acct-capsule {
-          display: flex; align-items: center; gap: 11px; height: 68px;
-          padding: 0 16px 0 13px; background: #172239; border: none; border-radius: 34px;
+          display: flex; align-items: center; gap: 9px; height: 56px;
+          padding: 0 14px 0 12px; background: rgba(255, 255, 255, 0.05); border: none; border-radius: 28px;
           cursor: pointer; min-width: 0; font-family: inherit;
         }
         .acct-avatar {
-          width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+          width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
           background: #0E3022; color: #2ACB8A;
           display: flex; align-items: center; justify-content: center;
-          font-size: 17px; font-weight: 700;
+          font-size: 14px; font-weight: 700;
         }
         .acct-balance {
-          color: #F7F8FA; font-size: 21px; font-weight: 600; white-space: nowrap; letter-spacing: 0.25px;
+          color: #F7F8FA; font-size: 17px; font-weight: 600; white-space: nowrap; letter-spacing: 0;
         }
         .acct-chev { color: #8C99AF; flex-shrink: 0; }
-        .top-icons { display: flex; align-items: center; gap: 12px; }
+        .top-icons { display: flex; align-items: center; gap: 8px; }
         .top-icon {
-          width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+          width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
           color: #8C99AF; border-radius: 50%; background: none; border: none; cursor: pointer; font-family: inherit;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 0 8px; }
         .safe-area::-webkit-scrollbar { display: none; }
-        .tt-row { display: flex; align-items: center; justify-content: space-between; margin: 46px 30px 0; }
-        .tt-title { font-size: 36px; font-weight: 700; color: #F7F8FA; margin: 0; letter-spacing: 0.25px; }
+        .tt-row { display: flex; align-items: center; justify-content: space-between; margin: 28px 30px 0; }
+        .tt-title { font-size: 28px; font-weight: 700; color: #F7F8FA; margin: 0; letter-spacing: 0; }
         .tt-filter { color: #8C99AF; }
         .tx-tabs {
-          display: flex; gap: 10px; overflow-x: auto; padding: 26px 24px 0;
+          display: flex; gap: 10px; overflow-x: auto; padding: 18px 24px 0;
           scrollbar-width: none; -ms-overflow-style: none;
         }
         .tx-tabs::-webkit-scrollbar { display: none; }
         .tx-tab {
-          flex-shrink: 0; height: 62px; padding: 0 34px; border-radius: 35px; border: none;
-          font-family: inherit; font-size: 20px; letter-spacing: 0.25px; white-space: nowrap; cursor: pointer;
+          flex-shrink: 0; height: 48px; padding: 0 28px; border-radius: 26px; border: none;
+          font-family: inherit; font-size: 16px; letter-spacing: 0; white-space: nowrap; cursor: pointer;
         }
         .tx-tab.active { background: #FFFFFF; color: #111111; font-weight: 700; }
-        .tx-tab:not(.active) { background: #1B263D; color: #8996AE; font-weight: 500; }
+        .tx-tab:not(.active) { background: #1C1C1C; color: #8996AE; font-weight: 500; }
         .loading-row { display: flex; justify-content: center; padding: 60px 0; }
         .spinner {
           width: 26px; height: 26px;
-          border: 3px solid #1B2941; border-top-color: #2ACB8A;
+          border: 3px solid #1C1C1C; border-top-color: #2ACB8A;
           border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .pf-empty {
-          display: flex; flex-direction: column; align-items: center;
-          padding: 90px 24px 40px; text-align: center;
+        .pf-stats {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+          padding: 24px 24px 0;
         }
-        .rings { position: relative; width: 260px; height: 260px; }
-        .ring {
-          position: absolute; left: 50%; top: 50%;
-          transform: translate(-50%, -50%); border-radius: 50%;
+        .pf-stat {
+          background: rgba(255, 255, 255, 0.05); border: 1px solid #1C1C1C; border-radius: 16px;
+          padding: 14px 16px; display: flex; flex-direction: column; gap: 7px;
         }
-        .ring.r3 { width: 260px; height: 260px; border: 1.5px solid #1B2941; }
-        .ring.r2 { width: 190px; height: 190px; border: 2px solid #22304A; }
-        .ring.r1 { width: 120px; height: 120px; border: 5px solid #46536A; }
-        .plus-h, .plus-v {
-          position: absolute; left: 50%; top: 50%;
-          transform: translate(-50%, -50%);
-          background: #8C99AF; border-radius: 7px;
+        .pf-stat-l { font-size: 12px; font-weight: 500; color: #8C99AF; letter-spacing: 0.1px; }
+        .pf-stat-v { font-size: 22px; font-weight: 700; color: #F7F8FA; letter-spacing: 0; }
+        .pf-stat-v small { display: block; font-size: 13px; font-weight: 500; margin-top: 2px; color: inherit; }
+        .pf-sort {
+          display: flex; gap: 8px; padding: 18px 20px 0;
         }
-        .plus-h { width: 46px; height: 11px; }
-        .plus-v { width: 11px; height: 46px; }
-        .pf-empty-title { font-size: 23px; font-weight: 500; color: #8996AC; margin: 34px 0 0; letter-spacing: 0.25px; }
-        .pf-empty-sub { font-size: 14px; font-weight: 400; color: #5F6D85; margin: 10px 0 0; line-height: 1.5; }
-        .pf-empty-btn {
-          margin-top: 30px; width: min(460px, 100%); height: 76px;
-          background: transparent; border: 2px solid #46536A; border-radius: 16px;
-          color: #F7F8FA; font-size: 20px; font-weight: 700; cursor: pointer; font-family: inherit;
-          letter-spacing: 0.25px;
+        .pf-sort-btn {
+          flex-shrink: 0; height: 32px; padding: 0 15px; border-radius: 16px; border: 1px solid #1C1C1C;
+          background: rgba(255, 255, 255, 0.05); color: #8C99AF; font-size: 12px; font-weight: 600;
+          cursor: pointer; font-family: inherit; letter-spacing: 0;
         }
-        .px-list { padding: 26px 24px 24px; display: flex; flex-direction: column; }
+        .pf-sort-btn.active { background: #FFFFFF; border-color: #FFFFFF; color: #111111; font-weight: 700; }
+        .pos-sub2 {
+          display: flex; align-items: center; gap: 8px; margin-top: 4px;
+        }
+        .pos-day { font-size: 12px; font-weight: 600; }
+        .pos-pl-amt { font-size: 12px; font-weight: 500; }
+        .px-list { padding: 20px 20px 24px; display: flex; flex-direction: column; gap: 14px; }
         .pos-row {
-          display: flex; align-items: center; gap: 14px;
-          padding: 15px 0; border-bottom: 1px solid #1B2941; cursor: pointer;
+          display: flex; align-items: center; gap: 13px;
+          background: rgba(255, 255, 255, 0.05); border: 1px solid #1C1C1C; border-radius: 18px;
+          padding: 15px 14px; cursor: pointer;
         }
-        .pos-row:last-child { border-bottom: none; }
         .pos-logo {
-          width: 54px; height: 54px; border-radius: 16px; flex-shrink: 0;
+          width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 700; font-size: 17px; overflow: hidden;
+          font-weight: 700; font-size: 15px; overflow: hidden;
         }
-        .pos-logo img { width: 100%; height: 100%; object-fit: cover; }
+        .pos-logo img { width: 100%; height: 100%; object-fit: contain; padding: 7px; box-sizing: border-box; }
         .pos-info { flex: 1; min-width: 0; }
         .pos-name {
-          font-size: 18px; font-weight: 700; color: #F7F8FA;
+          font-size: 15px; font-weight: 600; color: #F7F8FA;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .pos-sub {
-          font-size: 14px; font-weight: 400; color: #8C99AF;
+          font-size: 12px; font-weight: 400; color: #8C99AF; margin-top: 3px;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .pos-tpsl { margin-left: 8px; font-size: 11px; font-weight: 700; }
         .pos-tpsl.up { color: #2ACB8A; }
         .pos-tpsl.down { color: #F04438; }
-        .pos-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-        .pos-value { font-size: 18px; font-weight: 700; color: #F7F8FA; }
-        .pos-pl { display: flex; align-items: center; gap: 5px; font-size: 16px; font-weight: 500; }
+        .pos-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+        .pos-value { font-size: 16px; font-weight: 700; color: #F7F8FA; }
+        .pos-pl { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; }
         .mono { font-variant-numeric: tabular-nums; }
         .up { color: #2ACB8A; }
         .down { color: #F04438; }
         .order-row {
           display: flex; align-items: center; gap: 12px;
-          padding: 15px 0; border-bottom: 1px solid #1B2941;
+          padding: 15px 0; border-bottom: 1px solid #1C1C1C;
         }
         .order-row:last-child { border-bottom: none; }
         .order-side {
@@ -381,6 +1170,247 @@ export default function Portfolio() {
         .order-status.pending { background: rgba(255,209,102,0.14); color: #ffd166; }
         .order-status.cancelled { background: rgba(240,68,56,0.14); color: #F04438; }
         .order-total { font-size: 15px; font-weight: 600; color: #F7F8FA; }
+        .pf-money-cards {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+          padding: 20px 24px 0;
+        }
+        .pf-money-card {
+          display: flex; align-items: center; gap: 12px;
+          border-radius: 18px; padding: 16px; cursor: pointer; font-family: inherit;
+          border: none; text-align: left;
+          transition: transform 160ms ease-out, opacity 160ms ease-out;
+        }
+        .pf-money-card:active { transform: scale(0.97); opacity: 0.92; }
+        .pf-money-card.deposit {
+          background: linear-gradient(135deg, #18C27C, #00A843);
+          box-shadow: 0 8px 22px rgba(24, 194, 124, 0.22);
+        }
+        .pf-money-card.withdraw { background: rgba(255, 255, 255, 0.05); border: 1px solid #262626; }
+        .pf-money-ico {
+          width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .pf-money-card.deposit .pf-money-ico { background: rgba(0, 19, 10, 0.25); color: #00130a; }
+        .pf-money-card.withdraw .pf-money-ico { background: rgba(255, 255, 255, 0.08); color: #E8EEF7; }
+        .pf-money-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .pf-money-txt strong { font-size: 15.5px; font-weight: 800; letter-spacing: 0; }
+        .pf-money-card.deposit .pf-money-txt strong { color: #00130a; }
+        .pf-money-card.withdraw .pf-money-txt strong { color: #F7F8FA; }
+        .pf-money-txt small { font-size: 11px; font-weight: 600; letter-spacing: 0; }
+        .pf-money-card.deposit .pf-money-txt small { color: #0A3D26; }
+        .pf-money-card.withdraw .pf-money-txt small { color: #8C99AF; }
+
+        .acc-chip {
+          display: flex; align-items: center; gap: 8px;
+          background: rgba(255, 255, 255, 0.05); border: 1px solid #262626; border-radius: 14px;
+          padding: 10px 14px; cursor: pointer; color: inherit; font-family: inherit;
+          width: 100%; box-sizing: border-box;
+        }
+        .pf-accbar {
+          display: flex; align-items: center; gap: 10px;
+          overflow-x: auto; padding: 18px 24px 0;
+          scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .pf-accbar::-webkit-scrollbar { display: none; }
+        .pf-acc-chip {
+          flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+          height: 44px; padding: 0 16px; border-radius: 22px;
+          background: rgba(255, 255, 255, 0.05); border: 1px solid #262626;
+          color: #E8EEF7; cursor: pointer; font-family: inherit;
+          transition: background 160ms ease-out, border-color 160ms ease-out, transform 160ms ease-out;
+        }
+        .pf-acc-chip:active { transform: scale(0.97); }
+        .pf-acc-chip.active {
+          background: #FFFFFF; border-color: #FFFFFF;
+        }
+        .pf-acc-chip.active .pf-acc-name { color: #111111; }
+        .pf-acc-chip.active .pf-acc-bal { color: #18C27C; }
+        .pf-acc-ico {
+          width: 26px; height: 26px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 8px; background: rgba(24,194,124,0.12); color: #18C27C;
+        }
+        .pf-acc-chip.real .pf-acc-ico { background: rgba(24,194,124,0.14); color: #2ACB8A; }
+        .pf-acc-chip.active .pf-acc-ico { background: rgba(24,194,124,0.16); }
+        .pf-acc-name { font-size: 13px; font-weight: 700; color: #F7F8FA; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .pf-acc-bal { font-size: 12px; font-weight: 700; color: #8C99AF; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pf-acc-active-tag {
+          flex-shrink: 0; font-size: 9px; font-weight: 600; letter-spacing: 0;
+          color: #18C27C; background: rgba(24,194,124,0.14);
+          padding: 3px 7px; border-radius: 8px; text-transform: uppercase;
+        }
+        .pf-acc-chev { color: #111111; flex-shrink: 0; }
+        .pf-acc-add {
+          flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%;
+          background: linear-gradient(135deg, #18C27C, #00A843); border: none;
+          color: #00130a; cursor: pointer; font-family: inherit;
+          display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 6px 18px rgba(24, 194, 124, 0.3);
+          transition: transform 160ms ease-out, opacity 160ms ease-out;
+        }
+        .pf-acc-add:active { transform: scale(0.94); opacity: 0.9; }
+
+        .pos-sell {
+          flex-shrink: 0; align-self: center;
+          height: 30px; padding: 0 12px; border-radius: 9px;
+          border: 1px solid rgba(240,68,56,0.45); background: rgba(240,68,56,0.1);
+          color: #F04438; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+        }
+
+        .acc-list { display: flex; flex-direction: column; gap: 10px; max-height: 58vh; overflow-y: auto; }
+        .acc-item {
+          background: rgba(255, 255, 255, 0.05); border: 1px solid #222; border-radius: 14px;
+          padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+        }
+        .acc-item.active { border-color: rgba(24,194,124,0.45); }
+        .acc-item-head { display: flex; align-items: center; gap: 10px; }
+        .acc-item-icon {
+          width: 34px; height: 34px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 10px; background: rgba(24,194,124,0.12); color: #18C27C;
+        }
+        .acc-item-icon.real { background: rgba(139,92,246,0.14); color: #a78bfa; }
+        .acc-item-info { flex: 1; min-width: 0; }
+        .acc-item-name {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 14px; font-weight: 700; color: #F7F8FA;
+        }
+        .acc-item-sub { font-size: 11px; color: #8C99AF; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .acc-check { color: #18C27C; flex-shrink: 0; }
+        .acc-item-metrics { display: flex; gap: 10px; }
+        .acc-metric {
+          flex: 1; background: rgba(255, 255, 255, 0.04); border-radius: 10px; padding: 8px 10px;
+          display: flex; flex-direction: column; gap: 2px;
+        }
+        .acc-metric-l { font-size: 10px; color: #8C99AF; text-transform: uppercase; letter-spacing: 0.15px; font-weight: 600; }
+        .acc-metric-v { font-size: 14px; font-weight: 700; color: #F7F8FA; }
+        .acc-item-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .acc-act-btn {
+          flex-shrink: 0; height: 34px; padding: 0 12px; border-radius: 9px;
+          border: 1px solid #2A2A2A; background: rgba(255, 255, 255, 0.04); color: #E8EEF7;
+          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+          display: flex; align-items: center; gap: 5px;
+        }
+        .acc-act-btn:disabled { opacity: 0.5; cursor: default; }
+        .acc-act-btn.danger { border-color: rgba(240,68,56,0.4); color: #F04438; }
+        .acc-new-btn {
+          width: 100%; height: 46px; border-radius: 13px;
+          border: 1px dashed rgba(24,194,124,0.5); background: rgba(24,194,124,0.08);
+          color: #18C27C; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit;
+          display: flex; align-items: center; justify-content: center; gap: 7px;
+        }
+        .acc-new-btn:disabled { opacity: 0.4; cursor: default; }
+        .acc-type-hint { font-size: 11px; color: #8C99AF; line-height: 1.5; }
+        .f-label { font-size: 11px; color: #9AA3B2; font-weight: 600; }
+        .f-input {
+          width: 100%; box-sizing: border-box;
+          background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 10px;
+          color: #fff; font-size: 14px; padding: 10px 12px; outline: none; font-family: inherit;
+        }
+        .f-input:focus { border-color: rgba(24,194,124,0.5); }
+        .money-avail { font-size: 12px; color: #8C99AF; }
+        .money-input {
+          width: 100%; box-sizing: border-box;
+          background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 12px;
+          color: #fff; font-size: 22px; font-weight: 700; padding: 12px 14px; outline: none;
+        }
+        .money-input:focus { border-color: rgba(24,194,124,0.5); }
+
+        .modal-overlay {
+          position: fixed; inset: 0; z-index: 50;
+          background: rgba(0,0,0,0.7); display: flex; align-items: flex-end; justify-content: center;
+        }
+        .modal {
+          width: 100%; max-width: 480px;
+          background: #141414; border-radius: 20px 20px 0 0;
+          padding: 18px 20px calc(18px + env(safe-area-inset-bottom));
+          display: flex; flex-direction: column; gap: 10px;
+        }
+        .modal-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
+        .icon-btn {
+          width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+          background: none; border: none; color: #fff; cursor: pointer; border-radius: 50%;
+        }
+        .modal-price {
+          display: flex; justify-content: space-between; align-items: center;
+          background: #1B1B1B; border-radius: 12px; padding: 12px 14px;
+        }
+        .mp-label { font-size: 12px; color: #9AA3B2; }
+        .mp-val { font-size: 16px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .otype-row { display: flex; gap: 8px; }
+        .otype-btn {
+          flex: 1; height: 38px;
+          background: #1B1B1B; color: #9AA3B2;
+          border: 1px solid #2a2a2a; border-radius: 12px;
+          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+        }
+        .otype-btn.on {
+          background: rgba(24,194,124,0.12); color: #18C27C; border-color: rgba(24,194,124,0.4);
+        }
+        .tpsl-grid { display: flex; gap: 10px; }
+        .tpsl-grid .tpsl-row { flex: 1; min-width: 0; }
+        .tpsl-row { display: flex; flex-direction: column; gap: 5px; }
+        .tpsl-label { font-size: 11px; color: #9AA3B2; }
+        .tpsl-input {
+          width: 100%; box-sizing: border-box;
+          background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 10px;
+          color: #fff; font-size: 14px; padding: 9px 12px; outline: none;
+        }
+        .tpsl-input:focus { border-color: rgba(24,194,124,0.5); }
+        .order-err { font-size: 12px; color: #F04438; text-align: center; }
+        .qty-row { display: flex; align-items: center; gap: 10px; }
+        .qty-btn {
+          width: 44px; height: 44px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          background: #1B1B1B; border: none; border-radius: 12px; color: #fff; cursor: pointer;
+        }
+        .qty-row input {
+          flex: 1; text-align: center;
+          background: #1B1B1B; border: none; border-radius: 12px;
+          color: #fff; font-size: 18px; font-weight: 700;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; outline: none; height: 44px;
+        }
+        .modal-total {
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 4px 2px; font-size: 13px; color: #9AA3B2;
+        }
+        .mt-val { font-size: 15px; font-weight: 700; color: #fff; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .modal-exec {
+          height: 46px; border: none; border-radius: 14px;
+          color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+        }
+        .modal-exec.buy { background: #18C27C; }
+        .modal-exec.sell { background: #F04438; }
+        .modal-exec.cancel { background: #262626; color: #C9CED8; }
+        .modal-exec:disabled { opacity: 0.4; }
+        .acc-switch-acc {
+          display: flex; align-items: center; gap: 10px;
+          background: rgba(255,255,255,0.04); border: 1px solid #262626;
+          border-radius: 14px; padding: 12px; margin-bottom: 12px;
+        }
+        .acc-switch-warn {
+          font-size: 12.5px; line-height: 1.5; color: #C9CED8;
+          background: rgba(250,204,21,0.08); border: 1px solid rgba(250,204,21,0.25);
+          border-radius: 12px; padding: 10px 12px; margin: 4px 0 14px;
+        }
+        .acc-switch-actions { display: flex; gap: 10px; }
+        .acc-switch-actions .modal-exec { flex: 1; }
+        .acc-order-banner {
+          display: flex; align-items: center; gap: 8px;
+          background: rgba(255,255,255,0.04); border: 1px solid #262626;
+          border-radius: 12px; padding: 9px 12px; margin-bottom: 12px; font-size: 12.5px;
+        }
+        .acc-order-ico {
+          width: 24px; height: 24px; flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center;
+          border-radius: 7px; background: rgba(24,194,124,0.12); color: #18C27C;
+        }
+        .acc-order-name { font-weight: 700; color: #F7F8FA; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .acc-order-tag {
+          font-size: 10px; font-weight: 600; letter-spacing: 0.15px; text-transform: uppercase;
+          color: #a78bfa; background: rgba(139,92,246,0.14); padding: 3px 7px; border-radius: 7px;
+        }
+        .acc-order-bal { font-size: 12px; font-weight: 700; color: #8C99AF; }
       `}</style>
     </div>
   )

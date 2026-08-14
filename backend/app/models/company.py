@@ -31,6 +31,10 @@ class Company(Base):
     name = Column(String(200), nullable=False)
     sector = Column(Enum(Sector), nullable=False)
     instrument_type = Column(String(20), nullable=False, server_default="equity", default="equity")
+    exchange = Column(String(20), nullable=False, server_default="BRVM", default="BRVM")  # BRVM | NGX
+    currency = Column(String(10), nullable=False, server_default="XOF", default="XOF")   # XOF | NGN
+    sub_sector = Column(String(100), nullable=True)  # spécifique NGX (ex. Building Materials)
+    country = Column(String(50), nullable=True)
     isin = Column(String(20), unique=True)
     listing_date = Column(DateTime)
     shares_outstanding = Column(Float)

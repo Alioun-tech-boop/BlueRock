@@ -1,6 +1,6 @@
 ﻿import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { legacyLogin as apiLegacyLogin, getMe, updateMe as apiUpdateMe } from '../services/api'
+import { legacyLogin as apiLegacyLogin, getMe, updateMe as apiUpdateMe, sendOtp as apiSendOtp, verifyOtpCode as apiVerifyOtpCode } from '../services/api'
 
 const TOKEN_KEY = 'bluerock_token'
 const USER_KEY = 'bluerock_user'
@@ -18,7 +18,7 @@ function profileFromSession(sbUser, profile) {
   return {
     ...(profile || {}),
     email: sbUser?.email || profile?.email || '',
-    name: sbUser?.user_metadata?.full_name || profile?.name || 'Utilisateur',
+    name: profile?.name || sbUser?.user_metadata?.full_name || 'Utilisateur',
     email_verified: !!sbUser?.email_confirmed_at,
     totp_enabled: mfaEnabled,
     auth_id: sbUser?.id,
@@ -29,7 +29,7 @@ const AuthContext = createContext({
   user: null, loading: true, recovery: false, supabase,
   login: async () => {}, register: async () => {}, verifyMfa: async () => {},
   logout: () => {}, updateUser: () => {}, refreshProfile: async () => {},
-  updatePassword: async () => {},
+  updatePassword: async () => {}, sendOtpEmail: async () => {}, verifyOtpEmail: async () => {},
 })
 
 export function AuthProvider({ children }) {
@@ -38,6 +38,9 @@ export function AuthProvider({ children }) {
   const [recovery, setRecovery] = useState(false)
   const profileRef = useRef(null)
   const busyRef = useRef(false)
+  const userRef = useRef(null)
+
+  useEffect(() => { userRef.current = user }, [user])
 
   const persist = useCallback((u) => {
     try { localStorage.setItem(USER_KEY, JSON.stringify(u)) } catch {}
@@ -77,7 +80,23 @@ export function AuthProvider({ children }) {
       else if (_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED' || _event === 'SIGNED_OUT') setRecovery(false)
       syncSession(session)
     })
-    return () => sub.subscription.unsubscribe()
+    const onExpired = () => {
+      // La session Supabase est devenue invalide (expiration, rotation échouée…) :
+      // on se déconnecte proprement pour laisser les pages réagir à user==null,
+      // sans redirection brutale depuis l'intercepteur axios.
+      if (profileRef.current || userRef.current !== null) {
+        try { supabase.auth.signOut().catch(() => {}) } catch {}
+      }
+      profileRef.current = null
+      try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+      setUser(null)
+      setLoading(false)
+    }
+    window.addEventListener('bluerock:session-expired', onExpired)
+    return () => {
+      sub.subscription.unsubscribe()
+      window.removeEventListener('bluerock:session-expired', onExpired)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -161,6 +180,16 @@ export function AuthProvider({ children }) {
     return { status: 'reset' }
   }, [])
 
+  const sendOtpEmail = useCallback(async (email, purpose = 'verify') => {
+    const res = await apiSendOtp(email, purpose)
+    return res.data
+  }, [])
+
+  const verifyOtpEmail = useCallback(async (email, code) => {
+    const res = await apiVerifyOtpCode(email, code)
+    return res.data
+  }, [])
+
   const updateUser = useCallback((patch) => {
     setUser(prev => {
       const merged = { ...(prev || {}), ...patch }
@@ -190,6 +219,7 @@ export function AuthProvider({ children }) {
       user, loading, recovery, supabase,
       login, register, resendVerification, verifyMfa,
       sendResetCode, updatePassword, logout, updateUser, refreshProfile,
+      sendOtpEmail, verifyOtpEmail,
     }}>
       {children}
     </AuthContext.Provider>

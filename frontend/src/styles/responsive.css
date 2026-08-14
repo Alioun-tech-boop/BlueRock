@@ -1,7 +1,7 @@
-﻿/* ===== BLUEROCK - ADAPTATION AUTOMATIQUE AU TYPE D'ÉCRAN =====
-   Mobile (< 768px) : layout actuel inchangé (navigation en bas)
-   Tablette (768-1199px) : contenu centré, navigation en bas limitée
-   PC (>= 1200px) : contenu centré large + navigation latérale à gauche
+/* ===== BLUEROCK - ADAPTATION AUTOMATIQUE AU TYPE D'ÉCRAN =====
+   Mobile (< 768px) : interface compacte, navigation fixe en bas
+   Tablette (768-1199px) : contenu centré sur 720px
+   PC (>= 1200px) : contenu élargi dans la colonne centrée gérée par globals.css
    (les styles scopés des pages gagnent par spécificité -> !important) */
 
 /* ===== MOBILE ===== */
@@ -12,10 +12,10 @@
      vw/vh et les éléments position:fixed restent parfaitement calés. */
   html {
     zoom: 0.87;
-    background: #0E1627;
+    background: #000000;
   }
   body {
-    background: #0E1627 !important;
+    background: #000000 !important;
   }
   /* Unités dvh : hauteur réelle visible (barre d'adresse mobile masquée).
      Le zoom 0.87 du <html> réduit le rendu de toute hauteur CSS de 13% :
@@ -38,13 +38,13 @@
     right: 0 !important;
     bottom: 0 !important;
     z-index: 50 !important;
-    height: calc(60px + env(safe-area-inset-bottom)) !important;
-    padding: 6px 0 env(safe-area-inset-bottom) !important;
-    background: #0E1627 !important;
-    border-top: 1px solid #2a2a2a !important;
+    height: calc(64px + env(safe-area-inset-bottom)) !important;
+    padding: 4px 0 env(safe-area-inset-bottom) !important;
+    background: #0A0A0A !important;
+    border-top: 1px solid #1E1E1E !important;
   }
   .mobile-root {
-    padding-bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
   }
   body {
     overflow-x: hidden !important;
@@ -59,7 +59,6 @@
 @media (min-width: 768px) and (max-width: 1199px) {
   .mobile-root {
     height: 100vh !important;
-    width: 100% !important;
     overflow-y: auto !important;
   }
   .safe-area {
@@ -71,10 +70,6 @@
   .chat-area {
     max-width: 720px !important;
     width: 100% !important;
-    margin: 0 auto !important;
-  }
-  .bottom-nav {
-    max-width: 720px !important;
     margin: 0 auto !important;
   }
   .indices-strip,
@@ -92,55 +87,8 @@
 
 /* ===== PC / GRAND ÉCRAN ===== */
 @media (min-width: 1200px) {
-  .mobile-root {
-    flex-direction: row !important;
-    width: 100% !important;
-  }
-
-  /* Contenu centré */
-  .safe-area {
-    width: 100% !important;
-    max-width: 1120px !important;
-    margin: 0 auto !important;
-    padding: 12px 32px 28px !important;
-  }
-  .chat-area {
-    width: 100% !important;
-    max-width: 1000px !important;
-    margin: 0 auto !important;
-  }
-
-  /* Navigation latérale */
-  .bottom-nav {
-    width: 230px !important;
-    height: 100% !important;
-    flex-shrink: 0 !important;
-    flex-direction: column !important;
-    justify-content: flex-start !important;
-    align-items: stretch !important;
-    padding: 18px 12px !important;
-    background: #101010 !important;
-    border-top: none !important;
-    border-right: 1px solid #232323 !important;
-  }
-  .bn-item {
-    flex-direction: row !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
-    gap: 12px !important;
-    width: 100% !important;
-    padding: 12px 14px !important;
-    font-size: 14px !important;
-    border-radius: 12px !important;
-  }
-  .bn-item:hover {
-    background: #1c1c1c !important;
-    color: #fff !important;
-  }
-  .bn-item.active {
-    background: rgba(139, 92, 246, 0.14) !important;
-    color: #fff !important;
-  }
+  /* La colonne centrale (max-width + centrage) est gérée dans globals.css.
+     Ici on n'ajuste que le contenu interne : largeurs, grilles, strips. */
 
   /* Largeurs de contenu */
   .grid-2 {

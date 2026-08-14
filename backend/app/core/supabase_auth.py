@@ -36,7 +36,11 @@ def _get_jwks_client() -> PyJWKClient:
 
 
 def verify_supabase_jwt(token: str) -> Optional[dict]:
-    """Valide un JWT GoTrue et renvoie les claims (sub, email, role, aal…)."""
+    """Valide un JWT GoTrue et renvoie les claims (sub, email, role, aal…).
+
+    Sécurisé : l'audience et l'émetteur sont vérifiés pour ne jamais accepter
+    un token signé par une autre instance Supabase (ou un autre projet).
+    """
     if not token or not settings.SUPABASE_URL:
         return None
     try:
@@ -45,7 +49,9 @@ def verify_supabase_jwt(token: str) -> Optional[dict]:
             token,
             signing_key.key,
             algorithms=[signing_key.algorithm_name],
-            options={"verify_aud": False, "verify_iss": False},
+            options={"verify_aud": True, "verify_iss": True},
+            audience="authenticated",
+            issuer=f"{settings.SUPABASE_URL}/auth/v1",
             leeway=30,
         )
     except Exception:
@@ -66,48 +72,113 @@ def _headers() -> dict:
 def admin_find_user_by_email(email: str) -> Optional[dict]:
     """Recherche un utilisateur auth.users par email (Admin API).
 
-    Le paramètre `email` n'est pas un filtre supporté par GoTrue : on récupère
-    la liste (paginée) et on filtre côté client.
+    Le paramètre `email` n'est pas un filtre exact supporté par GoTrue : on
+    utilise d'abord le profil local (auth_id) pour un GET par ID (O(1)), et
+    en dernier recours la liste admin en itérant **des pages les plus récentes
+    vers les plus anciennes** — un compte récent (inscription OTP) est toujours
+    en fin de liste, donc 1 page suffit dans le cas nominal au lieu d'un scan
+    O(tous les utilisateurs).
     """
     email_l = (email or "").lower()
-    page = 1
     try:
-        while page <= 50:
-            r = httpx.get(
-                f"{settings.SUPABASE_URL}/auth/v1/admin/users",
-                params={"page": page, "per_page": 1000},
-                headers=_headers(),
-                timeout=15,
-            )
-            r.raise_for_status()
-            data = r.json()
-            users = data if isinstance(data, list) else data.get("users", [])
-            for u in users:
-                if (u.get("email") or "").lower() == email_l:
-                    return u
-            if len(users) < 1000:
-                break
-            page += 1
+        r = httpx.get(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            params={"page": 1, "per_page": 1000},
+            headers=_headers(),
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+        users = data if isinstance(data, list) else data.get("users", [])
+        total = len(users)
+        # GoTrue liste par created_at croissant : les comptes récents sont à la fin.
+        for u in reversed(users):
+            if (u.get("email") or "").lower() == email_l:
+                return u
+        # Pages suivantes : commencer par la dernière page connue et remonter.
+        if total == 1000:
+            last_page = 50
+            page = last_page
+            while page >= 2:
+                r = httpx.get(
+                    f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+                    params={"page": page, "per_page": 1000},
+                    headers=_headers(),
+                    timeout=15,
+                )
+                r.raise_for_status()
+                data = r.json()
+                users = data if isinstance(data, list) else data.get("users", [])
+                for u in reversed(users):
+                    if (u.get("email") or "").lower() == email_l:
+                        return u
+                page -= 1
         return None
     except Exception as e:
         logger.warning(f"Supabase admin_find_user_by_email: {e}")
         return None
 
 
-def admin_create_user(email: str, password: str, name: str = "") -> Optional[dict]:
+def admin_find_user_by_local_id(db, email: str) -> Optional[dict]:
+    """Fast-path : profil local déjà lié (auth_id) → GET admin par ID (O(1)).
+
+    Couvre la quasi-totalité des cas (utilisateur déjà connecté, migré ou
+    profil auto-créé) sans jamais paginer l'ensemble des utilisateurs.
+    """
+    email_l = (email or "").lower()
+    if not email_l:
+        return None
+    try:
+        from ..models.user import User
+        u = db.query(User).filter(User.email == email_l).first()
+        if u and u.auth_id:
+            return admin_user(str(u.auth_id))
+    except Exception as e:
+        logger.warning(f"Supabase admin_find_user_by_local_id: {e}")
+    return None
+
+
+def admin_create_user(email: str, password: str, name: str = "", metadata: Optional[dict] = None) -> Optional[dict]:
     """Crée un utilisateur auth.users (email confirmé d'office — migration)."""
     try:
+        meta = {"full_name": name}
+        if metadata:
+            meta.update(metadata)
         r = httpx.post(
             f"{settings.SUPABASE_URL}/auth/v1/admin/users",
             headers=_headers(),
             json={"email": email, "password": password, "email_confirm": True,
-                  "user_metadata": {"full_name": name}},
+                  "user_metadata": meta},
             timeout=20,
         )
         r.raise_for_status()
         return r.json()
     except Exception as e:
         logger.warning(f"Supabase admin_create_user: {e} ({getattr(e, 'response', None) and e.response.text[:200]})")
+        return None
+
+
+def admin_session_password(email: str, password: str) -> Optional[dict]:
+    """Échange email/mot de passe contre une session réelle (tokens Supabase).
+
+    Permet aux flux "connecté par le backend" (Google simulé, compte virtuel)
+    de retourner une session authentifiée au frontend, comme un login classique.
+    """
+    try:
+        r = httpx.post(
+            f"{settings.SUPABASE_URL}/auth/v1/token",
+            params={"grant_type": "password"},
+            headers={
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+            timeout=20,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        logger.warning(f"Supabase admin_session_password: {e} ({getattr(e, 'response', None) and e.response.text[:200]})")
         return None
 
 
@@ -124,6 +195,22 @@ def admin_set_password(uid: str, password: str) -> bool:
         return True
     except Exception as e:
         logger.warning(f"Supabase admin_set_password: {e}")
+        return False
+
+
+def admin_confirm_user(uid: str) -> bool:
+    """Confirme l'adresse email d'un utilisateur auth.users (après vérif OTP)."""
+    try:
+        r = httpx.put(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{uid}",
+            headers=_headers(),
+            json={"email_confirm": True},
+            timeout=20,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        logger.warning(f"Supabase admin_confirm_user: {e}")
         return False
 
 

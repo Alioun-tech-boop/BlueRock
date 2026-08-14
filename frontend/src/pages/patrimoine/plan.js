@@ -37,7 +37,7 @@ export default function PlanType() {
               onDone={reload}
               onCancel={reload}
             />
-            <div className="footer-note">BlueRock © 2026</div>
+            <div className="footer-note">Bluerock © 2026</div>
           </>
         )
       }}

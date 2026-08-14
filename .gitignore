@@ -31,5 +31,9 @@ Thumbs.db
 # Local Netlify folder
 .netlify
 
+# Supabase CLI — état local (réf projet, versions CLI)
+supabase/.temp/
+supabase/supabase/.temp/
+
 # Tesseract portable (271 Mo, dev local uniquement — Docker installe tesseract-ocr)
 tools/

@@ -1,4 +1,6 @@
 import { useRouter } from 'next/router'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import { detectLang, fmtPriceCur } from '../lib/i18n'
 
 export default function CompanyCard({ company }) {
   const router = useRouter()
@@ -9,7 +11,11 @@ export default function CompanyCard({ company }) {
     <div className="company-card" onClick={() => router.push(`/company?id=${company.id}`)}>
       <div className="card-header">
         {company.logo_url ? (
-          <img src={company.logo_url} alt="" className="card-logo" />
+          <img
+            crossOrigin="anonymous" src={company.logo_url} alt="" className="card-logo"
+            onLoad={e => applyLogoBackground(e.currentTarget, e.currentTarget)}
+            onError={onLogoError}
+          />
         ) : (
           <div className="card-logo-fallback">{company.symbol?.[0]}</div>
         )}
@@ -20,7 +26,7 @@ export default function CompanyCard({ company }) {
       </div>
       <div className="card-row">
         <span className="c-muted">Prix</span>
-        <span className="val">{company.current_price?.toLocaleString('fr-FR') || '—'}</span>
+        <span className="val">{fmtPriceCur(detectLang(), company.current_price, company.currency)}</span>
       </div>
       <div className="card-row">
         <span className="c-muted">Variation</span>

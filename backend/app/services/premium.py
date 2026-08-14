@@ -381,17 +381,42 @@ Règles :
         return data, provider
 
     def live_positions(self, user: User, horizon_years: int) -> list[dict]:
+        """Positions réelles de l'utilisateur, en 4 requêtes bulk au total."""
+        from sqlalchemy import text
+        positions = self.db.query(Position).filter(
+            Position.user_id == user.id, Position.qty > 0).all()
+        if not positions:
+            return []
+        companies = {c.symbol: c for c in self.db.query(Company).filter(
+            Company.symbol.in_([p.symbol for p in positions])).all()}
+        ids = [c.id for c in companies.values()]
+        prices: Dict[int, float] = {}
+        if ids:
+            rows = self.db.execute(text("""
+                SELECT company_id, close_price FROM (
+                    SELECT company_id, close_price,
+                           ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY date DESC) AS rn
+                    FROM market_data
+                    WHERE company_id = ANY(:ids)
+                ) t WHERE rn = 1
+            """), {"ids": ids}).fetchall()
+            for r in rows:
+                prices[r[0]] = float(r[1])
+        bulk = self._bulk_latest(ids) if ids else {}
+        ratios = bulk.get("ratios") or {}
+        valuations = bulk.get("valuations") or {}
+
         positions_out = []
-        for p in self.db.query(Position).filter(Position.user_id == user.id, Position.qty > 0).all():
-            company = self._company_by_symbol(p.symbol)
-            price = self._latest_price(company.id) if company else None
+        for p in positions:
+            company = companies.get(p.symbol)
+            price = prices.get(company.id) if company else None
             if not company or not price:
                 continue
             value_pos = p.qty * price
             pnl = ((price - p.avg_price) / p.avg_price * 100) if p.avg_price else 0
-            valuation = self._latest_valuation(company.id)
+            valuation = valuations.get(company.id)
             rec = (valuation.recommendation or "HOLD").upper() if valuation else "HOLD"
-            ratio = self._latest_ratio(company.id)
+            ratio = ratios.get(company.id)
             expected = self._expected_return(
                 price, valuation.target_price if valuation else None,
                 (ratio.dividend_yield or 0) if ratio else 0,

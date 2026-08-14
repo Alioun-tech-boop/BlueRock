@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def _from_addr() -> str:
     frm = (settings.SMTP_FROM or settings.SMTP_USER or "").strip()
-    return frm or "noreply@bluerock.ai"
+    return frm or "bluerock.africa@gmail.com"
 
 
 def smtp_enabled() -> bool:

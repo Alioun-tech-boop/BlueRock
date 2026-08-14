@@ -1,0 +1,30 @@
+/* ===== BLUEROCK - LAYOUT PC (dock macOS flottant, plein écran) =====
+   Mobile et tablette : inchangés (colonne centrée + BottomNav). */
+
+@media (min-width: 1024px) {
+  /* Nav mobile masquée sur PC */
+  .bottom-nav {
+    display: none !important;
+  }
+
+  /* Toutes les pages occupent tout l'espace disponible */
+  .mobile-root,
+  .wl-root {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
+  }
+
+  /* Espace sous le dock flottant (top: 12px + hauteur ~50px) */
+  .mobile-root .safe-area,
+  .wl-root .safe-area {
+    max-width: none !important;
+    padding-top: 80px !important;
+  }
+
+  /* Chat analyste : hauteur pleine écran */
+  .chat-container {
+    height: 100vh !important;
+  }
+}

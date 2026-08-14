@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
@@ -6,15 +6,16 @@ import { supabase } from '../lib/supabase'
 import { updateMe, getCommunityMe } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import {
   ArrowLeft, UserRound, Shield, Mail, Check, LogOut,
-  Loader2, Copy, Wallet, BadgeCheck, X, Rocket, Users,
+  Copy, Wallet, BadgeCheck, X, Rocket, Users,
 } from 'lucide-react'
 
 const AVATARS = ['🦁', '🐘', '🐆', '🦓', '🦅', '🐬', '🌴', '🔥', '⚡', '💎', '🐊', '🦜', '🐢', '🦩', '🪙', '📈']
 
 function Spinner() {
-  return <Loader2 size={15} className="spin" />
+  return <TriLoader inline />
 }
 
 function errMsg(err, fallback) {
@@ -46,6 +47,7 @@ export default function ProfilePage() {
 
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
+  const [logoutOpen, setLogoutOpen] = useState(false)
 
   useEffect(() => setLang(detectLang()), [])
 
@@ -169,6 +171,11 @@ export default function ProfilePage() {
   }
 
   const doLogout = async () => {
+    setLogoutOpen(true)
+  }
+
+  const confirmLogout = async () => {
+    setLogoutOpen(false)
     await logout()
     router.replace('/login')
   }
@@ -176,9 +183,9 @@ export default function ProfilePage() {
   if (loading || !user) {
     return (
       <div className="mobile-root">
-        <div className="safe-area center"><div className="loading-inline"><Spinner /> …</div></div>
+        <div className="safe-area center"><div className="loading-inline"><TriLoader compact /></div></div>
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; overflow: hidden; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000000; color: #fff; font-family: Inter, -apple-system, sans-serif; overflow: hidden; }
           .safe-area { flex: 1; overflow-y: auto; display: flex; align-items: center; justify-content: center; }
           .safe-area::-webkit-scrollbar { display: none; }
           .loading-inline { display: flex; align-items: center; gap: 8px; color: #888; font-size: 13px; }
@@ -198,7 +205,7 @@ export default function ProfilePage() {
     <div className="mobile-root">
       <div className="safe-area">
         <header className="pf-header">
-          <button className="back-btn" onClick={() => router.push('/menu')} aria-label="back">
+          <button className="back-btn" onClick={() => router.push('/portfolio')} aria-label="back">
             <ArrowLeft size={20} />
           </button>
           <h1 className="pf-title">{t(lang, 'pfTitle')}</h1>
@@ -218,9 +225,6 @@ export default function ProfilePage() {
               <span className={`h-badge ${user.email_verified ? 'ok' : 'warn'}`}>
                 {user.email_verified ? <BadgeCheck size={11} /> : <Mail size={11} />}
                 {user.email_verified ? t(lang, 'pfVerified') : t(lang, 'pfUnverified')}
-              </span>
-              <span className={`h-badge type ${user.account_type}`}>
-                {user.account_type === 'real' ? t(lang, 'authReal') : t(lang, 'authDemo')}
               </span>
               {user.totp_enabled && <span className="h-badge ok"><Shield size={11} />2FA</span>}
             </div>
@@ -408,14 +412,28 @@ export default function ProfilePage() {
           <LogOut size={17} />{t(lang, 'pfLogout')}
         </button>
 
-        <div className="footer-note">BlueRock © 2026</div>
+        {logoutOpen && (
+          <div className="logout-box">
+            <span className="logout-sub">{t(lang, 'pfLogoutConfirm')}</span>
+            <div className="disable-actions">
+              <button type="button" className="ghost-btn" onClick={() => setLogoutOpen(false)}>
+                {t(lang, 'cancel')}
+              </button>
+              <button type="button" className="auth-submit small danger" onClick={confirmLogout}>
+                {t(lang, 'pfLogout')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="footer-note">Bluerock © 2026</div>
       </div>
 
-      <BottomNav active="menu" />
+      <BottomNav active="portfolio" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 8px; }
@@ -428,7 +446,7 @@ export default function ProfilePage() {
         .back-btn:hover { background: #141414; }
         .pf-title { flex: 1; font-size: 18px; font-weight: 700; margin: 0; }
         .header-spacer { width: 36px; }
-        .section-title { font-size: 14px; font-weight: 700; color: #aaa; margin: 18px 2px 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+        .section-title { font-size: 14px; font-weight: 700; color: #aaa; margin: 18px 2px 10px; text-transform: uppercase; letter-spacing: 0.15px; }
         .card { background: #141414; border: 1px solid #1f1f1f; border-radius: 18px; padding: 16px; margin-bottom: 12px; }
         .form-card { display: flex; flex-direction: column; gap: 12px; }
         .field { display: flex; flex-direction: column; gap: 6px; }
@@ -439,7 +457,7 @@ export default function ProfilePage() {
           font-size: 15px; font-family: inherit; outline: none; width: 100%;
         }
         .auth-input:focus { border-color: #18C27C; }
-        .auth-input.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 2px; }
+        .auth-input.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; text-align: center; letter-spacing: 0.15px; }
         .auth-submit {
           height: 48px; border: none; border-radius: 13px;
           background: #18C27C; color: #00130a; font-size: 14.5px; font-weight: 700;
@@ -488,8 +506,6 @@ export default function ProfilePage() {
         }
         .h-badge.ok { color: #7ee2a4; background: rgba(24,194,124,0.1); }
         .h-badge.warn { color: #ffd166; background: rgba(255,209,102,0.1); }
-        .h-badge.type.demo { color: #4ea8ff; background: rgba(78,168,255,0.12); }
-        .h-badge.type.real { color: #ffd166; background: rgba(255,209,102,0.12); }
         .hero-broker { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #bbb; }
         .hero-since { font-size: 11px; color: #666; }
         .avatar-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -525,14 +541,15 @@ export default function ProfilePage() {
         }
         .mini-btn.danger { background: rgba(240,68,56,0.1); border-color: rgba(240,68,56,0.3); color: #ff8a8c; }
         .mini-btn:disabled { opacity: 0.5; }
-        .disable-box, .setup-box { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 14px; border-top: 1px solid #1f1f1f; align-items: center; }
-        .disable-sub { font-size: 12px; color: #9AA3B2; text-align: center; }
+        .disable-box, .setup-box, .logout-box { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 14px; border-top: 1px solid #1f1f1f; align-items: center; }
+        .disable-sub, .logout-sub { font-size: 12px; color: #9AA3B2; text-align: center; }
+        .auth-submit.small.danger { background: rgba(240,68,56,0.15); color: #ff8a8c; }
         .disable-actions { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: space-between; }
         .card-sub { font-size: 12.5px; color: #9AA3B2; text-align: center; line-height: 1.35; }
         .qr-box { padding: 12px; background: #0d0d0d; border: 1px solid #262626; border-radius: 14px; }
         .secret-box { text-align: center; }
         .secret-label { font-size: 10.5px; color: #666; }
-        .secret-value { font-size: 12.5px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #bbb; letter-spacing: 2px; margin-top: 4px; }
+        .secret-value { font-size: 12.5px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #bbb; letter-spacing: 0.15px; margin-top: 4px; }
         .recovery-card { display: flex; flex-direction: column; gap: 12px; }
         .recovery-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .recovery-head .row-label { display: block; font-size: 14px; font-weight: 700; margin-bottom: 3px; }
@@ -541,7 +558,7 @@ export default function ProfilePage() {
         .code-chip {
           background: #0d0d0d; border: 1px solid #262626; border-radius: 10px;
           padding: 9px 6px; text-align: center; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
-          font-size: 12px; font-weight: 600; letter-spacing: 1px; color: #e8e8e8;
+          font-size: 12px; font-weight: 600; letter-spacing: 0.15px; color: #e8e8e8;
         }
         .logout-btn {
           width: 100%; margin-top: 6px; height: 48px; border-radius: 14px;

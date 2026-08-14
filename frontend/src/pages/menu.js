@@ -2,14 +2,22 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import { useAuth } from '../lib/auth'
-import { getUnreadCount } from '../services/api'
-import { Building2, Filter, Sparkles, LayoutGrid, Home, Database, Briefcase, Globe2, UserRound, LogOut, Compass, Bell } from 'lucide-react'
+import { getUnreadCount, getKycStatus } from '../services/api'
+import { Building2, Filter, Sparkles, LayoutGrid, Home, Database, Briefcase, Globe2, UserRound, Compass, Bell, Trophy, ShieldCheck, Gem } from 'lucide-react'
 import { t } from '../lib/i18n'
 
 export default function Menu() {
   const router = useRouter()
   const { user } = useAuth()
   const [unread, setUnread] = useState(0)
+  const [kycStatus, setKycStatus] = useState('')
+
+  const KYC_STATUS_KEY = {
+    not_started: 'kycStatusNotStarted', in_progress: 'kycStatusInProgress',
+    document_submitted: 'kycStatusDocumentSubmitted', verification_in_progress: 'kycStatusVerificationInProgress',
+    verified: 'kycStatusVerified', review_required: 'kycStatusReviewRequired',
+    rejected: 'kycStatusRejected', retry_required: 'kycStatusRetryRequired', error: 'kycStatusError',
+  }
 
   useEffect(() => {
     if (!user) return
@@ -17,6 +25,9 @@ export default function Menu() {
     const load = () => {
       getUnreadCount()
         .then(r => { if (mounted) setUnread(r.data.unread || 0) })
+        .catch(() => {})
+      getKycStatus()
+        .then(r => { if (mounted && r.data?.status) setKycStatus(r.data.status) })
         .catch(() => {})
     }
     load()
@@ -28,7 +39,7 @@ export default function Menu() {
     {
       title: t('menuMarket'),
       items: [
-        { label: t('menuHome'), desc: t('menuHomeDesc'), icon: Home, path: '/' },
+        { label: t('menuHome'), desc: t('menuHomeDesc'), icon: Home, path: '/menu' },
         { label: t('menuCompanies'), desc: t('menuCompaniesDesc'), icon: Building2, path: '/companies' },
         { label: t('menuScreener'), desc: t('menuScreenerDesc'), icon: Filter, path: '/screen' },
         { label: t('menuExplorer'), desc: t('menuExplorerDesc'), icon: Globe2, path: '/explorer' },
@@ -37,9 +48,11 @@ export default function Menu() {
     {
       title: t('menuAnalysis'),
       items: [
+        { label: t('offers'), desc: t('menuOffersDesc'), icon: Gem, path: '/premium' },
         { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Compass, path: '/patrimoine' },
         { label: t('aiAnalyst'), desc: t('menuAnalystDesc'), icon: Sparkles, path: '/analyst' },
         { label: t('community'), desc: t('menuCommunityDesc'), icon: LayoutGrid, path: '/community' },
+        { label: t('challenges'), desc: t('ch2Tagline'), icon: Trophy, path: '/challenges' },
         { label: t('portfolio'), desc: t('menuPortfolioDesc'), icon: Briefcase, path: '/portfolio' },
       ],
     },
@@ -52,8 +65,8 @@ export default function Menu() {
     {
       title: t('pfAccount'),
       items: [
+        { label: t('kycTitle'), desc: t(KYC_STATUS_KEY[kycStatus] || 'kycStatusNotStarted'), icon: ShieldCheck, path: '/kyc' },
         { label: t('notifTitle'), desc: t('notifSub'), icon: Bell, path: '/notifications', badge: unread },
-        { label: t('pfTitle'), desc: t('pfSecurity'), icon: UserRound, path: '/profile' },
       ],
     },
   ]
@@ -62,7 +75,7 @@ export default function Menu() {
     <div className="mobile-root">
       <div className="safe-area">
         <header className="mn-header">
-          <div className="mn-brand">BlueRock</div>
+          <div className="mn-brand">Bluerock</div>
           <div className="mn-sub">{t('menuSub')}</div>
         </header>
 
@@ -77,9 +90,7 @@ export default function Menu() {
                 {user.account_type === 'real' && user.broker_name ? ` · ${user.broker_name}` : ''}
               </span>
             </div>
-            <button className="acct-logout" onClick={() => logout()}>
-              <LogOut size={16} />
-            </button>
+            <span className="row-arrow">›</span>
           </div>
         ) : (
           <div className="acct-card guest" onClick={() => router.push(`/login?next=${encodeURIComponent(router.asPath)}`)}>
@@ -111,20 +122,20 @@ export default function Menu() {
           </div>
         ))}
 
-        <div className="footer-note">BlueRock © 2026 · {t('footerData')}</div>
+        <div className="footer-note">Bluerock © 2026 · {t('footerData')}</div>
       </div>
 
-      <BottomNav active="menu" />
+      <BottomNav active="portfolio" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
         .safe-area::-webkit-scrollbar { display: none; }
         .mn-header { display: flex; flex-direction: column; justify-content: center; height: 72px; }
-        .mn-brand { font-size: 22px; font-weight: 700; }
+        .mn-brand { font-size: 22px; font-weight: 600; }
         .mn-sub { font-size: 12px; color: #9AA3B2; }
         .section-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; margin-top: 10px; }
         .card-list {
@@ -149,7 +160,7 @@ export default function Menu() {
           min-width: 20px; height: 20px; border-radius: 999px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           background: rgba(24,194,124,0.15); color: #18C27C;
-          font-size: 11px; font-weight: 700; padding: 0 6px;
+          font-size: 11px; font-weight: 600; padding: 0 6px;
         }
         .acct-card {
           display: flex; align-items: center; gap: 12px;
@@ -163,20 +174,14 @@ export default function Menu() {
           background: rgba(24,194,124,0.12); color: #18C27C;
         }
         .acct-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-        .acct-name { font-size: 14px; font-weight: 700; }
+        .acct-name { font-size: 14px; font-weight: 600; }
         .acct-email { font-size: 11px; color: #9AA3B2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .acct-type-badge {
-          align-self: flex-start; font-size: 10px; font-weight: 700;
+          align-self: flex-start; font-size: 10px; font-weight: 600;
           padding: 2px 8px; border-radius: 8px; margin-top: 2px;
         }
         .acct-type-badge.demo { color: #4ea8ff; background: rgba(78,168,255,0.12); }
         .acct-type-badge.real { color: #ffd166; background: rgba(255,209,102,0.12); }
-        .acct-logout {
-          width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
-          display: flex; align-items: center; justify-content: center;
-          background: rgba(240,68,56,0.12); color: #F04438;
-          border: none; cursor: pointer;
-        }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 12px 0; }
       `}</style>
     </div>

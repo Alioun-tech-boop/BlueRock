@@ -1,4 +1,7 @@
 """Helpers d'authentification admin et quotas IA."""
+import hashlib
+import hmac
+import os
 import threading
 import time
 from collections import defaultdict
@@ -15,6 +18,28 @@ def require_admin(x_admin_token: Optional[str] = Header(default=None)) -> None:
         raise HTTPException(status_code=503, detail="Admin non configuré sur ce serveur")
     if not x_admin_token or x_admin_token != settings.ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Accès admin refusé")
+
+
+_PIN_ITERATIONS = 100_000
+
+
+def hash_pin(pin: str) -> str:
+    """Hache un code de sécurité (6 chiffres) : sel aléatoire + PBKDF2-SHA256."""
+    salt = os.urandom(16).hex()
+    digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt), _PIN_ITERATIONS).hex()
+    return f"{salt}${digest}"
+
+
+def verify_pin(pin: str, stored: str | None) -> bool:
+    """Vérifie un code de sécurité contre le hash stocké (comparaison constante)."""
+    if not stored:
+        return False
+    try:
+        salt, digest = stored.split("$", 1)
+        calc = hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt), _PIN_ITERATIONS).hex()
+        return hmac.compare_digest(calc, digest)
+    except Exception:
+        return False
 
 
 # Quota IA : user_id -> {date_str -> count}

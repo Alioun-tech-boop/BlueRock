@@ -1,4 +1,5 @@
 import { useRouter } from 'next/router'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 
 export default function TopPerformers({ performers = [] }) {
   const router = useRouter()
@@ -10,7 +11,11 @@ export default function TopPerformers({ performers = [] }) {
              onClick={() => router.push(`/company?id=${p.id}`)}>
           <div className="flex items-center gap-2">
             {p.logo_url ? (
-              <img src={p.logo_url} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'contain' }} />
+              <img
+                crossOrigin="anonymous" src={p.logo_url} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'contain', background: '#ffffff' }}
+                onLoad={e => applyLogoBackground(e.currentTarget, e.currentTarget)}
+                onError={onLogoError}
+              />
             ) : (
               <div style={{ width: 20, height: 20, borderRadius: 4, background: 'var(--tv-bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--tv-text-secondary)' }}>{p.symbol?.[0]}</div>
             )}

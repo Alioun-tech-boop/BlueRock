@@ -1,6 +1,6 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { LayoutDashboard, Building2, Brain, Search, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, Building2, Brain, Search } from 'lucide-react'
 import { getCompanies } from '../services/api'
 
 const navItems = [
@@ -40,8 +40,8 @@ export default function Sidebar({ active }) {
   return (
     <nav className="sidebar">
       <div className="sidebar-header">
-        <div className="logo-icon"><BarChart3 size={14} /></div>
-        <span className="logo-text">BlueRock</span>
+        <img src="/logo.png" alt="Bluerock" className="sidebar-logo" />
+        <span className="logo-text">Bluerock</span>
       </div>
       <div className="sidebar-search">
         <input
@@ -82,12 +82,13 @@ export default function Sidebar({ active }) {
         ))}
       </div>
       <div className="sidebar-footer">
-        <div className="version">BlueRock v1 · BRVM</div>
+        <div className="version">Bluerock v1 · BRVM</div>
       </div>
       <style jsx>{`
+        .sidebar-logo { width: 26px; height: 26px; object-fit: contain; border-radius: 7px; flex-shrink: 0; }
         .nav-item { font-size: 16px; font-weight: 600; color: #F2F4F7; }
         .nav-item.active { color: #18C27C; }
-        .nav-section { font-size: 14px; font-weight: 400; color: #9AA3B2; letter-spacing: 0.25px; }
+        .nav-section { font-size: 14px; font-weight: 400; color: #9AA3B2; letter-spacing: 0; }
         .tv-company-row .symbol { font-weight: 700; font-variant-numeric: tabular-nums; }
         .tv-company-row .price { color: #8E95A3; font-variant-numeric: tabular-nums; }
         .tv-company-row .change { font-weight: 500; font-variant-numeric: tabular-nums; }

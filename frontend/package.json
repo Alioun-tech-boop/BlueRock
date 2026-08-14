@@ -11,6 +11,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
     "axios": "^1.6.2",
+    "dompurify": "^3.1.4",
+    "isomorphic-dompurify": "^3.22.0",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.294.0",
     "next": "^14.0.4",

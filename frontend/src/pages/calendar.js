@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import { getMarketCalendar } from '../services/api'
 import { t, detectLang } from '../lib/i18n'
 import { ArrowLeft, ChevronDown, ChevronRight, BarChart3, TrendingUp, Newspaper, Briefcase } from 'lucide-react'
@@ -27,7 +28,7 @@ const IMPORTANCE = [
 ]
 
 const FLAGS = {
-  CI: 'ðŸ‡¨ðŸ‡®', BJ: 'ðŸ‡§ðŸ‡¯', BF: 'ðŸ‡§ðŸ‡«', ML: 'ðŸ‡²ðŸ‡±', NE: 'ðŸ‡³ðŸ‡ª', SN: 'ðŸ‡¸ðŸ‡³', TG: 'ðŸ‡¹ðŸ‡¬', UEMOA: 'ðŸ›ï¸',
+  CI: '🇨🇮', BJ: '🇧🇯', BF: '🇧🇫', ML: '🇲🇱', NE: '🇳🇪', SN: '🇸🇳', TG: '🇹🇬', UEMOA: '🏛️',
 }
 
 function ImportanceBars({ level }) {
@@ -154,7 +155,7 @@ export default function Calendar() {
         {error ? (
           <div className="state-box">{t('loadError')}</div>
         ) : loading ? (
-          <div className="state-box">{t('calLoading')}</div>
+          <div className="state-box"><TriLoader compact label={t('calLoading')} /></div>
         ) : groups.length === 0 ? (
           <div className="state-box">{t('calNoEvents')}</div>
         ) : (
@@ -169,25 +170,25 @@ export default function Calendar() {
                   <div className="event-main">
                     <div className="event-title">{e.title}</div>
                     <div className="event-meta">
-                      <span className="flag">{FLAGS[e.country] || 'ðŸ³ï¸'}</span>
+                      <span className="flag">{FLAGS[e.country] || '🏳️'}</span>
                       <span className="imp-icon">
                         <ImportanceBars level={e.importance || 1} />
                       </span>
                       <div className="value-cols">
                         <div className="value-col">
                           <span className="v-label">{t('calActual')}</span>
-                          <span className="v-value">{e.actual ? `${e.actual}${e.unit ? ' ' + e.unit : ''}` : '—'}</span>
+                          <span className="v-value">{e.actual ? `${e.actual}${e.unit ? ' ' + e.unit : ''}` : '?'}</span>
                           {countdownText(lang, date, now) && (
                             <span className="countdown">{countdownText(lang, date, now)}</span>
                           )}
                         </div>
                         <div className="value-col">
                           <span className="v-label">{t('calForecast')}</span>
-                          <span className="v-value">{e.forecast ? `${e.forecast}${e.unit ? ' ' + e.unit : ''}` : '—'}</span>
+                          <span className="v-value">{e.forecast ? `${e.forecast}${e.unit ? ' ' + e.unit : ''}` : '?'}</span>
                         </div>
                         <div className="value-col">
                           <span className="v-label">{t('calPrevious')}</span>
-                          <span className="v-value">{e.previous ? `${e.previous}${e.unit ? ' ' + e.unit : ''}` : '—'}</span>
+                          <span className="v-value">{e.previous ? `${e.previous}${e.unit ? ' ' + e.unit : ''}` : '?'}</span>
                         </div>
                       </div>
                     </div>
@@ -205,14 +206,14 @@ export default function Calendar() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, 'SF Pro Display', sans-serif;
           overflow: hidden;
         }
         .top-bar {
           height: 52px; flex-shrink: 0;
           display: flex; align-items: center;
-          background: #0E1627;
+          background: #000000;
           padding: 0 4px;
         }
         .back-btn {
@@ -227,7 +228,7 @@ export default function Calendar() {
         .content::-webkit-scrollbar { display: none; }
         .title {
           font-size: 34px; font-weight: 700;
-          letter-spacing: 0.25px; line-height: 1.05;
+          letter-spacing: 0; line-height: 1.05;
           margin: 4px 0 20px; text-align: left;
         }
         .filter-row {
@@ -250,14 +251,14 @@ export default function Calendar() {
           display: flex; align-items: center;
           padding: 0 14px;
           font-size: 14px; font-weight: 600; color: #F2F4F7;
-          letter-spacing: 0.25px;
+          letter-spacing: 0;
           margin: 6px -14px 0;
         }
         .event-row {
           display: flex; align-items: center; gap: 12px;
           padding: 16px 14px;
           border-bottom: 1px solid #1B1B1B;
-          background: #0E1627;
+          background: #000000;
           cursor: pointer;
         }
         .event-row:active { opacity: 0.7; }
@@ -272,7 +273,7 @@ export default function Calendar() {
         .event-main { flex: 1; min-width: 0; }
         .event-title {
           font-size: 18px; font-weight: 700; color: #F8F8FA;
-          line-height: 1.25; letter-spacing: 0.25px;
+          line-height: 1.25; letter-spacing: 0;
           margin-bottom: 8px;
         }
         .event-meta { display: flex; align-items: center; gap: 10px; }

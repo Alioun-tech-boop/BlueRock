@@ -6,7 +6,8 @@ from ..core.rate_limit import check_rate_limit
 from ..database import get_db
 from ..models.market import MarketData
 from ..models.company import Company, Sector
-from ..routers.auth import get_current_user
+from ..routers.auth import get_current_user, get_optional_user
+from ..services.tier import require_pro
 from datetime import date, datetime, timedelta
 
 from ..routers.companies import API_URL, COLORS
@@ -30,46 +31,87 @@ def get_market_live():
     from ..scrapers.live_feed import live_feed
     return live_feed.snapshot()
 
+@router.get("/ngx")
+def get_market_ngx(user=Depends(get_optional_user)):
+    """Statut + prix temps réel du flux NGX (cache, via NGN Market API).
+
+    Réservé à l'offre Pro (toutes les bourses).
+    """
+    require_pro(user)
+    from ..scrapers.ngx_feed import ngx_live_feed
+    return ngx_live_feed.snapshot()
+
 @router.get("/overview")
-def get_market_overview(db: Session = Depends(get_db)):
+def get_market_overview(exchange: str = "BRVM", db: Session = Depends(get_db),
+                        user=Depends(get_optional_user)):
     from ..scrapers.brvm_data import scrape_market_overview
     try:
         real = scrape_market_overview()
     except Exception:
         real = {}
 
-    live = _live_payload()
-    live_prices = (live or {}).get("prices") or {}
-    live_status = (live or {}).get("status")
-    live_last_update = (live or {}).get("last_update")
+    exchange = (exchange or "BRVM").upper()
+    if exchange not in ("BRVM", "NGX"):
+        raise HTTPException(status_code=422, detail="exchange doit être BRVM ou NGX")
+    is_ngx = exchange == "NGX"
+    if is_ngx:
+        require_pro(user)  # la bourse NGX est une fonctionnalité de l'offre Pro
+
+    if is_ngx:
+        from ..scrapers.ngx_feed import ngx_live_feed
+        live = ngx_live_feed.snapshot()
+        live_prices = live.get("prices") or {}
+        live_details = live.get("details") or {}
+        live_status = live.get("status")
+        live_last_update = live.get("last_update")
+    else:
+        live = _live_payload()
+        live_prices = (live or {}).get("prices") or {}
+        live_status = (live or {}).get("status")
+        live_last_update = (live or {}).get("last_update")
 
     latest_date = db.query(func.max(MarketData.date)).scalar() or date.today()
 
     todays_data = db.query(MarketData).filter(MarketData.date == latest_date).all()
     companies_by_id = {c.id: c for c in db.query(Company).all()}
+    md_by_company = {md.company_id: md for md in todays_data}
+
+    if is_ngx:
+        # Vue NGX : on itère sur le catalogue NGX (les MarketData ne sont
+        # remplies qu'au premier jour de collecte, le flux live est prioritaire).
+        targets = [c for c in companies_by_id.values() if c.exchange == "NGX"]
+    else:
+        targets = [companies_by_id[md.company_id] for md in todays_data
+                   if md.company_id in companies_by_id
+                   and companies_by_id[md.company_id].exchange == "BRVM"
+                   and companies_by_id[md.company_id].instrument_type == "equity"]
 
     stocks = []
-    for md in todays_data:
-        company = companies_by_id.get(md.company_id)
-        if company:
-            live_price = live_prices.get(company.symbol)
-            close_price = live_price["price"] if live_price else md.close_price
-            change_percent = live_price["change"] if live_price else md.change_percent
-            market_cap = (close_price * company.shares_outstanding) if live_price and company.shares_outstanding else md.market_cap
-            from ..services.logos import resolve_logo_url
+    for company in targets:
+        md = md_by_company.get(company.id)
+        live_price = live_prices.get(company.symbol)
+        close_price = live_price["price"] if live_price else (md.close_price if md else None)
+        change_percent = live_price["change"] if live_price else (md.change_percent if md else None)
+        market_cap = (close_price * company.shares_outstanding) if live_price and company.shares_outstanding else (md.market_cap if md else None)
+        from ..services.logos import resolve_logo_url
+        logo_url = live_details.get(company.symbol, {}).get("logo_url") if is_ngx else None
+        if not logo_url:
             logo_url = resolve_logo_url(company.symbol, company.website, API_URL)
-            stocks.append({
-                "id": company.id,
-                "symbol": company.symbol,
-                "company_name": company.name,
-                "sector": company.sector.value if company.sector else None,
-                "close_price": close_price,
-                "change_percent": change_percent,
-                "volume": md.volume,
-                "market_cap": market_cap,
-                "logo_url": logo_url,
-                "date": latest_date.isoformat()
-            })
+        stocks.append({
+            "id": company.id,
+            "symbol": company.symbol,
+            "company_name": company.name,
+            "sector": company.sector.value if company.sector else None,
+            "sub_sector": company.sub_sector,
+            "currency": company.currency or ("NGN" if is_ngx else "XOF"),
+            "exchange": company.exchange or exchange,
+            "close_price": close_price,
+            "change_percent": change_percent,
+            "volume": md.volume if md else None,
+            "market_cap": market_cap,
+            "logo_url": logo_url,
+            "date": latest_date.isoformat()
+        })
 
     # Sector performance from DB
     sectors = {}
@@ -148,14 +190,18 @@ def get_market_overview(db: Session = Depends(get_db)):
         "sectors": sector_perf,
         "gainers": gainers,
         "losers": losers,
-        "source": LIVE_MODE if live_prices else DB_MODE,
+        "source": ("NGX_LIVE" if is_ngx else LIVE_MODE) if live_prices else DB_MODE,
         "last_update": live_last_update,
         "live_status": live_status,
         "freshness": {
             "latest_date": latest_date.isoformat(),
             "is_current": days_since_update <= 3,
             "days_since_update": max(days_since_update, 0),
-            "note": "Cours actualisés par le flux BRVM ; l'historique des prix (BFIN) et les états financiers (BRVM) sont des données réelles téléchargées.",
+            "note": ("Cours NGX actualisés par le flux NGN Market (rapprochement prix codés, "
+                     "pas de backfill historique — l'historique s'accumule à partir du premier jour de collecte)."
+                     if is_ngx else
+                     "Cours actualisés par le flux BRVM ; l'historique des prix (BFIN) et les états "
+                     "financiers (BRVM) sont des données réelles téléchargées."),
         },
     }
 
@@ -201,11 +247,15 @@ def get_sparklines(days: int = 30, db: Session = Depends(get_db)):
 
 
 @router.get("/news")
-def get_news(limit: int = 500, force: bool = False):
-    """News marché BRVM : cache temps réel + historique persisté de l'année
-    en cours (les news ne disparaissent plus entre deux refresh)."""
+def get_news(limit: int = 500, force: bool = False, request: Request = None):
+    """News marché BRVM : historique persisté trié du plus récent au plus
+    ancien (positions stables) + re-scrape en arrière-plan si périmé ou
+    demandé (force)."""
     from ..scrapers.news_feed import news_feed, history
-    items = history(limit=limit, since=None) if not force else news_feed.refresh(force=True)[:limit]
+    if force:
+        check_rate_limit(request, limit=3, window_seconds=300)  # force = re-scrape complet
+        news_feed.refresh(force=True)  # lancé en arrière-plan, réponse non bloquée
+    items = history(limit=limit, since=None)
     return {
         "items": items,
         "brvm": news_feed.brvm,
@@ -241,10 +291,12 @@ def get_news_article(url: str, lang: str = "fr"):
 
 
 @router.get("/calendar")
-def get_calendar(force: bool = False, db: Session = Depends(get_db)):
+def get_calendar(force: bool = False, db: Session = Depends(get_db), request: Request = None):
     """Calendrier économique BRVM : annonces officielles (AG, dividendes,
     communiqués) + publications de résultats et indicateurs macro dérivés
     des données réelles en base."""
+    if force:
+        check_rate_limit(request, limit=3, window_seconds=300)  # force = re-scrape complet
     from ..scrapers.calendar_feed import calendar_feed
     items = calendar_feed.refresh(force=force, db=db)
     from ..services.economic_calendar import build_calendar_payload

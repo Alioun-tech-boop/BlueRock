@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+import re
 from typing import Optional, List
 from ..config import settings
 from ..database import get_db
@@ -8,9 +9,11 @@ from ..models.ratios import FinancialRatio
 from ..models.financial import FinancialStatement, FinancialLineItem, StatementType
 from ..models.market import MarketData, Dividend
 from ..models.analysis import ScoreCard, Valuation, AnalysisReport
+from ..data.countries import COUNTRY_BY_SYMBOL, DEFAULT_COUNTRY, EXCHANGE_BY_COUNTRY, DEFAULT_EXCHANGE
 from ..schemas.company import CompanyResponse, CompanyCreate, CompanyList
 from ..schemas.financial import RatioResponse, ValuationResponse, ScoreCardResponse, FinancialStatementResponse
 from ..core.supabase_auth import storage_signed_url
+from ..routers.auth import get_optional_user
 from datetime import date
 from sqlalchemy import func
 
@@ -18,6 +21,65 @@ router = APIRouter(prefix="/api/companies", tags=["Companies"])
 
 LIVE_MODE = "BRVM_LIVE"
 DB_MODE = "BRVM_DB"
+
+# Garde anti-données corrompues : un écart open/high/low > 10x vs close est
+# impossible sur une vraie séance BRVM (parsing BFIN erroné, point isolé).
+# On remplace alors les valeurs aberrantes par le close (champ fiable).
+ABSURD_RATIO = 10.0
+
+
+def _parse_profile(company) -> dict:
+    """Construit le profil d'entreprise à partir de la description BRVM
+    (format : 'Raison sociale : X | Secteur d'activités : Y | Date
+    d'introduction à la BRVM : ... | Président du Conseil d'administration :
+    ... | Directeur Général : ...')."""
+    fields = {}
+    for part in (company.description or "").split("|"):
+        if ":" in part:
+            k, _, v = part.partition(":")
+            fields[k.strip()] = v.strip()
+
+    country = company.country or COUNTRY_BY_SYMBOL.get(company.symbol, DEFAULT_COUNTRY)
+
+    founded = None
+    if company.listing_date:
+        founded = company.listing_date.year
+    if not founded:
+        m = re.search(r"\b(19|20)\d{2}\b", fields.get("Date d'introduction à la BRVM", ""))
+        if m:
+            founded = int(m.group(0))
+
+    sector = company.sector.value if company.sector else None
+    intro = fields.get("Date d'introduction à la BRVM")
+    activity = None
+    if sector and intro:
+        activity = f"{company.name}, société du secteur {sector}, introduite à la BRVM le {intro}."
+    elif sector:
+        activity = f"{company.name}, société du secteur {sector} cotée à la BRVM."
+    elif company.description:
+        activity = company.description.strip()
+
+    return {
+        "headquarters": country,
+        "ceo": fields.get("Directeur Général"),
+        "president": fields.get("Président du Conseil d'administration"),
+        "employees": None,
+        "founded": founded,
+        "activity": activity,
+        "shareholders": None,
+    }
+
+
+def _sanitize_ohlc(row: dict) -> dict:
+    close = row.get("close")
+    if close:
+        for key in ("open", "high", "low"):
+            v = row.get(key)
+            if v is None:
+                continue
+            if close == 0 or v / close > ABSURD_RATIO or close / v > ABSURD_RATIO:
+                row[key] = close
+    return row
 
 API_URL = settings.API_BASE_URL.rstrip("/")
 
@@ -84,7 +146,9 @@ def _prefetch_context(db: Session, company_ids: List[int]) -> dict:
             ctx["net_incomes"][coid] = val[0]
 
     from ..scrapers.live_feed import live_feed
+    from ..scrapers.ngx_feed import ngx_live_feed
     ctx["live"] = live_feed.snapshot()
+    ctx["ngx_live"] = ngx_live_feed.snapshot()
     return ctx
 
 
@@ -96,11 +160,21 @@ def _enrich_company(company, db, ctx: Optional[dict] = None):
     latest = ctx["latest"]
     md = ctx["mds"].get(company.id)
 
-    snap = ctx["live"]
-    live_prices = (snap or {}).get("prices") or {}
-    live_on = bool(snap and snap.get("status") != "OFFLINE")
-    live_price = live_prices.get(company.symbol)
-    price_source = LIVE_MODE if (live_price and live_on) else DB_MODE
+    is_ngx = (company.exchange or "BRVM") == "NGX"
+    if is_ngx:
+        snap = ctx.get("ngx_live") or {}
+        live_prices = (snap.get("prices") or {})
+        live_on = bool(snap and snap.get("status") != "OFFLINE")
+        live_price = live_prices.get(company.symbol)
+        price_source = "NGX_LIVE" if (live_price and live_on) else DB_MODE
+        ngx_detail = ((snap or {}).get("details") or {}).get(company.symbol) or {}
+    else:
+        snap = ctx["live"]
+        live_prices = (snap or {}).get("prices") or {}
+        live_on = bool(snap and snap.get("status") != "OFFLINE")
+        live_price = live_prices.get(company.symbol)
+        price_source = LIVE_MODE if (live_price and live_on) else DB_MODE
+        ngx_detail = {}
 
     ratio = ctx["ratios"].get(company.id)
 
@@ -122,6 +196,11 @@ def _enrich_company(company, db, ctx: Optional[dict] = None):
         "symbol": company.symbol,
         "name": company.name,
         "sector": company.sector.value if company.sector else "Autre",
+        "sub_sector": company.sub_sector,
+        "country": company.country or COUNTRY_BY_SYMBOL.get(company.symbol, DEFAULT_COUNTRY),
+        "exchange": company.exchange or EXCHANGE_BY_COUNTRY.get(company.country or COUNTRY_BY_SYMBOL.get(company.symbol, DEFAULT_COUNTRY), DEFAULT_EXCHANGE),
+        "currency": company.currency or ("NGN" if is_ngx else "XOF"),
+        "logo_url": ngx_detail.get("logo_url") or resolve_logo_url(company.symbol, company.website, API_URL),
         "instrument_type": company.instrument_type or "equity",
         "isin": company.isin,
         "shares_outstanding": company.shares_outstanding,
@@ -146,7 +225,6 @@ def _enrich_company(company, db, ctx: Optional[dict] = None):
         "ev_ebitda": float(ratio.ev_ebitda) if ratio and ratio.ev_ebitda else None,
         "total_score": None,
         "rating": None,
-        "logo_url": resolve_logo_url(company.symbol, company.website, API_URL),
         "created_at": company.created_at,
     }
 
@@ -227,15 +305,26 @@ def get_top_performers(limit: int = 10, db: Session = Depends(get_db)):
 @router.get("")
 def list_companies(
     sector: Optional[str] = None,
+    country: Optional[str] = None,
     search: Optional[str] = None,
     instrument_type: Optional[str] = None,
+    exchange: Optional[str] = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db)
+    limit: int = Query(50, ge=1, le=300),
+    db: Session = Depends(get_db),
+    user: Optional[object] = Depends(get_optional_user),
 ):
     query = db.query(Company)
     if instrument_type:
         query = query.filter(Company.instrument_type == instrument_type)
+    if exchange:
+        query = query.filter(Company.exchange == exchange.upper())
+        if exchange.upper() == "NGX":
+            # La bourse NGX est réservée à l'offre Pro.
+            from ..services.tier import require_pro
+            require_pro(user)
+    if country:
+        query = query.filter(Company.country == country)
     if sector:
         sector_enum = next((s for s in Sector if s.value.lower() == sector.lower()), None)
         if sector_enum:
@@ -364,7 +453,7 @@ def get_company_market_data(
         open_price = m.open_price if m.open_price is not None else (prev_close or m.close_price)
         high = m.high_price if m.high_price is not None else max(open_price, m.close_price)
         low = m.low_price if m.low_price is not None else min(open_price, m.close_price)
-        out.append({
+        out.append(_sanitize_ohlc({
             "date": m.date.isoformat(),
             "open": open_price,
             "high": high,
@@ -377,7 +466,7 @@ def get_company_market_data(
             "volume": m.volume,
             "change_percent": m.change_percent,
             "market_cap": m.market_cap,
-        })
+        }))
         prev_close = m.close_price
     from ..services.split_adjust import adjust_rows
     out = adjust_rows(out)
@@ -411,7 +500,12 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
     scorecard = db.query(ScoreCard).filter(ScoreCard.company_id == cid)\
         .order_by(ScoreCard.fiscal_year.desc(), ScoreCard.id.desc()).first()
     valuation = db.query(Valuation).filter(Valuation.company_id == cid)\
-        .order_by(Valuation.fiscal_year.desc(), Valuation.id.desc()).first()
+        .order_by(Valuation.fiscal_year.desc(), Valuation.id.desc()).all()
+    valuation = next((v for v in valuation if (
+        v.target_price is not None or v.dcf_value is not None
+        or v.graham_value is not None or v.buffett_value is not None
+        or v.ev_ebitda_value is not None or v.ev_ebit_value is not None
+    )), valuation[0] if valuation else None)
     report = db.query(AnalysisReport).filter(AnalysisReport.company_id == cid)\
         .order_by(AnalysisReport.created_at.desc()).first()
 
@@ -482,12 +576,12 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
         open_price = m.open_price if m.open_price is not None else (prev_close or m.close_price)
         high = m.high_price if m.high_price is not None else max(open_price, m.close_price)
         low = m.low_price if m.low_price is not None else min(open_price, m.close_price)
-        history_out.append({
+        history_out.append(_sanitize_ohlc({
             "date": m.date.isoformat(),
             "open": open_price, "high": high,
             "low": low, "close": m.close_price,
             "volume": m.volume,
-        })
+        }))
         prev_close = m.close_price
 
     from ..services.split_adjust import adjust_rows
@@ -521,7 +615,8 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
         "ai": {
             "summary": report.summary if report else None,
             "recommendation": (report.recommendations or valuation.recommendation) if (report or valuation) else None,
-            "target_price": report.target_price if report else (valuation.target_price if valuation else None),
+            "target_price": (report.target_price if report and report.target_price is not None
+                             else (valuation.target_price if valuation else None)),
             "confidence": report.confidence_score if report else None,
             "raw": raw,
         },
@@ -557,7 +652,7 @@ def get_company_full(company_id: str, days: int = Query(365, ge=30, le=20000), d
             }
             for d in dividends
         ],
-        "profile": None,
+        "profile": _parse_profile(company),
         "news": news,
         "data_synthetic": bool(
             db.query(FinancialStatement.id).filter(

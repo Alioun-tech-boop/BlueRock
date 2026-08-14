@@ -24,7 +24,7 @@ export default function Parametres() {
           {plan && plan.status === 'active' && (
             <div className="emitted-note"><Sparkles size={12} color="#2ACB8A" /> {t(lang, 'planEmittedBanner')}</div>
           )}
-          <div className="footer-note">BlueRock © 2026</div>
+          <div className="footer-note">Bluerock © 2026</div>
           <style jsx>{`
             .hero-card {
               display: flex; gap: 8px; align-items: flex-start;

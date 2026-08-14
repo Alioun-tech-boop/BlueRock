@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { RefreshCw, Sparkles, XCircle } from 'lucide-react'
+import { Sparkles, XCircle } from 'lucide-react'
 import { savePremiumPlan, cancelPremiumPlan } from '../services/api'
 import { t } from '../lib/i18n'
 import { fmtInput, parseFCFA, PLAN_TYPE_DEFAULTS } from '../lib/plan'
+import TriLoader from './TriLoader'
 
 const RISK_LEVELS = [
   { id: 'conservative', key: 'riskConservative' },
@@ -56,12 +57,19 @@ export default function PlanForm({ lang, type, plan, onDone, onCancel }) {
 
   const handleCancel = async () => {
     if (!plan || !window.confirm(t(lang, 'planCancelConfirm'))) return
+    let payload = {}
+    if (plan.has_pin) {
+      const pin = (window.prompt(t(lang, 'planPinRequired')) || '').trim()
+      if (!pin) return
+      payload = { pin }
+    }
     setCancelling(true)
+    setError('')
     try {
-      await cancelPremiumPlan(plan.id)
+      await cancelPremiumPlan(plan.id, payload)
       if (onCancel) onCancel()
     } catch (e) {
-      setError(t(lang, 'premiumError'))
+      setError(e.response && e.response.data && e.response.data.detail || t(lang, 'premiumError'))
     } finally {
       setCancelling(false)
     }
@@ -113,7 +121,7 @@ export default function PlanForm({ lang, type, plan, onDone, onCancel }) {
       </div>
       <button className="gen-btn" onClick={generate} disabled={loading || cancelling}>
         {loading ? (
-          <><RefreshCw size={16} className="spin" /> {t(lang, 'premiumLoading')}</>
+          <><TriLoader inline /> {t(lang, 'premiumLoading')}</>
         ) : (
           <>{active ? t(lang, 'planReplaceBtn') : (plan ? t(lang, 'planNewEmit') : t(lang, 'premiumGenerate'))} <Sparkles size={16} /></>
         )}

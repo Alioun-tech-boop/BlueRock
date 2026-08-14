@@ -190,7 +190,7 @@ export default function Donnees() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }

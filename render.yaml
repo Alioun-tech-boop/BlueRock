@@ -18,6 +18,10 @@ services:
         value: "true"
       - key: ALLOWED_HOSTS
         value: "localhost,127.0.0.1,.bluerock.ai,.netlify.app"
+      # Le scheduler tourne dans le web (mono-instance free) ; le verrou
+      # distribué SharedStore évite la double-exécution si on scale.
+      - key: WORKER_JOBS
+        value: "1"
       # Secrets — définis manuellement dans le dashboard (jamais commités)
       - key: DATABASE_URL
         sync: false
@@ -34,4 +38,6 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: REDIS_URL
         sync: false

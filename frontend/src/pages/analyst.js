@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import { analystChat } from '../services/api'
-import { ArrowLeft, Send, Sparkles, Trash2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Send, Sparkles, Trash2, RefreshCw, Coins } from 'lucide-react'
 import { t } from '../lib/i18n'
 import { getMarketStatus } from '../lib/market'
+import { useAuth } from '../lib/auth'
 
 const CHAT_KEY = 'bluerock_chat_v1'
 
@@ -72,11 +74,18 @@ function suggestions() {
 
 export default function Analyst() {
   const router = useRouter()
+  const { user, updateUser, refreshProfile } = useAuth()
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
   const [market] = useState(() => getMarketStatus())
+
+  useEffect(() => {
+    const boot = async () => { try { await refreshProfile() } catch (e) {} }
+    if (user) boot()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     try {
@@ -105,9 +114,17 @@ export default function Analyst() {
     try {
       const res = await analystChat({ question })
       const answer = res.data.answer || res.data.response || res.data.message || t('noAnswer')
+      if (res.data.tokens_remaining != null) updateUser({ ai_tokens: res.data.tokens_remaining })
       setMessages(prev => [...prev, { role: 'assistant', content: answer }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: t('chatError'), error: true, question }])
+    } catch (e) {
+      const isQuota = e?.response?.status === 429
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: t(isQuota ? 'chatQuota' : 'chatError'),
+        error: true,
+        question,
+        quota: isQuota,
+      }])
     } finally {
       setLoading(false)
     }
@@ -131,9 +148,20 @@ export default function Analyst() {
               <Sparkles size={11} /> BRVM · {t(market.label)}
             </span>
           </div>
-          <button className="icon-btn" onClick={clearChat} title={t('clear')}>
-            <Trash2 size={17} />
-          </button>
+          <div className="an-right">
+            {user && (
+              <button
+                className={`an-tokens ${user.tier === 'pro' ? 'pro' : ''}`}
+                onClick={() => router.push('/premium')}
+                title={t('analystTokensTitle')}
+              >
+                <Coins size={11} /> {user.ai_tokens ?? 0}
+              </button>
+            )}
+            <button className="icon-btn" onClick={clearChat} title={t('clear')}>
+              <Trash2 size={17} />
+            </button>
+          </div>
         </header>
 
         <div className="chat-messages">
@@ -143,19 +171,23 @@ export default function Analyst() {
                 ? <ChatText text={msg.content} />
                 : msg.content}
               {msg.error && (
-                <button className="retry-msg" onClick={() => sendMessage(msg.question)}>
-                  <RefreshCw size={12} /> {t('retry')}
-                </button>
+                <div className="retry-row">
+                  {msg.quota ? (
+                    <button className="retry-msg quota" onClick={() => router.push('/premium')}>
+                      <Sparkles size={12} /> {t('chatUpgrade')}
+                    </button>
+                  ) : (
+                    <button className="retry-msg" onClick={() => sendMessage(msg.question)}>
+                      <RefreshCw size={12} /> {t('retry')}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}
           {loading && (
             <div className="chat-bubble assistant">
-              <div className="typing">
-                <span className="dot" />
-                <span className="dot" />
-                <span className="dot" />
-              </div>
+              <TriLoader inline />
             </div>
           )}
           <div ref={bottomRef} />
@@ -186,7 +218,7 @@ export default function Analyst() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -200,7 +232,20 @@ export default function Analyst() {
         }
         .icon-btn:hover { background: #1a1a1a; }
         .an-title { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-        .an-name { font-size: 17px; font-weight: 700; }
+        .an-name { font-size: 17px; font-weight: 600; }
+        .an-right { display: flex; align-items: center; gap: 6px; }
+        .an-tokens {
+          display: flex; align-items: center; gap: 5px;
+          height: 30px; padding: 0 11px;
+          background: #1B1B1B; border: 1px solid #2a2a2a; border-radius: 999px;
+          color: #9AA3B2; font-size: 12px; font-weight: 600; cursor: pointer;
+          font-family: inherit;
+        }
+        .an-tokens:hover { border-color: #3a3a3a; color: #fff; }
+        .an-tokens.pro { color: #FFD77A; border-color: #FFD77A44; background: #2a2416; }
+        .retry-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .retry-msg.quota { background: #241d0e; border-color: #FFD77A55; color: #FFD77A; }
+        .retry-msg.quota:hover { background: #2f2613; }
         .an-status {
           display: flex; align-items: center; gap: 4px;
           font-size: 11px;
@@ -228,7 +273,7 @@ export default function Analyst() {
         .chat-bubble h4 { font-size: 14px; }
         .chat-bubble .md-ul, .chat-bubble .md-ol { margin: 0 0 8px; padding-left: 18px; }
         .chat-bubble .md-ul li, .chat-bubble .md-ol li { margin-bottom: 4px; }
-        .chat-bubble strong { color: #fff; font-weight: 700; }
+        .chat-bubble strong { color: #fff; font-weight: 600; }
         .chat-bubble em { color: #d6d3f0; }
         .chat-bubble code {
           background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 6px;
@@ -245,14 +290,6 @@ export default function Analyst() {
           color: #f0b4b4; font-size: 12px; cursor: pointer; font-family: inherit;
         }
         .retry-msg:hover { background: #331616; }
-        .typing { display: flex; gap: 4px; padding: 2px 0; }
-        .dot {
-          width: 6px; height: 6px; border-radius: 50%; background: #9AA3B2;
-          animation: bounce 1.2s infinite;
-        }
-        .dot:nth-child(2) { animation-delay: 0.15s; }
-        .dot:nth-child(3) { animation-delay: 0.3s; }
-        @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
         .chat-suggestions {
           display: flex; gap: 8px; padding: 10px 16px;
           overflow-x: auto; flex-shrink: 0;

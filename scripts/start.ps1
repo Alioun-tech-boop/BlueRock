@@ -1,4 +1,4 @@
-Write-Host "=== BlueRock - BRVM Financial Intelligence Platform ===" -ForegroundColor Cyan
+Write-Host "=== Bluerock - BRVM Financial Intelligence Platform ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Check prerequisites

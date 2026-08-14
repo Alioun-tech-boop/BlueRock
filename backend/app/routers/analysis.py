@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from ..config import settings
 from ..core.rate_limit import check_rate_limit
-from ..core.security import check_ai_quota
+from ..services.tier import consume_token
 from ..database import get_db
 from ..models.company import Company, Sector
 from ..models.analysis import AnalysisReport, ScoreCard
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/analysis", tags=["Analysis"])
 @router.post("/ask", response_model=AIResponse)
 def ask_ai(query: AIQuery, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
     check_rate_limit(request, limit=10, window_seconds=60)  # 10 questions / min / IP
-    check_ai_quota(user)  # quota quotidien par compte
+    remaining = consume_token(db, user)  # 1 question = 1 token IA (mensuel)
     analyst = AIAnalyst(db)
     result = analyst.ask_question(
         company_id=query.company_id,
@@ -31,7 +31,9 @@ def ask_ai(query: AIQuery, request: Request, db: Session = Depends(get_db), user
     return AIResponse(
         answer=result["answer"],
         context_used=result["context_used"],
-        ai_type=result["ai_type"]
+        ai_type=result["ai_type"],
+        tokens_remaining=remaining,
+        tier=user.tier or "basic",
     )
 
 def _resolve_company_id(company_id: str, db: Session) -> Optional[int]:
@@ -70,6 +72,8 @@ def analyze_company(company_id: str, fiscal_year: Optional[int] = None,
     
     val_service = ValuationService(db)
     valuation = val_service.calculate_all_valuations(cid, year)
+    if valuation is None:
+        raise HTTPException(status_code=422, detail="Aucune valorisation calculable pour cet exercice (données EPS/BVPS/FCF manquantes)")
     
     scoring = ScoringService(db)
     scorecard = scoring.generate_scorecard(cid, year)

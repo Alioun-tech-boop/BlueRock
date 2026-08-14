@@ -1,23 +1,33 @@
-"""Rate limiting en mémoire par IP (sans dépendance externe).
+"""Rate limiting partagé par IP (fenêtre fixe).
 
-Bucket glissant simple : (clé, [timestamps]). Purge périodique des entrées
-anciennes pour éviter la fuite mémoire.
+L'état vit dans le SharedStore (Redis si configuré, sinon mémoire par
+processus) : la limite est donc commune à toutes les instances de l'API dès
+que Redis est branché, et par processus sinon (correct en mono-instance).
+
+Fenêtre fixe (INCR + EXPIRE) : plus économique que la fenêtre glissante et
+suffisante pour la protection anti-abuse ; au pire un client peut passer
+2× la limite à cheval sur deux fenêtres.
+
+Anti-spoofing : le header X-Forwarded-For n'est pris en compte QUE si un
+proxy de confiance est déclaré (TRUST_PROXY_IPS). Sinon on utilise l'IP de
+socket — un client peut mentir sur XFF mais pas sur son IP réelle.
 """
-import threading
 import time
-from collections import defaultdict
+
 from fastapi import HTTPException
 
 from ..config import settings
-
-_buckets: dict[str, list[float]] = defaultdict(list)
-_lock = threading.Lock()
+from .shared_store import store
 
 
 def _ip_key(request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    if settings.TRUST_PROXY_IPS:
+        trusted = {ip.strip() for ip in settings.TRUST_PROXY_IPS.split(",") if ip.strip()}
+        client_ip = request.client.host if request.client else "unknown"
+        xff = request.headers.get("x-forwarded-for")
+        if xff and client_ip in trusted:
+            return xff.split(",")[0].strip() or client_ip
+        return client_ip
     return request.client.host if request.client else "unknown"
 
 
@@ -25,19 +35,18 @@ def check_rate_limit(request, limit: int, window_seconds: int = 60) -> None:
     """Lève HTTPException 429 si la limite est dépassée pour l'IP."""
     if not settings.RATE_LIMIT_ENABLED:
         return
-    key = f"{_ip_key(request)}:{request.url.path}"
-    now = time.monotonic()
-    with _lock:
-        ts = _buckets[key]
-        cutoff = now - window_seconds
-        ts[:] = [t for t in ts if t > cutoff]
-        if len(ts) >= limit:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Trop de requêtes. Réessayez dans {int(cutoff + window_seconds - now + 1)}s.",
-            )
-        ts.append(now)
-        # purge globale périodique (toutes les ~1000 insertions)
-        if len(_buckets) > 10000:
-            for k in [k for k, v in _buckets.items() if not v or v[-1] < now - window_seconds]:
-                del _buckets[k]
+    bucket = f"rl:{_ip_key(request)}:{request.url.path}"
+    count = store.incr(bucket, ttl=window_seconds)
+    if count == 1:
+        store.set(bucket + ":s", str(time.time()), ttl=window_seconds)
+    if count > limit:
+        start_raw = store.get(bucket + ":s")
+        try:
+            start = float(start_raw) if start_raw else None
+            remaining = int(start + window_seconds - time.time() + 1) if start else window_seconds
+        except (TypeError, ValueError):
+            remaining = window_seconds
+        raise HTTPException(
+            status_code=429,
+            detail=f"Trop de requêtes. Réessayez dans {max(1, remaining)}s.",
+        )

@@ -125,7 +125,7 @@ def _rss_image(item) -> str:
         if body:
             m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', body, re.I)
             if m:
-                url = _clean(m.group(1))
+                url = _improve_image(m.group(1))
                 if url and not url.startswith("data:") and "logo" not in url.lower():
                     return url
     return ""
@@ -149,11 +149,149 @@ def _parse_date(raw):
         return None
 
 
-def _fetch(url, headers=None):
+def _fetch(url, headers=None, timeout=15):
     h = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0"}
     if headers:
         h.update(headers)
-    return httpx.get(url, headers=h, timeout=15, follow_redirects=True)
+    return httpx.get(url, headers=h, timeout=timeout, follow_redirects=True)
+
+
+_IMG_BAD = re.compile(r"(logo|icon|avatar|favicon|sprite|placeholder|feed|googleusercontent|gstatic|data:image|\.svg|\.gif$|1x1|blank)", re.I)
+_WP_SIZE = re.compile(r"-\d+x\d+(?=\.[a-zA-Z0-9]+$)")
+
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0"
+
+
+def _improve_image(url: str) -> str:
+    """URL d'image haute résolution : retire le suffixe de recadrage WordPress
+    (-750x465) pour récupérer l'original pleine taille."""
+    u = _clean(url)
+    if not u:
+        return ""
+    if u.startswith("//"):
+        u = "https:" + u
+    return _WP_SIZE.sub("", u)[:600]
+
+
+def _image_width_fast(url: str, timeout: int = 4) -> int:
+    """Largeur réelle d'une image en ne lisant que l'en-tête (PNG/JPEG).
+    Retourne 0 si le format n'est pas parsable."""
+    import struct
+    try:
+        with httpx.stream("GET", url, headers={"User-Agent": _UA}, timeout=timeout, follow_redirects=True) as resp:
+            if resp.status_code != 200 or not (resp.headers.get("content-type") or "").startswith("image/"):
+                return 0
+            head = b""
+            for chunk in resp.iter_bytes():
+                head += chunk
+                if len(head) >= 64 * 1024:
+                    break
+        if head.startswith(b"\x89PNG"):
+            if len(head) >= 24:
+                return struct.unpack(">II", head[16:24])[0]
+        if head.startswith(b"\xff\xd8"):
+            i = 2
+            while i < len(head) - 9:
+                if head[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = head[i + 1]
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    return struct.unpack(">HH", head[i + 5:i + 9])[1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                    i += 2
+                else:
+                    i += 2 + struct.unpack(">H", head[i + 2:i + 4])[0]
+        return 0
+    except Exception:
+        return 0
+
+
+_IMAGE_OK_CACHE = {}
+
+
+def _image_ok(url: str, min_width: int = 480) -> bool:
+    """True si l'image est assez large pour être nette (inconnu = OK)."""
+    key = (url, min_width)
+    if key in _IMAGE_OK_CACHE:
+        return _IMAGE_OK_CACHE[key]
+    w = _image_width_fast(url)
+    ok = w == 0 or w >= min_width
+    _IMAGE_OK_CACHE[key] = ok
+    return ok
+
+
+def _fetch_page_image(url: str, timeout: int = 5) -> str:
+    """og:image de la page article, sinon première <img> pertinente du HTML."""
+    try:
+        resp = _fetch(url, timeout=timeout)
+        resp.raise_for_status()
+        if len(resp.content) > 2_000_000 or "html" not in (resp.headers.get("content-type") or "").lower():
+            return ""
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(resp.text, "lxml")
+        candidates = []
+        og = soup.find("meta", property="og:image")
+        if og and og.get("content"):
+            width = 0
+            wm = soup.find("meta", property="og:image:width")
+            if wm and wm.get("content"):
+                try:
+                    width = int(wm["content"])
+                except ValueError:
+                    width = 0
+            candidates.append((width, og["content"]))
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
+            if not src or src.startswith("data:") or _IMG_BAD.search(src) or not src.startswith("http"):
+                continue
+            w = 0
+            for attr in ("width", "data-width"):
+                if img.get(attr):
+                    try:
+                        w = int(str(img.get(attr)))
+                        break
+                    except ValueError:
+                        w = 0
+            candidates.append((w, src))
+            if len(candidates) >= 6:
+                break
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        for _, c in candidates:
+            url = _improve_image(c)
+            if url and not _IMG_BAD.search(url):
+                return url
+        return ""
+    except Exception:
+        return ""
+
+
+def _enrich_images(items: list, budget: int = 160) -> int:
+    """Meilleure offre : récupère l'og:image des articles sans image.
+    Budget limité pour ne pas ralentir le refresh ; les items les plus
+    récents (déjà triés) sont prioritaires."""
+    from concurrent.futures import ThreadPoolExecutor
+    missing = [
+        it for it in items
+        if not it.get("image") or _IMG_BAD.search(it.get("image") or "") or not _image_ok(it.get("image") or "", min_width=480)
+    ][:budget]
+    if not missing:
+        return 0
+    found = 0
+    def fetch_one(it):
+        nonlocal found
+        url = it.get("url_real") or it.get("url") or ""
+        if not url or not url.startswith("http"):
+            return
+        img = _fetch_page_image(url)
+        if img:
+            it["image"] = img
+            found += 1
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(fetch_one, missing))
+    if found:
+        _log.info("News images backfilled: %d/%d", found, len(missing))
+    return found
 
 
 def _fetch_google(query):
@@ -313,6 +451,7 @@ class NewsFeed:
                 src = it["source"] or default_src
                 it["category"] = category
                 it["source"] = src[:60]
+                it["image"] = _improve_image(it.get("image") or "")
                 if relevant and not _is_relevant(title + " " + src, src):
                     continue
                 out.append(it)
@@ -326,6 +465,11 @@ class NewsFeed:
 
         items = societes + brvm + presse
         items.sort(key=lambda x: x.get("date") or now_iso, reverse=True)
+
+        try:
+            _enrich_images(items)
+        except Exception as e:
+            _log.warning("News image enrichment failed: %s", e)
 
         with self._lock:
             self._items = items[:MAX_ITEMS]
@@ -416,6 +560,9 @@ def _persist(items: list) -> int:
                 continue
             existing = db.query(NewsItem).filter(NewsItem.url_real == url_real).first()
             if existing:
+                img = _improve_image(it.get("image") or "")
+                if img and img != (existing.image or ""):
+                    existing.image = img[:600]
                 continue
             try:
                 published = datetime.fromisoformat(it["date"]) if it.get("date") else None
@@ -445,7 +592,13 @@ def _persist(items: list) -> int:
 
 def history(limit: int = 200, since: datetime = None) -> list:
     """Items persistés (année en cours par défaut) fusionnés avec le cache
-    mémoire frais : les news ne disparaissent plus entre deux refresh."""
+    mémoire frais : les news ne disparaissent plus entre deux refresh.
+
+    La base est la source de vérité : l'horodatage présenté est toujours
+    published_at (figé à la première ingestion), donc la position d'une news
+    déjà vue ne bouge plus lorsqu'un refresh la re-capture, et tout est trié
+    du plus récent au plus ancien.
+    """
     from ..database import SessionLocal
     from ..models.news import NewsItem
     since = since or datetime(now_utc().year, 1, 1, tzinfo=timezone.utc)
@@ -462,9 +615,9 @@ def history(limit: int = 200, since: datetime = None) -> list:
         )
     finally:
         db.close()
-    merged = {it.get("url_real") or it.get("url"): it for it in cached}
-    for row in rows:
-        merged.setdefault(row.url_real, _to_dict(row))
+    merged = {row.url_real: _to_dict(row) for row in rows}
+    for it in cached:  # complète uniquement avec les items pas encore persistés
+        merged.setdefault(it.get("url_real") or it.get("url"), it)
     items = list(merged.values())
     items.sort(key=lambda x: x.get("date") or "", reverse=True)
     return items[:limit]

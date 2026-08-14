@@ -1,0 +1,13 @@
+project_id = "bluerock"
+
+[functions.stripe-checkout]
+verify_jwt = false  # auth manuelle : JWT utilisateur (backend en forward)
+
+[functions.stripe-webhook]
+verify_jwt = false  # signature Stripe
+
+[functions.stripe-session-status]
+verify_jwt = false  # service role key uniquement
+
+[functions.stripe-refund]
+verify_jwt = false  # service role key uniquement

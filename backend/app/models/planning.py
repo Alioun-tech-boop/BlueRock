@@ -21,9 +21,15 @@ class PremiumPlan(Base):
     cancelled_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+    # Gestion automatique : le portefeuille passe sous la commande du plan
+    linked_to_portfolio = Column(Boolean, nullable=False, default=False)
+    linked_at = Column(DateTime, nullable=True)
+    managed_portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=True)
+    pin_hash = Column(String, nullable=True)  # code de sécurité optionnel (6 chiffres, PBKDF2)
+
     # Allocation éditée à l'émission (immuable pour la valorisation continue)
     allocation_snapshot = Column(Text, nullable=True)  # JSON du plan émis
-    start_value = Column(Float, nullable=True)         # valeur investie à l'émission
+    start_value = Column(Float, nullable=True)         # capital total à l'émission (réserve comprise)
 
     # Dernière valorisation (mise à jour par le tracking)
     last_value = Column(Float, nullable=True)

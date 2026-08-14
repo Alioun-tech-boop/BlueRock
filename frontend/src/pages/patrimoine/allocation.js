@@ -3,10 +3,16 @@ import PatrimoineSectionStyles from '../../components/PatrimoineSectionStyles'
 import PatrimoineEmpty from '../../components/PatrimoineEmpty'
 import { fmtFCFA, fmtPct } from '../../lib/plan'
 import { t } from '../../lib/i18n'
-import { fmtPrice } from '../../lib/i18n'
+import { fmtPriceCur } from '../../lib/i18n'
+import { applyLogoBackground, onLogoError } from '../../lib/logoBg'
 import { Target, Wallet, Info, Sparkles, TrendingUp, ShieldCheck, AlertTriangle } from 'lucide-react'
 
 export default function Allocation() {
+  const allocColor = sym => {
+    let h = 0
+    for (let i = 0; i < sym.length; i++) h = (h * 31 + sym.charCodeAt(i)) % 360
+    return `hsl(${h}, 62%, 45%)`
+  }
   return (
     <PatrimoineShell section="allocation">
       {({ plan, type, lang }) => (
@@ -27,20 +33,44 @@ export default function Allocation() {
                 <div className="stat"><span className="stat-l">{t(lang, 'premiumCashBuffer')}</span><span className="stat-v">{fmtFCFA(plan.cash_buffer)}</span></div>
                 <div className="stat"><span className="stat-l">{t(lang, 'premiumExpectedReturn')}</span><span className="stat-v">{fmtPct(plan.expected_return * 100, 1)}</span></div>
                 <div className="stat"><span className="stat-l">{t(lang, 'premiumContributions')}</span><span className="stat-v">{fmtFCFA(plan.total_contributions)}</span></div>
-                <div className="stat up"><span className="stat-l">{t(lang, 'premiumGain')}</span><span className="stat-v">+{fmtFCFA(plan.gain)}</span></div>
+                <div className="stat up"><span className="stat-l">{t(lang, 'premiumGain')}</span><span className="stat-v">{plan.gain >= 0 ? '+' : ''}{fmtFCFA(plan.gain)}</span></div>
               </div>
               <div className="sum-hint">{t(lang, 'premiumCashHint')}</div>
 
-              <div className="card-title-inline">
-                <Target size={16} color="#2ACB8A" /> {t(lang, 'premiumAllocation')}
-                <span className="uni-badge">{plan.allocation.length} {t(lang, 'premiumUniverse')}</span>
+              <div className="card">
+                <div className="sec-title"><span className="sec-title-ico"><Target size={15} /></span> {t(lang, 'premiumAllocation')}</div>
+                <div className="stack-bar">
+                  {plan.allocation.map(a => (
+                    <div
+                      key={a.symbol}
+                      className="stack-seg"
+                      style={{ width: `${Math.max(a.weight_percent || 0, 2)}%`, background: allocColor(a.symbol) }}
+                      title={`${a.symbol} ${(a.weight_percent || 0).toFixed(1)}%`}
+                    />
+                  ))}
+                </div>
+                <div className="stack-legend">
+                  {plan.allocation.slice(0, 6).map(a => (
+                    <span key={a.symbol} className="stack-chip">
+                      <i className="stack-dot" style={{ background: allocColor(a.symbol) }} />
+                      {a.symbol} <b>{(a.weight_percent || 0).toFixed(1)}%</b>
+                    </span>
+                  ))}
+                  {plan.allocation.length > 6 && (
+                    <span className="stack-chip">+{plan.allocation.length - 6} {t(lang, 'premiumUniverse')}</span>
+                  )}
+                </div>
               </div>
 
               {plan.allocation.map(a => (
                 <div key={a.symbol} className="card">
                   <div className="alloc-head">
                     {a.logo_url ? (
-                      <img className="alloc-logo" src={a.logo_url} alt={a.symbol} />
+                      <img
+                        crossOrigin="anonymous" className="alloc-logo" src={a.logo_url} alt={a.symbol}
+                        onLoad={e => applyLogoBackground(e.currentTarget, e.currentTarget)}
+                        onError={onLogoError}
+                      />
                     ) : (
                       <div className="alloc-logo placeholder">{a.symbol.slice(0, 2)}</div>
                     )}
@@ -53,11 +83,11 @@ export default function Allocation() {
                   <div className="kv-grid">
                     <div className="kv"><span>{t(lang, 'premiumWeight')}</span><b>{fmtPct(a.weight_percent)}</b></div>
                     <div className="kv"><span>{t(lang, 'premiumAllocated')}</span><b>{fmtFCFA(a.allocated_amount)}</b></div>
-                    <div className="kv"><span>{t(lang, 'price')}</span><b>{fmtPrice(lang, a.current_price, 0)}</b></div>
-                    <div className="kv"><span>{t(lang, 'premiumFairValue')}</span><b>{fmtPrice(lang, a.fair_value, 0)}</b></div>
+                    <div className="kv"><span>{t(lang, 'price')}</span><b>{fmtPriceCur(lang, a.current_price, 'XOF', 0)}</b></div>
+                    <div className="kv"><span>{t(lang, 'premiumFairValue')}</span><b>{fmtPriceCur(lang, a.fair_value, 'XOF', 0)}</b></div>
                     <div className="kv"><span>{t(lang, 'premiumDiscountLbl')}</span><b className="green">{fmtPct(a.discount_percent)}</b></div>
                     <div className="kv"><span>{t(lang, 'divYield')}</span><b>{fmtPct(a.dividend_yield, 2)}</b></div>
-                    <div className="kv"><span>{t(lang, 'premiumQuality')}</span><b>{a.rating ? `${a.rating} · ${fmtPrice(lang, a.score, 1)}/10` : `${fmtPrice(lang, a.score, 1)}/10`}</b></div>
+                    <div className="kv"><span>{t(lang, 'premiumQuality')}</span><b>{a.rating ? `${a.rating} · ${(a.score || 0).toFixed(1)}/10` : `${(a.score || 0).toFixed(1)}/10`}</b></div>
                     <div className="kv"><span>{t(lang, 'premiumExpectedReturn')}</span><b className="green">{fmtPct(a.expected_return * 100)}</b></div>
                     <div className="kv"><span>{t(lang, 'premiumShares')}</span><b>{a.shares}</b></div>
                     <div className="kv"><span>{t(lang, 'premiumProjectedValue')}</span><b>{fmtFCFA(a.projected_value)}</b></div>
@@ -82,9 +112,9 @@ export default function Allocation() {
                     )}
                   </div>
                   <div className="level-grid">
-                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumEntryLimit')}</span><b>{fmtPrice(lang, a.entry_limit, 0)}</b></div>
-                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumTakeProfit')}</span><b className="green">{fmtPrice(lang, a.take_profit, 0)}</b></div>
-                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumStopLoss')}</span><b className="red">{fmtPrice(lang, a.stop_loss, 0)}</b></div>
+                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumEntryLimit')}</span><b>{fmtPriceCur(lang, a.entry_limit, 'XOF', 0)}</b></div>
+                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumTakeProfit')}</span><b className="green">{fmtPriceCur(lang, a.take_profit, 'XOF', 0)}</b></div>
+                    <div className="lvl"><span className="lvl-l">{t(lang, 'premiumStopLoss')}</span><b className="red">{fmtPriceCur(lang, a.stop_loss, 'XOF', 0)}</b></div>
                   </div>
                   <div className="rationale">{a.rationale}</div>
                   {a.ai_note && (
@@ -139,7 +169,7 @@ export default function Allocation() {
               <div className="disclaimer">{t(lang, 'premiumDisclaimer')}</div>
             </>
           )}
-          <div className="footer-note">BlueRock © 2026</div>
+          <div className="footer-note">Bluerock © 2026</div>
         </>
       )}
     </PatrimoineShell>

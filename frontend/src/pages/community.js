@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import ChallengesSection from '../components/ChallengesSection'
-import { Search, MessageCircle, MoreHorizontal, BadgeCheck, X, Send, ChevronLeft, Loader2, TrendingUp, TrendingDown } from 'lucide-react'
+import TriLoader from '../components/TriLoader'
+import { Search, MessageCircle, MoreHorizontal, BadgeCheck, X, Send, ChevronLeft, TrendingUp, TrendingDown, ImagePlus, Paperclip, Link2, FileText, ExternalLink, Play } from 'lucide-react'
 import { t, detectLang, timeAgo } from '../lib/i18n'
-import { getCommunityPosts, getCommunityUsers, getCommunityUser, followCommunityUser, rocketCommunityPost, getCommunityComments, addCommunityComment, createCommunityPost, getCompanies } from '../services/api'
+import { getCommunityPosts, getCommunityUsers, getCommunityUser, followCommunityUser, rocketCommunityPost, getCommunityComments, addCommunityComment, createCommunityPost, getCompanies, reactCommunityComment, updateCommunityMe } from '../services/api'
 import { useAuth } from '../lib/auth'
 
 const SECTIONS = ['social', 'challenges']
@@ -94,6 +95,122 @@ function ChartImage({ symbol, color, bearish, series, price, change_percent }) {
   )
 }
 
+function MediaLightbox({ attachment, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="lb-overlay" onClick={onClose}>
+      <div className="lb-inner" onClick={e => e.stopPropagation()}>
+        {attachment.kind === 'video' ? (
+          <video src={attachment.url} controls autoPlay className="lb-media" />
+        ) : (
+          <img src={attachment.url} alt={attachment.name || 'photo'} className="lb-media" />
+        )}
+      </div>
+      <button className="lb-close" onClick={onClose} aria-label="fermer">
+        <X size={22} />
+      </button>
+      <style jsx>{`
+        .lb-overlay {
+          position: fixed; inset: 0; z-index: 200;
+          background: rgba(0,0,0,0.92);
+          display: flex; align-items: center; justify-content: center;
+        }
+        .lb-inner { max-width: 94vw; max-height: 90vh; }
+        .lb-media {
+          max-width: 94vw; max-height: 90vh; border-radius: 10px;
+          object-fit: contain; display: block;
+        }
+        .lb-close {
+          position: fixed; top: 18px; right: 18px; z-index: 201;
+          width: 42px; height: 42px; border-radius: 50%;
+          background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.3);
+          color: #fff; display: flex; align-items: center; justify-content: center;
+          cursor: pointer;
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function AttachmentsView({ attachments, lang }) {
+  const [lightbox, setLightbox] = useState(null)
+  if (!Array.isArray(attachments) || attachments.length === 0) return null
+  return (
+    <>
+      <div className="attachments" onClick={e => e.stopPropagation()}>
+        {attachments.map(a => {
+          if (a.kind === 'image') {
+            return (
+              <button key={a.id} type="button" className="att-img-wrap" onClick={() => setLightbox(a)}>
+                <img src={a.url} alt={a.name || 'photo'} loading="lazy" className="att-img" />
+              </button>
+            )
+          }
+          if (a.kind === 'video') {
+            return (
+              <button key={a.id} type="button" className="att-img-wrap att-video-wrap" onClick={() => setLightbox(a)}>
+                <video src={a.url} preload="metadata" muted className="att-img" />
+                <span className="att-play"><Play size={26} fill="#fff" /></span>
+              </button>
+            )
+          }
+          if (a.kind === 'file') {
+            return (
+              <a key={a.id} href={a.url || '#'} target="_blank" rel="noopener noreferrer" className="att-chip">
+                <FileText size={16} color="#9AA3B2" />
+                <span className="att-chip-name">{a.name || t(lang, 'cDownload')}</span>
+                <ExternalLink size={14} color="#9AA3B2" />
+              </a>
+            )
+          }
+          if (a.kind === 'link') {
+            return (
+              <a key={a.id} href={a.url || '#'} target="_blank" rel="noopener noreferrer" className="att-chip att-chip-link">
+                <Link2 size={16} color="#1DA1F2" />
+                <span className="att-chip-name">{a.name || a.url}</span>
+                <ExternalLink size={14} color="#1DA1F2" />
+              </a>
+            )
+          }
+          return null
+        })}
+        <style jsx>{`
+          .attachments { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+          .att-img-wrap {
+            display: block; width: 100%; padding: 0; border: none;
+            border-radius: 12px; overflow: hidden; background: #101014; cursor: pointer;
+          }
+          .att-img { width: 100%; max-height: 420px; object-fit: cover; display: block; }
+          .att-video-wrap { position: relative; }
+          .att-play {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 54px; height: 54px; border-radius: 50%;
+            background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.5);
+            display: flex; align-items: center; justify-content: center;
+            padding-left: 3px;
+          }
+          .att-chip {
+            display: flex; align-items: center; gap: 8px;
+            background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 12px;
+            padding: 10px 12px; text-decoration: none; max-width: 100%;
+          }
+          .att-chip-link { background: rgba(29,161,242,0.08); border-color: rgba(29,161,242,0.3); }
+          .att-chip-name {
+            flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: #F8F8FA;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+        `}</style>
+      </div>
+      {lightbox && <MediaLightbox attachment={lightbox} onClose={() => setLightbox(null)} />}
+    </>
+  )
+}
+
 function PostCard({ post, lang, onOpen, onAuthor }) {
   const [rockets, setRockets] = useState(post.rockets || 0)
   const [rocketed, setRocketed] = useState(!!post.rocketed)
@@ -144,9 +261,11 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
         <div className="post-content">{post.content}</div>
       )}
 
+      <AttachmentsView attachments={post.attachments} lang={lang} />
+
       <div className="post-actions">
         <button className={`rocket-btn ${rocketed ? 'rocked' : ''}`} onClick={toggleRocket}>
-          <span className="rocket-emoji">ðŸš€</span>
+          <span className="rocket-emoji">🚀</span>
           <span className="rocket-count">{rockets}</span>
         </button>
         <button className="comment-btn" onClick={(e) => { e.stopPropagation(); onOpen(post) }}>
@@ -170,10 +289,10 @@ function PostCard({ post, lang, onOpen, onAuthor }) {
         }
         .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
         .post-name-row { display: flex; align-items: center; gap: 5px; }
-        .post-name { font-size: 14px; font-weight: 700; color: #F8F8FA; }
+        .post-name { font-size: 14px; font-weight: 600; color: #F8F8FA; }
         .post-date { font-size: 11px; color: #9AA3B2; }
         .editor-badge {
-          font-size: 9px; font-weight: 700; color: #D4A843;
+          font-size: 9px; font-weight: 600; color: #D4A843;
           background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
           white-space: nowrap;
         }
@@ -256,9 +375,22 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
     } finally { setSending(false) }
   }
 
+  const toggleCommentReact = async (c) => {
+    try {
+      const r = await reactCommunityComment(post.id, c.id)
+      setComments(list => list.map(x => x.id === c.id ? { ...x, reacted: r.data.reacted, reactions: r.data.reactions } : x))
+    } catch (err) {
+      if (err?.response?.status === 401) setNotAuthed(true)
+    }
+  }
+
   const a = post.author || {}
   return (
-    <div className="sheet-overlay" onClick={onClose}>
+    <div
+      className="sheet-overlay"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: '#0b0b0b', zIndex: 90, display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}
+    >
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
           <button className="back-btn" onClick={onClose}><ChevronLeft size={20} /></button>
@@ -294,9 +426,11 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           <div className="detail-title">{post.title}</div>
           {post.content && <div className="detail-content">{post.content}</div>}
 
+          <AttachmentsView attachments={post.attachments} lang={lang} />
+
           <div className="detail-actions">
             <button className={`rocket-btn ${rocketed ? 'rocked' : ''}`} onClick={toggleRocket}>
-              <span className="rocket-emoji">ðŸš€</span>
+              <span className="rocket-emoji">🚀</span>
               <span className="rocket-count">{rockets}</span>
             </button>
             <button className="comment-btn">
@@ -306,7 +440,7 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           </div>
 
           <div className="cmts-label">{t(lang, 'cComments')} <span className="cmt-count">{comments.length}</span></div>
-          {loading && <div className="sheet-empty"><Loader2 size={18} className="spin" /> {t(lang, 'loading')}</div>}
+          {loading && <div className="sheet-empty"><TriLoader compact label={t(lang, 'loading')} /></div>}
           {!loading && comments.length === 0 && <div className="sheet-empty">{t(lang, 'cNoComments')}</div>}
           {comments.map(c => (
             <div key={c.id} className="comment">
@@ -318,6 +452,15 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
                   <span className="comment-time">{timeAgo(lang, c.created_at)}</span>
                 </div>
                 <div className="comment-text">{c.content}</div>
+                <div className="comment-actions">
+                  <button
+                    className={`cract-btn ${c.reacted ? 'active' : ''}`}
+                    onClick={() => toggleCommentReact(c)}
+                  >
+                    <span className="cract-emoji">🚀</span>
+                    <span className="cract-count">{c.reactions || 0}</span>
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -342,15 +485,15 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
         )}
         <style jsx>{`
           .sheet-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-            z-index: 90; display: flex; align-items: flex-end; justify-content: center;
+            position: fixed; inset: 0; background: #0b0b0b;
+            z-index: 90; display: flex; align-items: stretch; justify-content: center;
           }
           .sheet {
-            width: 100%; max-width: 480px; max-height: 90vh;
-            background: #141414; border-radius: 20px 20px 0 0;
+            width: 100%; max-width: none; height: 100%; max-height: none;
+            background: #141414; border-radius: 0;
             display: flex; flex-direction: column; animation: sheetUp 0.22s ease;
           }
-          @keyframes sheetUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+          @keyframes sheetUp { from { opacity: 0; } to { opacity: 1; } }
           .sheet-head {
             display: flex; align-items: center; gap: 8px;
             padding: 14px 16px 0;
@@ -368,10 +511,10 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           .post-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
           .post-user-col { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
           .post-name-row { display: flex; align-items: center; gap: 5px; }
-          .post-name { font-size: 15px; font-weight: 700; color: #F8F8FA; }
+          .post-name { font-size: 15px; font-weight: 600; color: #F8F8FA; }
           .post-date { font-size: 11px; color: #9AA3B2; }
           .editor-badge {
-            font-size: 9px; font-weight: 700; color: #D4A843;
+            font-size: 9px; font-weight: 600; color: #D4A843;
             background: rgba(212,168,67,0.14); padding: 2px 8px; border-radius: 9px;
             white-space: nowrap;
           }
@@ -405,7 +548,7 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           }
           .cmts-label {
             font-size: 14px; font-weight: 600; color: #F2F4F7;
-            margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0.25px;
+            margin: 10px 0 2px; text-transform: uppercase; letter-spacing: 0;
           }
           .cmt-count { color: #9AA3B2; font-size: 12px; }
           .sheet-empty {
@@ -419,9 +562,18 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           .comment-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
           .comment-body { flex: 1; min-width: 0; }
           .comment-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9AA3B2; }
-          .comment-name { font-weight: 700; color: #F8F8FA; }
+          .comment-name { font-weight: 600; color: #F8F8FA; }
           .comment-time { flex: 1; text-align: right; }
           .comment-text { font-size: 14px; color: #9AA3B2; line-height: 1.35; margin-top: 3px; }
+          .comment-actions { margin-top: 6px; }
+          .cract-btn {
+            display: inline-flex; align-items: center; gap: 5px;
+            background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 13px;
+            height: 26px; padding: 0 10px; cursor: pointer; font-family: inherit;
+          }
+          .cract-btn.active { background: rgba(24,194,124,0.12); border-color: rgba(24,194,124,0.4); }
+          .cract-emoji { font-size: 12px; line-height: 1; }
+          .cract-count { font-size: 12px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
           .sheet-input-row {
             display: flex; align-items: center; gap: 10px;
             padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
@@ -445,7 +597,7 @@ function PostDetailSheet({ post, lang, onClose, onAuthor }) {
           }
           .auth-prompt button {
             background: #18C27C; border: none; color: #00130a; border-radius: 10px;
-            padding: 6px 12px; font-weight: 700; font-size: 12px; cursor: pointer; font-family: inherit;
+            padding: 6px 12px; font-weight: 600; font-size: 12px; cursor: pointer; font-family: inherit;
           }
         `}</style>
       </div>
@@ -460,6 +612,12 @@ function ComposerSheet({ lang, onClose, onCreated }) {
   const [sentiment, setSentiment] = useState('bullish')
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [media, setMedia] = useState(null)
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [file, setFile] = useState(null)
+  const [showLink, setShowLink] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkTitle, setLinkTitle] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
 
@@ -469,22 +627,43 @@ function ComposerSheet({ lang, onClose, onCreated }) {
       .catch(() => {})
   }, [])
 
+  const clearMedia = () => {
+    if (mediaUrl) { try { URL.revokeObjectURL(mediaUrl) } catch {} }
+    setMedia(null)
+    setMediaUrl('')
+  }
+
   const publish = async () => {
     if (!symbol || title.trim().length < 5 || sending) return
     setSending(true)
     setError('')
     try {
-      const r = await createCommunityPost({ symbol, sentiment, title: title.trim(), content: content.trim() })
+      const fd = new FormData()
+      fd.append('symbol', symbol)
+      fd.append('sentiment', sentiment)
+      fd.append('title', title.trim())
+      fd.append('content', content.trim())
+      if (media) fd.append('media', media)
+      if (file) fd.append('file', file)
+      if (linkUrl.trim()) {
+        fd.append('link_url', linkUrl.trim())
+        fd.append('link_title', linkTitle.trim())
+      }
+      const r = await createCommunityPost(fd)
       onCreated(r.data)
       onClose()
     } catch (err) {
       if (err?.response?.status === 401) router.push('/login?next=/community')
-      else setError(t(lang, 'loadError'))
+      else setError(err?.response?.data?.detail || t(lang, 'loadError'))
     } finally { setSending(false) }
   }
 
   return (
-    <div className="sheet-overlay" onClick={onClose}>
+    <div
+      className="sheet-overlay"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: '#0b0b0b', zIndex: 90, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+    >
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
           <span className="sheet-title">{t(lang, 'cNewPost')}</span>
@@ -529,6 +708,76 @@ function ComposerSheet({ lang, onClose, onCreated }) {
             rows={5}
             maxLength={3000}
           />
+          <div className="attach-row">
+            <input
+              type="file"
+              accept="image/*,video/*"
+              id="cm-media"
+              className="hidden-input"
+              onChange={e => {
+                const f = e.target.files && e.target.files[0]
+                if (!f) return
+                if (mediaUrl) { try { URL.revokeObjectURL(mediaUrl) } catch {} }
+                setMedia(f)
+                setMediaUrl(URL.createObjectURL(f))
+                e.target.value = ''
+              }}
+            />
+            <label htmlFor="cm-media" className="attach-btn">
+              <ImagePlus size={17} /> {t(lang, 'cAddMedia')}
+            </label>
+            <input
+              type="file"
+              id="cm-file"
+              className="hidden-input"
+              onChange={e => {
+                const f = e.target.files && e.target.files[0]
+                if (f) setFile(f)
+                e.target.value = ''
+              }}
+            />
+            <label htmlFor="cm-file" className="attach-btn">
+              <Paperclip size={17} /> {t(lang, 'cAddFile')}
+            </label>
+          </div>
+          {media && (
+            <div className="media-preview">
+              {media.type && media.type.startsWith('video/')
+                ? <video src={mediaUrl} controls className="media-prev-media" />
+                : <img src={mediaUrl} alt="apercu" className="media-prev-media" />}
+              <button className="media-remove" onClick={clearMedia} aria-label={t(lang, 'cRemove')}>
+                <X size={16} />
+              </button>
+            </div>
+          )}
+          {file && (
+            <div className="file-chip">
+              <FileText size={15} color="#9AA3B2" />
+              <span className="file-chip-name">{file.name}</span>
+              <button className="media-remove" onClick={() => setFile(null)} aria-label={t(lang, 'cRemove')}>
+                <X size={15} />
+              </button>
+            </div>
+          )}
+          <button type="button" className="link-toggle" onClick={() => setShowLink(s => !s)}>
+            <Link2 size={16} /> {t(lang, 'cAddLink')}
+          </button>
+          {showLink && (
+            <div className="link-fields">
+              <input
+                className="link-input"
+                placeholder={t(lang, 'cLinkUrl')}
+                value={linkUrl}
+                onChange={e => setLinkUrl(e.target.value)}
+              />
+              <input
+                className="link-input"
+                placeholder={t(lang, 'cLinkTitle')}
+                value={linkTitle}
+                onChange={e => setLinkTitle(e.target.value)}
+              />
+            </div>
+          )}
           {error && <div className="composer-error">{error}</div>}
         </div>
         <div className="sheet-footer">
@@ -570,7 +819,7 @@ function ComposerSheet({ lang, onClose, onCreated }) {
             background: #1E1E1E; color: #A5ADBB; font-size: 12px; font-weight: 600;
             cursor: pointer; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-family: inherit;
           }
-          .symbol-chip.active { background: #18C27C; border-color: #18C27C; color: #00130a; font-weight: 700; }
+          .symbol-chip.active { background: #18C27C; border-color: #18C27C; color: #00130a; font-weight: 600; }
           .sentiment-row { display: flex; gap: 10px; }
           .sent-btn {
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -593,6 +842,47 @@ function ComposerSheet({ lang, onClose, onCreated }) {
             line-height: 1.35;
           }
           .content-input::placeholder { color: #5a5a5a; }
+          .hidden-input { display: none; }
+          .attach-row { display: flex; gap: 10px; margin-top: 12px; }
+          .attach-btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            height: 38px; padding: 0 14px; border-radius: 19px;
+            border: 1px dashed #2a2a2a; background: #1E1E1E; color: #A5ADBB;
+            font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+          }
+          .media-preview {
+            position: relative; margin-top: 12px;
+            border-radius: 12px; overflow: hidden; background: #101014;
+          }
+          .media-prev-media { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+          .media-remove {
+            position: absolute; top: 8px; right: 8px;
+            width: 30px; height: 30px; border-radius: 50%;
+            background: rgba(0,0,0,0.7); border: 1px solid #3a3a3a; color: #fff;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+          }
+          .file-chip {
+            display: flex; align-items: center; gap: 8px;
+            margin-top: 12px; background: #1E1E1E; border: 1px solid #2a2a2a;
+            border-radius: 12px; padding: 10px 12px;
+          }
+          .file-chip-name {
+            flex: 1; min-width: 0; font-size: 13px; color: #F8F8FA;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .file-chip .media-remove { position: static; width: 26px; height: 26px; }
+          .link-toggle {
+            display: inline-flex; align-items: center; gap: 7px;
+            margin-top: 12px; background: none; border: none; color: #1DA1F2;
+            font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 0; font-family: inherit;
+          }
+          .link-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+          .link-input {
+            width: 100%; height: 44px;
+            background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 12px;
+            padding: 0 14px; color: #fff; font-size: 14px; font-family: inherit; outline: none;
+          }
+          .link-input::placeholder { color: #5a5a5a; }
           .composer-error { color: #F04438; font-size: 12px; margin-top: 8px; }
           .sheet-footer {
             padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
@@ -600,7 +890,7 @@ function ComposerSheet({ lang, onClose, onCreated }) {
           }
           .publish-btn {
             width: 100%; height: 46px; border: none; border-radius: 14px;
-            background: #18C27C; color: #00130a; font-size: 15px; font-weight: 700;
+            background: #18C27C; color: #00130a; font-size: 15px; font-weight: 600;
             cursor: pointer; font-family: inherit;
           }
           .publish-btn:disabled { background: #2a2a2a; color: #666; cursor: default; }
@@ -615,6 +905,9 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [notAuthed, setNotAuthed] = useState(false)
+  const [editingBio, setEditingBio] = useState(false)
+  const [bioDraft, setBioDraft] = useState('')
+  const [bioSaving, setBioSaving] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -637,13 +930,34 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
     }
   }
 
+  const startEditBio = () => {
+    setBioDraft(profile.bio || '')
+    setEditingBio(true)
+  }
+
+  const saveBio = async () => {
+    if (bioSaving) return
+    setBioSaving(true)
+    try {
+      const r = await updateCommunityMe({ bio: bioDraft.trim() })
+      setProfile(p => ({ ...p, bio: r.data.bio }))
+      setEditingBio(false)
+    } catch (err) {
+      if (err?.response?.status === 401) setNotAuthed(true)
+    } finally { setBioSaving(false) }
+  }
+
   const openComments = (post) => {
     onClose()
     onFollowed && onFollowed(post)
   }
 
   return (
-    <div className="sheet-overlay" onClick={onClose}>
+    <div
+      className="sheet-overlay"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: '#0b0b0b', zIndex: 90, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+    >
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-head">
           <button className="back-btn" onClick={onClose}><ChevronLeft size={20} /></button>
@@ -651,7 +965,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           <button className="sheet-close" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="sheet-body">
-          {loading && <div className="sheet-empty"><Loader2 size={18} className="spin" /> {t(lang, 'loading')}</div>}
+          {loading && <div className="sheet-empty"><TriLoader compact label={t(lang, 'loading')} /></div>}
           {!loading && !profile && <div className="sheet-empty">{t(lang, 'noResults')}</div>}
           {profile && (
             <>
@@ -662,7 +976,31 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
                   {profile.verified && <BadgeCheck size={17} color="#1DA1F2" />}
                 </div>
                 <span className="profile-handle">@{profile.handle}</span>
-                {profile.bio && <p className="profile-bio">{profile.bio}</p>}
+                {editingBio ? (
+                  <div className="bio-edit">
+                    <textarea
+                      className="bio-input"
+                      placeholder={t(lang, 'cBioPlaceholder')}
+                      value={bioDraft}
+                      onChange={e => setBioDraft(e.target.value)}
+                      maxLength={400}
+                      rows={3}
+                    />
+                    <div className="bio-edit-actions">
+                      <button className="bio-cancel" onClick={() => setEditingBio(false)}>{t(lang, 'cCancel')}</button>
+                      <button className="bio-save" onClick={saveBio} disabled={bioSaving}>
+                        {bioSaving ? t(lang, 'loading') : t(lang, 'cSave')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {profile.bio && <p className="profile-bio">{profile.bio}</p>}
+                    {profile.is_me && (
+                      <button className="bio-edit-btn" onClick={startEditBio}>{t(lang, 'cEditBio')}</button>
+                    )}
+                  </>
+                )}
                 <div className="profile-stats">
                   <div className="pstat"><span className="pstat-n">{profile.posts_count}</span><span className="pstat-l">{t(lang, 'cPosts')}</span></div>
                   <div className="pstat"><span className="pstat-n">{profile.followers_count}</span><span className="pstat-l">{t(lang, 'cFollowers')}</span></div>
@@ -689,7 +1027,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
                   </span>
                   <div className="mini-text">
                     <div className="mini-title">{p.title}</div>
-                    <div className="mini-meta">{p.symbol} · ðŸš€ {p.rockets} · ðŸ’¬ {p.comments}</div>
+                    <div className="mini-meta">{p.symbol} · 🚀 {p.rockets} · 💬 {p.comments}</div>
                   </div>
                 </div>
               ))}
@@ -729,16 +1067,40 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           .profile-head { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 0 16px; }
           .profile-avatar { width: 84px; height: 84px; border-radius: 50%; margin-bottom: 10px; }
           .profile-name-row { display: flex; align-items: center; gap: 6px; }
-          .profile-name { font-size: 20px; font-weight: 700; color: #F8F8FA; }
+          .profile-name { font-size: 20px; font-weight: 600; color: #F8F8FA; }
           .profile-handle { font-size: 13px; color: #9AA3B2; margin-top: 2px; }
           .profile-bio { font-size: 14px; color: #9AA3B2; line-height: 1.35; margin: 10px 0 0; max-width: 320px; }
+          .bio-edit { width: 100%; max-width: 320px; margin: 10px 0 0; }
+          .bio-input {
+            width: 100%; background: #1E1E1E; border: 1px solid #2a2a2a; border-radius: 12px;
+            padding: 10px 12px; color: #fff; font-size: 14px; font-family: inherit; outline: none;
+            resize: none; line-height: 1.35;
+          }
+          .bio-input::placeholder { color: #5a5a5a; }
+          .bio-edit-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+          .bio-cancel {
+            height: 34px; padding: 0 16px; border-radius: 17px;
+            background: #2a2a2a; border: 1px solid #3a3a3a; color: #fff;
+            font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+          }
+          .bio-save {
+            height: 34px; padding: 0 16px; border-radius: 17px;
+            background: #18C27C; border: none; color: #00130a;
+            font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+          }
+          .bio-save:disabled { background: #2a2a2a; color: #666; cursor: default; }
+          .bio-edit-btn {
+            margin-top: 10px; background: none; border: 1px solid #2a2a2a; color: #A5ADBB;
+            border-radius: 15px; height: 30px; padding: 0 14px;
+            font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+          }
           .profile-stats { display: flex; gap: 28px; margin: 16px 0; }
           .pstat { display: flex; flex-direction: column; gap: 2px; }
-          .pstat-n { font-size: 18px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #8E95A3; }
+          .pstat-n { font-size: 18px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; color: #8E95A3; }
           .pstat-l { font-size: 11px; color: #9AA3B2; }
           .follow-btn {
             height: 38px; padding: 0 28px; border-radius: 19px; border: none;
-            background: #18C27C; color: #00130a; font-weight: 700; font-size: 14px;
+            background: #18C27C; color: #00130a; font-weight: 600; font-size: 14px;
             cursor: pointer; font-family: inherit;
           }
           .follow-btn.active { background: #2a2a2a; color: #fff; border: 1px solid #3a3a3a; }
@@ -748,7 +1110,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           }
           .profile-posts-label {
             font-size: 14px; font-weight: 600; color: #F2F4F7;
-            margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0.25px;
+            margin: 4px 0 8px; text-transform: uppercase; letter-spacing: 0;
           }
           .mini-post {
             display: flex; gap: 10px; align-items: flex-start;
@@ -757,7 +1119,7 @@ function ProfileSheet({ userId, lang, onClose, onFollowed }) {
           .mini-badge {
             width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
             display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 700;
+            font-size: 12px; font-weight: 600;
           }
           .mini-badge.bull { background: rgba(24,194,124,0.12); color: #18C27C; }
           .mini-badge.bear { background: rgba(240,68,56,0.12); color: #F04438; }
@@ -861,17 +1223,10 @@ export default function Community() {
           </div>
         )}
 
-        {error && (
-          <div className="error-bar">
-            <span>{error}</span>
-            <button onClick={refresh}>{t(lang, 'tryAgain')}</button>
-          </div>
-        )}
-
         {section === 'challenges' ? (
           <ChallengesSection lang={lang} user={user} />
         ) : loading ? (
-          <div className="loading-row"><div className="spinner" /></div>
+          <div className="loading-row"><TriLoader compact /></div>
         ) : posts.length === 0 ? (
           <div className="empty-box">
             <span>{followingEmpty && tab === 'following' ? t(lang, 'cEmpty') : t(lang, 'cEmpty')}</span>
@@ -916,7 +1271,7 @@ export default function Community() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 22px 8px; }
@@ -927,7 +1282,7 @@ export default function Community() {
         }
         .co-title-col { display: flex; flex-direction: column; gap: 2px; }
         .co-title {
-          font-size: 34px; font-weight: 700; letter-spacing: 0.25px; margin: 0;
+          font-size: 34px; font-weight: 600; letter-spacing: 0; margin: 0;
           line-height: 1;
         }
         .co-sub { font-size: 12px; color: #9AA3B2; }
@@ -941,7 +1296,7 @@ export default function Community() {
           background: #18C27C; color: #00130a; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
         }
-        .write-plus { font-size: 24px; font-weight: 700; line-height: 1; }
+        .write-plus { font-size: 24px; font-weight: 600; line-height: 1; }
         .sections-row {
           display: flex; gap: 10px; margin-bottom: 14px;
         }
@@ -955,7 +1310,6 @@ export default function Community() {
         .section-btn.active {
           background: #F8F8FA;
           border-color: rgba(24,194,124,0.4); color: #111111;
-          box-shadow: 0 0 20px rgba(24,194,124,0.15);
           
         }
         .tabs-row {
@@ -986,16 +1340,6 @@ export default function Community() {
           color: #6B7A94; font-size: 14px;
         }
         .empty-sub { font-size: 12px; color: #6B7A94; }
-        .error-bar {
-          display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          background: rgba(240,68,56,0.1); border: 1px solid rgba(240,68,56,0.3);
-          border-radius: 12px; padding: 10px 12px; margin-bottom: 14px;
-          font-size: 12px; color: #ff9d9d;
-        }
-        .error-bar button {
-          background: rgba(240,68,56,0.2); border: none; border-radius: 8px;
-          color: #ff9d9d; font-size: 11px; padding: 5px 10px; cursor: pointer; font-family: inherit;
-        }
       `}</style>
     </div>
   )

@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import MarketChart from '../components/MarketChart'
-import { getCompany, getCompanyMarketData, getMarketLive, getCompanies, getPosition, getPortfolio, placeOrder } from '../services/api'
+import { getCompany, getCompanyMarketData, getMarketLive, getMarketNGX, getCompanies, getPosition, getPortfolio, placeOrder } from '../services/api'
 import { useAuth } from '../lib/auth'
-import { supabase } from '../lib/supabase'
+import { getActiveAccountId } from '../lib/accounts'
 import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, ChevronDown, Search, AlertTriangle } from 'lucide-react'
-import { detectLang, t, fmtPrice, fmtCompact, fmtChange } from '../lib/i18n'
+import { detectLang, t, fmtPrice, fmtPriceCur, fmtCompact, fmtChange } from '../lib/i18n'
 import { aggregateOhlc } from '../lib/ohlc'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -37,7 +39,7 @@ export default function Quote() {
   const router = useRouter()
   const { user } = useAuth()
   const rawSymbol = Array.isArray(router.query.symbol) ? router.query.symbol[0] : router.query.symbol
-  const symbol = (rawSymbol || 'ETIT').toUpperCase()
+  const symbol = router.isReady ? (rawSymbol || 'ETIT').toUpperCase() : ''
   const [lang, setLang] = useState('fr')
   const [company, setCompany] = useState(null)
   const [allData, setAllData] = useState([])
@@ -55,12 +57,17 @@ export default function Quote() {
   const [marketNote, setMarketNote] = useState('')
   const [flash, setFlash] = useState(null)
   const [liveInfo, setLiveInfo] = useState(null)
+  const [liveVol, setLiveVol] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [symbols, setSymbols] = useState(null)
   const [query, setQuery] = useState('')
   const [position, setPosition] = useState(null)
   const [orders, setOrders] = useState([])
+  const [activeAcc, setActiveAcc] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => { setHydrated(true) }, [])
 
   const flashRef = useRef(null)
   const companyRef = useRef(null)
@@ -95,10 +102,18 @@ export default function Quote() {
   const tick = useCallback(async () => {
     if (!symbol) return
     try {
-      const res = await getMarketLive()
+      const isNgx = companyRef.current?.exchange === 'NGX' || companyRef.current?.currency === 'NGN'
+      const res = isNgx ? await getMarketNGX() : await getMarketLive()
       if (!mounted.current) return
       const feed = res.data
       setLiveInfo(feed)
+      const vol = (feed.volumes || {})[symbol]
+      if (vol && vol.volume > 0) {
+        setLiveVol(prev => {
+          const next = { volume: vol.volume, estimated: !!vol.estimated }
+          return prev && prev.volume === next.volume && prev.estimated === next.estimated ? prev : next
+        })
+      }
       const px = (feed.prices || {})[symbol]
       if (px) {
         setCompany(prev => {
@@ -106,7 +121,7 @@ export default function Quote() {
           if (prev.current_price != null && Math.abs(prev.current_price - px.price) > 1e-9) {
             flashRef.current = px.price > prev.current_price ? 'up' : 'down'
           }
-          return { ...prev, current_price: px.price, change_percent: px.change, price_source: 'BRVM_LIVE' }
+          return { ...prev, current_price: px.price, change_percent: px.change, price_source: isNgx ? 'NGX_LIVE' : 'BRVM_LIVE' }
         })
         if (flashRef.current) {
           setFlash(flashRef.current)
@@ -124,68 +139,25 @@ export default function Quote() {
     setCompany(null)
     companyRef.current = null
     setAllData([])
+    setLiveVol(null)
     load()
     setIsFav(loadJSON(FAV_KEY, []).includes(symbol))
     if (user) {
-      getPosition(symbol).then(r => { if (mounted.current) setPosition(r.data) }).catch(() => {})
-      getPortfolio().then(r => { if (mounted.current) setOrders(r.data?.orders || []) }).catch(() => {})
+      getPosition(symbol, getActiveAccountId()).then(r => { if (mounted.current) setPosition(r.data) }).catch(() => {})
+      getPortfolio(getActiveAccountId()).then(r => {
+        if (!mounted.current) return
+        setOrders(r.data?.orders || [])
+        setActiveAcc(r.data?.account || null)
+      }).catch(() => {})
     } else {
       setPosition(null)
       setOrders([])
+      setActiveAcc(null)
     }
     const interval = setInterval(() => load(), 60000)
     const liveInterval = setInterval(() => tick(), 15000)
     return () => { mounted.current = false; clearInterval(interval); clearInterval(liveInterval) }
   }, [symbol, load, tick, user])
-
-  // Realtime Supabase : ticks market_data insérés par l'ingestion
-  useEffect(() => {
-    if (!company?.id) return
-    const channel = supabase
-      .channel(`quotes-${company.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'market_data',
-        filter: `company_id=eq.${company.id}`,
-      }, payload => {
-        const row = payload.new || {}
-        const price = row.close_price
-        if (price == null || !mounted.current) return
-        setCompany(prev => {
-          if (!prev) return prev
-          if (prev.current_price != null && Math.abs(prev.current_price - price) > 1e-9) {
-            flashRef.current = price > prev.current_price ? 'up' : 'down'
-          }
-          return {
-            ...prev,
-            current_price: price,
-            change_percent: row.change_percent ?? prev.change_percent,
-            price_source: 'REALTIME',
-          }
-        })
-        if (flashRef.current) {
-          setFlash(flashRef.current)
-          flashRef.current = null
-          setTimeout(() => { if (mounted.current) setFlash(null) }, 1200)
-        }
-        setAllData(prev => {
-          const lastDate = prev.length ? new Date(prev[prev.length - 1].date) : null
-          const rowDate = new Date(row.date)
-          if (lastDate && rowDate <= lastDate) return prev
-          return [...prev, {
-            date: row.date,
-            open_price: row.open_price,
-            high_price: row.high_price ?? price,
-            low_price: row.low_price ?? price,
-            close_price: price,
-            volume: row.volume,
-            change_percent: row.change_percent,
-            is_synthetic: row.is_synthetic,
-          }]
-        })
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [company?.id])
 
   const toggleFavorite = () => {
     const favs = loadJSON(FAV_KEY, [])
@@ -198,7 +170,7 @@ export default function Quote() {
     setPickerOpen(true)
     if (!symbols) {
       try {
-        const res = await getCompanies({ limit: 100 })
+        const res = await getCompanies({ limit: 300 })
         setSymbols(res.data.companies || [])
       } catch {}
     }
@@ -251,13 +223,25 @@ export default function Quote() {
   }, [orders, symbol, sorted])
   const isLive = liveInfo?.status === 'LIVE' && company?.current_price != null
   const price = isLive ? company.current_price : last?.close ?? company?.current_price ?? null
-  const periodChange = first ? price - first.close : 0
-  const periodChangePct = first?.close ? (periodChange / first.close) * 100 : null
-  const up = (periodChangePct ?? 0) >= 0
   const dayChange = company?.change_percent ?? last?.change_percent ?? 0
+  const prevCloseP = sorted.length >= 2 ? sorted[sorted.length - 2].close : null
+  const periodChangePct = period === '1j'
+    ? (dayChange ?? null)
+    : period === 'max'
+      ? (first?.open && price != null ? ((price - first.open) / first.open) * 100 : null)
+      : (last?.close != null && prevCloseP != null ? ((last.close - prevCloseP) / prevCloseP) * 100 : null)
+  const up = (periodChangePct ?? 0) >= 0
 
-  const highP = useMemo(() => sorted.length ? Math.max(...sorted.map(d => d.high ?? d.close)) : null, [sorted])
-  const lowP = useMemo(() => sorted.length ? Math.min(...sorted.map(d => d.low ?? d.close)) : null, [sorted])
+  const highP = useMemo(() => {
+    if (!sorted.length) return null
+    if (period === 'max') return Math.max(...sorted.map(d => d.high ?? d.close))
+    return last?.high ?? last?.close ?? null
+  }, [sorted, period, last])
+  const lowP = useMemo(() => {
+    if (!sorted.length) return null
+    if (period === 'max') return Math.min(...sorted.map(d => d.low ?? d.close))
+    return last?.low ?? last?.close ?? null
+  }, [sorted, period, last])
   const yearCutoff = useMemo(() => new Date(Date.now() - 366 * 86400000), [])
   const yearData = useMemo(() => allData.filter(d => new Date(d.date) >= yearCutoff), [allData, yearCutoff])
   const yearHigh = useMemo(() => yearData.length ? Math.max(...yearData.map(d => d.high_price ?? d.close_price)) : null, [yearData])
@@ -313,10 +297,11 @@ export default function Quote() {
         limit_price: orderType === 'limit' ? execPx : null,
         take_profit: tpV,
         stop_loss: slV,
+        account_id: getActiveAccountId(),
       })
       if (res.data.position && res.data.position.qty > 0) setPosition(res.data.position)
       try {
-        const pf = await getPortfolio()
+        const pf = await getPortfolio(getActiveAccountId())
         if (mounted.current) setOrders(pf.data?.orders || [])
       } catch {}
       setOrderModal(null)
@@ -346,8 +331,8 @@ export default function Quote() {
             <ArrowLeft size={20} />
           </button>
           <button className="q-title" onClick={openPicker}>
-            <span className="q-symbol">{symbol} <ChevronDown size={12} className="q-chev" /></span>
-            <span className="q-name">{company?.name?.substring(0, 34)}</span>
+            <span className="q-symbol">{hydrated ? `${symbol}` : ''} <ChevronDown size={12} className="q-chev" /></span>
+            <span className="q-name">{hydrated ? company?.name?.substring(0, 34) : ''}</span>
           </button>
           <button className={`icon-btn ${isFav ? 'fav-active' : ''}`} onClick={toggleFavorite}>
             <Star size={20} fill={isFav ? '#ffd166' : 'none'} color={isFav ? '#ffd166' : '#fff'} />
@@ -356,8 +341,7 @@ export default function Quote() {
 
         {loading ? (
           <div className="loading-screen">
-            <div className="spinner" />
-            <span>{t(lang, 'loading')}</span>
+            <TriLoader compact label={t(lang, 'loading')} />
           </div>
         ) : error || !company ? (
           <div className="loading-screen">
@@ -371,11 +355,18 @@ export default function Quote() {
           <>
             <div className="q-hero">
               <div className="q-pair">
-                <div className="q-logo-fallback">{company.logo_url ? <img src={company.logo_url} alt={company.symbol} className="q-logo-img" /> : company.symbol?.[0]}</div>
+                <div className="q-logo-fallback">{company.logo_url ? (
+                  <img
+                    crossOrigin="anonymous" src={company.logo_url} alt={company.symbol} className="q-logo-img"
+                    onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
+                    onError={onLogoError}
+                  />
+                ) : company.symbol?.[0]}</div>
                 <div className="q-pair-text">
                   <span className="q-base">{company.symbol}</span>
                   <span className="q-div">/</span>
-                  <span className="q-quote">FCFA</span>
+                  <span className="q-quote">{company.currency === 'NGN' ? '₦' : 'FCFA'}</span>
+                  {company.exchange === 'NGX' && <span className="q-ngx">NGX</span>}
                 </div>
                 <span className="q-sector">{company.sector}</span>
               </div>
@@ -385,13 +376,13 @@ export default function Quote() {
                   {t(lang, 'liveFeed')} · {t(lang, 'updated')} {liveInfo.last_update ? new Date(liveInfo.last_update).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
                 </span>
               )}
-              <div className={`q-price ${up ? 'up' : 'down'} ${flash ? `flash-${flash}` : ''}`}>{fmtPrice(lang, price)}</div>
+              <div className={`q-price ${up ? 'up' : 'down'} ${flash ? `flash-${flash}` : ''}`}>{fmtPriceCur(lang, price, company.currency)}</div>
               <div className={`q-change ${up ? 'up' : 'down'}`}>
                 {periodChangePct != null ? fmtChange(lang, periodChangePct) : fmtChange(lang, dayChange)}
                 <span className="q-period">{periodCfg.label}</span>
               </div>
               <div className="q-range">
-                {first && last && `${t(lang, 'range')}: ${fmtPrice(lang, lowP)} – ${fmtPrice(lang, highP)}`}
+                {first && last && `${t(lang, 'range')}: ${fmtPriceCur(lang, lowP, company.currency)} – ${fmtPriceCur(lang, highP, company.currency)}`}
               </div>
             </div>
 
@@ -413,37 +404,43 @@ export default function Quote() {
                 statusText={statusText}
                 markers={orderMarkers}
                 symbol={company?.symbol}
+                currency={company?.currency}
+                liveVolume={liveVol ? {
+                  volume: liveVol.volume,
+                  estimated: liveVol.estimated,
+                  date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })(),
+                } : null}
               />
             </div>
 
             <div className="q-stats">
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'open')}</span>
-                <span className="qs-value">{fmtPrice(lang, last?.open ?? first?.close)}</span>
+                <span className="qs-value">{fmtPriceCur(lang, last?.open ?? first?.close, company.currency)}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'prevClose')}</span>
-                <span className="qs-value">{fmtPrice(lang, (isLive ? company?.change_percent : last?.change_percent) != null && price != null ? price / (1 + (isLive ? company?.change_percent : last?.change_percent) / 100) : null)}</span>
+                <span className="qs-value">{fmtPriceCur(lang, (isLive ? company?.change_percent : last?.change_percent) != null && price != null ? price / (1 + (isLive ? company?.change_percent : last?.change_percent) / 100) : null, company.currency)}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'high')} · {periodCfg.label}</span>
-                <span className="qs-value up">{highP != null ? fmtPrice(lang, highP) : '—'}</span>
+                <span className="qs-value up">{highP != null ? fmtPriceCur(lang, highP, company.currency) : '—'}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'low')} · {periodCfg.label}</span>
-                <span className="qs-value down">{lowP != null ? fmtPrice(lang, lowP) : '—'}</span>
+                <span className="qs-value down">{lowP != null ? fmtPriceCur(lang, lowP, company.currency) : '—'}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">52 {t(lang, 'weeks')} {t(lang, 'high')}</span>
-                <span className="qs-value up">{yearHigh != null ? fmtPrice(lang, yearHigh) : '—'}</span>
+                <span className="qs-value up">{yearHigh != null ? fmtPriceCur(lang, yearHigh, company.currency) : '—'}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">52 {t(lang, 'weeks')} {t(lang, 'low')}</span>
-                <span className="qs-value down">{yearLow != null ? fmtPrice(lang, yearLow) : '—'}</span>
+                <span className="qs-value down">{yearLow != null ? fmtPriceCur(lang, yearLow, company.currency) : '—'}</span>
               </div>
               <div className="q-stat-card">
-                <span className="qs-label">{t(lang, 'volume')}</span>
-                <span className="qs-value">{fmtCompact(lang, last?.volume)}</span>
+                <span className="qs-label">{t(lang, 'volume')}{liveVol && liveVol.estimated ? ` · ${t(lang, 'liveFeed').toLowerCase()}` : ''}</span>
+                <span className="qs-value">{fmtCompact(lang, liveVol ? liveVol.volume : last?.volume)}</span>
               </div>
               <div className="q-stat-card">
                 <span className="qs-label">{t(lang, 'marketCap')}</span>
@@ -464,18 +461,24 @@ export default function Quote() {
             </div>
 
             {marketNote && <div className="market-closed"><AlertTriangle size={13} /> {marketNote}</div>}
+            {(company?.instrument_type && company.instrument_type !== 'equity') || company?.exchange === 'NGX' ? (
+              <div className="order-section">
+                <div className="trade-unav">{t(lang, 'tradeUnavailable')}</div>
+              </div>
+            ) : (
             <div className="order-section">
               <div className="order-box buy" onClick={() => openOrder('buy')}>
                 <span className="order-label">{t(lang, 'buy')}</span>
-                <span className="order-val">+{fmtPrice(lang, price)}</span>
+                <span className="order-val">+{fmtPriceCur(lang, price, company.currency)}</span>
               </div>
               {position && position.qty > 0 && (
                 <div className="order-box sell" onClick={() => openOrder('sell')}>
                   <span className="order-label">{t(lang, 'sell')} · {position.qty} {t(lang, 'shares')}</span>
-                  <span className="order-val">−{fmtPrice(lang, price)}</span>
+                  <span className="order-val">−{fmtPriceCur(lang, price, company.currency)}</span>
                 </div>
               )}
             </div>
+            )}
           </>
         )}
       </div>
@@ -524,9 +527,16 @@ export default function Quote() {
               <span>{orderModal === 'buy' ? t(lang, 'buy') : t(lang, 'sell')} {company.symbol}</span>
               <button className="icon-btn" onClick={() => setOrderModal(null)}><X size={18} /></button>
             </div>
+            {activeAcc && (
+              <div className="om-acc">
+                <span className="om-acc-name">{activeAcc.name}</span>
+                <span className="om-acc-tag">{t(lang, activeAcc.type === 'real' ? 'accReal' : 'accDemo')}</span>
+                <span className="om-acc-bal mono">{fmtPrice(lang, activeAcc.balance)} {activeAcc.currency === 'NGN' ? '₦' : 'FCFA'}</span>
+              </div>
+            )}
             <div className="modal-price">
               <span className="mp-label">{t(lang, 'price')}</span>
-              <span className="mp-val">{fmtPrice(lang, price)} FCFA</span>
+              <span className="mp-val">{fmtPrice(lang, price)} {company.currency === 'NGN' ? '₦' : 'FCFA'}</span>
             </div>
             <div className="otype-row">
               <button
@@ -544,7 +554,7 @@ export default function Quote() {
             </div>
             {orderType === 'limit' && (
               <div className="tpsl-row">
-                <span className="tpsl-label">{t(lang, 'limitPrice')} (FCFA)</span>
+                <span className="tpsl-label">{t(lang, 'limitPrice')} ({company.currency === 'NGN' ? '₦' : 'FCFA'})</span>
                 <input
                   className="tpsl-input mono"
                   type="number" min="0" step="0.01"
@@ -592,7 +602,7 @@ export default function Quote() {
             </div>
             <div className="modal-total">
               <span>{t(lang, 'total')}</span>
-              <span className="mt-val">{fmtPrice(lang, (parseFloat(orderQty) || 0) * (orderType === 'limit' && parseFloat(orderLimit) ? parseFloat(orderLimit) : price))} FCFA</span>
+              <span className="mt-val">{fmtPrice(lang, (parseFloat(orderQty) || 0) * (orderType === 'limit' && parseFloat(orderLimit) ? parseFloat(orderLimit) : price))} {company.currency === 'NGN' ? '₦' : 'FCFA'}</span>
             </div>
             {orderErr && <div className="order-err">{orderErr}</div>}
             <button
@@ -610,7 +620,7 @@ export default function Quote() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif;
         }
         .quote-area {
@@ -630,21 +640,26 @@ export default function Quote() {
         .q-title { display: flex; flex-direction: column; align-items: center; gap: 1px; background: none; border: none; color: inherit; font-family: inherit; padding: 0 8px; cursor: pointer; border-radius: 10px; }
         .q-title:active { background: #1a1a1a; }
         .q-chev { vertical-align: middle; opacity: 0.7; }
-        .q-symbol { font-size: 18px; font-weight: 700; color: #F8F8FA; }
+        .q-symbol { font-size: 18px; font-weight: 600; color: #F8F8FA; }
         .q-name { font-size: 14px; color: #9AA3B2; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .q-hero { padding: 8px 4px 12px; flex-shrink: 0; }
         .q-pair { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .q-logo-fallback {
           width: 40px; height: 40px; border-radius: 50%; background: #262626;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 700; font-size: 18px;
+          font-weight: 600; font-size: 18px;
           overflow: hidden;
         }
-        .q-logo-img { width: 100%; height: 100%; object-fit: cover; }
+        .q-logo-img { width: 100%; height: 100%; object-fit: contain; padding: 6px; box-sizing: border-box; }
         .q-pair-text { display: flex; align-items: center; gap: 3px; }
-        .q-base { font-size: 18px; font-weight: 700; color: #F8F8FA; }
+        .q-base { font-size: 18px; font-weight: 600; color: #F8F8FA; }
         .q-div { color: #666; font-size: 14px; }
         .q-quote { color: #9AA3B2; font-size: 14px; }
+        .q-ngx {
+          font-size: 9px; font-weight: 700; color: #8b5cf6;
+          background: rgba(139,92,246,0.15); padding: 1px 6px; border-radius: 8px;
+          margin-left: 6px; vertical-align: middle;
+        }
         .q-sector {
           font-size: 11px; color: #9AA3B2; background: #1B1B1B;
           padding: 4px 10px; border-radius: 12px;
@@ -662,7 +677,7 @@ export default function Quote() {
           50% { opacity: 0.35; }
         }
         .q-price {
-          font-size: 42px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          font-size: 42px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
           display: inline-block; border-radius: 8px; line-height: 1.25;
         }
         .q-price.up { color: #18C27C;  }
@@ -709,8 +724,8 @@ export default function Quote() {
         .qs-value.down { color: #F04438; }
         .chart-area {
           display: flex; flex-direction: column;
-          height: clamp(560px, 84vh, 900px);
-          min-height: 500px;
+          height: clamp(580px, 88vh, 940px);
+          min-height: 520px;
           margin: 0 -8px;
         }
         .chart-timeframes {
@@ -749,8 +764,14 @@ export default function Quote() {
         .order-box.sell { background: rgba(240,68,56,0.15); }
         .order-box.buy { background: rgba(24,194,124,0.15); }
         .order-box.buy.disabled, .order-box.sell.disabled { opacity: 0.45; cursor: default; }
+        .trade-unav {
+          flex: 1; display: flex; align-items: center; justify-content: center;
+          padding: 16px; border-radius: 14px; font-size: 14px; font-weight: 600;
+          letter-spacing: 0.3px; color: #8b93a3; background: #15161a;
+          border: 1px dashed #3a3f4a;
+        }
         .order-label { font-size: 12.5px; color: #9AA3B2; }
-        .order-val { font-size: 18px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .order-val { font-size: 18px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .order-box.sell .order-val { color: #F04438; }
         .order-box.buy .order-val { color: #18C27C; }
         .loading-screen {
@@ -758,7 +779,7 @@ export default function Quote() {
           align-items: center; justify-content: center; gap: 12px;
           color: #9AA3B2; font-size: 14px;
         }
-        .err-title { font-size: 20px; font-weight: 700; color: #fff; }
+        .err-title { font-size: 20px; font-weight: 600; color: #fff; }
         .err-sub { color: #666; font-size: 12px; }
         .back-btn {
           background: #8b5cf6; border: none; border-radius: 12px;
@@ -782,18 +803,28 @@ export default function Quote() {
           display: flex; flex-direction: column; gap: 10px;
         }
         .modal-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
+        .om-acc {
+          display: flex; align-items: center; gap: 8px;
+          background: #1B1B1B; border-radius: 12px; padding: 10px 12px; font-size: 12px;
+        }
+        .om-acc-name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .om-acc-tag {
+          font-size: 11px; font-weight: 600; letter-spacing: 0.1px; text-transform: uppercase;
+          color: #a78bfa; background: rgba(139,92,246,0.16); padding: 3px 7px; border-radius: 7px;
+        }
+        .om-acc-bal { color: #18C27C; font-weight: 600; }
         .modal-price {
           display: flex; justify-content: space-between; align-items: center;
           background: #1B1B1B; border-radius: 12px; padding: 12px 14px;
         }
         .mp-label { font-size: 12px; color: #9AA3B2; }
-        .mp-val { font-size: 16px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .mp-val { font-size: 16px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .otype-row { display: flex; gap: 8px; }
         .otype-btn {
           flex: 1; height: 38px;
           background: #1B1B1B; color: #9AA3B2;
           border: 1px solid #2a2a2a; border-radius: 12px;
-          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+          font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
         .otype-btn.on {
           background: rgba(24,194,124,0.12); color: #18C27C; border-color: rgba(24,194,124,0.4);
@@ -818,17 +849,17 @@ export default function Quote() {
         .qty-row input {
           flex: 1; text-align: center;
           background: #1B1B1B; border: none; border-radius: 12px;
-          color: #fff; font-size: 18px; font-weight: 700;
+          color: #fff; font-size: 18px; font-weight: 600;
           font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; outline: none; height: 44px;
         }
         .modal-total {
           display: flex; justify-content: space-between; align-items: center;
           padding: 4px 2px; font-size: 13px; color: #9AA3B2;
         }
-        .mt-val { font-size: 15px; font-weight: 700; color: #fff; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .mt-val { font-size: 15px; font-weight: 600; color: #fff; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .modal-exec {
           height: 46px; border: none; border-radius: 14px;
-          color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+          color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
         .modal-exec.buy { background: #18C27C; }
         .modal-exec.sell { background: #F04438; }
@@ -854,7 +885,7 @@ export default function Quote() {
         }
         .pick-item:active, .pick-item.active { background: #232323; }
         .pick-sym {
-          font-weight: 700; font-size: 13px; color: #fff;
+          font-weight: 600; font-size: 13px; color: #fff;
           font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; min-width: 52px;
         }
         .pick-name { font-size: 12px; color: #9AA3B2; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

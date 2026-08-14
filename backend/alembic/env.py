@@ -13,6 +13,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+from app.config import settings
+
+if os.environ.get("ALEMBIC_DATABASE_URL"):
+    config.set_main_option("sqlalchemy.url", os.environ["ALEMBIC_DATABASE_URL"])
+elif settings.DATABASE_URL and not settings.DATABASE_URL.endswith("bluerock:bluerock123@localhost"):
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
 target_metadata = Base.metadata
 
 def run_migrations_offline():

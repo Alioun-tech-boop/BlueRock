@@ -111,6 +111,33 @@ def _parse_amount(text: str) -> Optional[float]:
         return None
 
 
+# Codes des actions BRVM (les autres codes de BFIN = obligations / FCTC).
+EQUITY_SYMBOLS = frozenset({
+    "ABJC", "BICB", "BICC", "BNBC", "BOAB", "BOABF", "BOAC", "BOAM", "BOAN", "BOAS",
+    "CABC", "CBIBF", "CFAC", "CIEC", "ECOC", "ETIT", "FTSC", "LNBB", "NEIC", "NSBC",
+    "NTLC", "ONTBF", "ORAC", "ORGT", "PALC", "PRSC", "SAFC", "SCRC", "SDCC", "SDSC",
+    "SEMC", "SGBC", "SHEC", "SIBC", "SICC", "SIVC", "SLBC", "SMBC", "SNTS", "SOGC",
+    "SPHC", "STAC", "STBC", "TTLC", "TTLS", "UNLC", "UNXC",
+})
+
+
+def classify_instrument(code: str, libelle: str = "") -> Optional[str]:
+    """Type BRVM d'une ligne BFIN : 'equity' | 'obligation' | 'fcp' | None.
+    Les codes non cotés (lignes vides, anomalies) renvoient None."""
+    code = (code or "").strip().upper()
+    libelle = (libelle or "").strip().upper()
+    if not code:
+        return None
+    if code in EQUITY_SYMBOLS:
+        return "equity"
+    if "FCTC" in libelle or "FCP " in libelle or libelle.startswith("FCP"):
+        return "fcp"
+    if (".O" in code or libelle.startswith("ETAT") or "TRESOR" in libelle
+            or "BOND" in libelle or "OBLIG" in libelle):
+        return "obligation"
+    return None
+
+
 def _process_chunk(session_maker, companies: Dict[str, int], chunk: List[str],
                    delay: float, counter, lock) -> Dict:
     """Traite une tranche de dates dans un worker (session DB + client HTTP dédiés)."""
@@ -319,3 +346,244 @@ def sync_history(db, delay: float = 0.7, start_date: Optional[str] = None,
     res["dates_total"] = len(dates)
     res["todo"] = len(todo)
     return res
+
+
+def fetch_latest_fixed_income(delay: float = 0.5) -> dict:
+    """Dernière séance BFIN : prix des obligations/FCTC (hors actions).
+    Retourne {code: {"price": float, "change": float, "name": str, "type": str}}."""
+    client = BfinSession(delay=delay)
+    try:
+        dates = client.fetch_session_dates()
+        if not dates:
+            return {}
+        rows = client.fetch_session(dates[-1])
+    except Exception as e:
+        _log.warning(f"[BFIN] latest fixed income failed: {e}")
+        return {}
+    finally:
+        client.close()
+
+    out = {}
+    day = None
+    if rows and dates:
+        try:
+            day = date(int(dates[-1][:4]), int(dates[-1][4:6]), int(dates[-1][6:8]))
+        except ValueError:
+            day = None
+    for cells in rows or []:
+        if len(cells) < 6:
+            continue
+        code = (cells[1] or "").strip().upper()
+        libelle = (cells[2] or "").strip()
+        kind = classify_instrument(code, libelle)
+        if kind not in ("obligation", "fcp"):
+            continue
+        prev = _parse_amount(cells[3])
+        close = _parse_amount(cells[4])
+        if close is None or close <= 0:
+            continue
+        change = None
+        if prev and prev > 0:
+            change = (close - prev) / prev * 100.0
+        out[code] = {
+            "price": close,
+            "change": change,
+            "name": libelle or code,
+            "type": kind,
+            "date": day.isoformat() if day else None,
+        }
+    return out
+
+
+def _ensure_company(db, company_ids: dict, lock, symbol: str, name: str,
+                    kind: str) -> Optional[int]:
+    """Récupère ou crée la société (thread-safe) pour un instrument BFIN."""
+    symbol = symbol.strip().upper()
+    cid = company_ids.get(symbol)
+    if cid:
+        return cid
+    from ..models.company import Company
+    with lock:
+        cid = company_ids.get(symbol)
+        if cid:
+            return cid
+        co = db.query(Company).filter(Company.symbol == symbol).first()
+        if co:
+            if co.instrument_type != kind:
+                co.instrument_type = kind
+                db.commit()
+            company_ids[symbol] = co.id
+            return co.id
+        from ..models.company import Sector
+        try:
+            co = Company(
+                symbol=symbol,
+                name=name or symbol,
+                sector=Sector.SERVICES_FINANCIERS,
+                instrument_type=kind,
+                exchange="BRVM",
+                currency="XOF",
+                country=None,
+                description=f"{name or symbol} (BRVM, {kind})",
+            )
+            db.add(co)
+            db.commit()
+            db.refresh(co)
+        except Exception:
+            db.rollback()
+            co = db.query(Company).filter(Company.symbol == symbol).first()
+            if not co:
+                return None
+        company_ids[symbol] = co.id
+        return co.id
+
+
+def _process_fixed_chunk(session_maker, company_ids, lock, chunk, delay,
+                         counter) -> Dict:
+    """Worker : scan d'un lot de dates, créé les sociétés obligations/FCTC
+    et enregistre les prix (source BFIN)."""
+    from ..models.market import MarketData
+    db = session_maker()
+    client = BfinSession(delay=delay)
+    stats = {"fetched": 0, "inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+    try:
+        client.fetch_session_dates()
+        for date_val in chunk:
+            try:
+                rows = client.fetch_session(date_val)
+            except Exception:
+                stats["errors"] += 1
+                continue
+            if rows is None:
+                stats["skipped"] += 1
+                continue
+            day = date(int(date_val[:4]), int(date_val[4:6]), int(date_val[6:8]))
+            inserted = updated = 0
+            for cells in rows:
+                if len(cells) < 6:
+                    continue
+                code = (cells[1] or "").strip().upper()
+                libelle = (cells[2] or "").strip()
+                kind = classify_instrument(code, libelle)
+                if kind not in ("obligation", "fcp"):
+                    continue
+                close = _parse_amount(cells[4])
+                if close is None or close <= 0:
+                    continue
+                cid = _ensure_company(db, company_ids, lock, code, libelle, kind)
+                if not cid:
+                    continue
+                prev = _parse_amount(cells[3])
+                change = None
+                if prev and prev > 0:
+                    change = (close - prev) / prev * 100.0
+                md = db.query(MarketData).filter(
+                    MarketData.company_id == cid, MarketData.date == day
+                ).first()
+                if md:
+                    md.close_price = close
+                    md.volume = _parse_amount(cells[5])
+                    md.change_percent = change
+                    md.source = "BFIN"
+                    md.is_synthetic = False
+                    updated += 1
+                else:
+                    db.add(MarketData(
+                        company_id=cid, date=day, close_price=close,
+                        volume=_parse_amount(cells[5]), change_percent=change,
+                        source="BFIN",
+                    ))
+                    inserted += 1
+            db.commit()
+            stats["fetched"] += 1
+            stats["inserted"] += inserted
+            stats["updated"] += updated
+            with lock:
+                counter["done"] += 1
+                counter["inserted"] += inserted
+                counter["updated"] += updated
+            time.sleep(client.delay)
+    except Exception as e:
+        _log.warning(f"[BFIN] fixed worker: {e}")
+    finally:
+        client.close()
+        db.close()
+    return stats
+
+
+def sync_fixed_income_history(db, delay: float = 0.7, workers: int = 1,
+                              start_date: Optional[str] = None,
+                              on_progress=None) -> Dict:
+    """Historique complet obligations + FCTC depuis BFIN.
+
+    Parcourt toutes les séances et enregistre chaque instrument non « action »
+    coté ce jour-là (création idempotente de la société si inconnue).
+    Retourne {dates_total, todo, fetched, inserted, updated, skipped, errors,
+    companies}.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ..database import SessionLocal
+    from ..models.company import Company
+    from ..models.market import MarketData
+
+    client = BfinSession(delay=delay)
+    try:
+        dates = client.fetch_session_dates()
+    except Exception as e:
+        client.close()
+        raise ValueError(f"impossible d'obtenir la liste des séances : {e}")
+    client.close()
+
+    if start_date:
+        dates = [d for d in dates if d >= start_date]
+    existing = {
+        d.isoformat().replace("-", "")
+        for (d,) in db.query(MarketData.date)
+        .join(Company, MarketData.company_id == Company.id)
+        .filter(Company.instrument_type.in_(["obligation", "fcp"]),
+                MarketData.source == "BFIN")
+        .distinct()
+    }
+    todo = [d for d in dates if d not in existing]
+
+    company_ids = {
+        c.symbol: c.id for c in db.query(Company)
+        .filter(Company.instrument_type.in_(["obligation", "fcp"])).all()
+    }
+    company_ids.update({c.symbol: c.id for c in db.query(Company).all()})
+
+    stats = {"dates_total": len(dates), "todo": len(todo), "companies": 0,
+             "fetched": 0, "inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+    if not todo:
+        return stats
+
+    lock = threading.Lock()
+    counter = {"done": 0, "inserted": 0, "updated": 0}
+    start = time.time()
+    chunks = [todo[i::workers] for i in range(workers)]
+    chunks = [c for c in chunks if c]
+
+    with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+        futures = [pool.submit(_process_fixed_chunk, SessionLocal, company_ids,
+                               lock, ch, delay, counter) for ch in chunks]
+        while any(not f.done() for f in futures):
+            time.sleep(10)
+            with lock:
+                done, ins, upd = (counter["done"], counter["inserted"],
+                                  counter["updated"])
+            if on_progress:
+                try:
+                    on_progress({"done": done, "total": len(todo),
+                                 "inserted": ins, "updated": upd,
+                                 "elapsed_min": (time.time() - start) / 60})
+                except Exception:
+                    pass
+
+    for f in futures:
+        r = f.result() or {}
+        for k in ("fetched", "inserted", "updated", "skipped", "errors"):
+            stats[k] += r.get(k, 0)
+    stats["companies"] = len(company_ids)
+    return stats

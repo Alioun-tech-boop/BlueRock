@@ -1,5 +1,5 @@
 import PatrimoineShell from '../../components/PatrimoineShell'
-import PatrimoineSectionStyles from '../../components/PatrimoineSectionStyles'
+import PatrimoineSectionStyles, { pfCurveGradient } from '../../components/PatrimoineSectionStyles'
 import PatrimoineEmpty from '../../components/PatrimoineEmpty'
 import { fmtFCFA, fmtPct, fmtDate, fmtCompactShort, curveOf } from '../../lib/plan'
 import { t } from '../../lib/i18n'
@@ -21,10 +21,11 @@ export default function Projections() {
                   <div className="card-title"><Activity size={15} color="#2ACB8A" /> {t(lang, 'planCurve')}</div>
                   {curve ? (
                     <>
-                      <svg className="curve" viewBox="0 0 300 90" preserveAspectRatio="none">
+                      <svg className="curve" viewBox="0 0 300 110" preserveAspectRatio="none">
+                        {pfCurveGradient()}
                         <line x1="0" y1={curve.startY} x2="300" y2={curve.startY} className="curve-base" />
+                        <polyline points={`0,110 ${curve.points} 300,110`} className="curve-fill" />
                         <polyline points={curve.points} className="curve-line" fill="none" />
-                        <polyline points={`0,90 ${curve.points} 300,90`} className="curve-fill" />
                       </svg>
                       <div className="curve-axis">
                         <span>{fmtDate(curve.first)}</span>
@@ -64,7 +65,7 @@ export default function Projections() {
                 <div className="disclaimer">{t(lang, 'premiumCashHint')}</div>
               </>
             )}
-            <div className="footer-note">BlueRock © 2026</div>
+            <div className="footer-note">Bluerock © 2026</div>
           </>
         )
       }}

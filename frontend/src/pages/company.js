@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getCompanyFull, getPosition, placeOrder, ingestPdf, fetchFinancials, getFetchStatus, getMarketCalendar, getMarketLive } from '../services/api'
+import TriLoader from '../components/TriLoader'
+import { getCompanyFull, getPosition, placeOrder, ingestPdf, fetchFinancials, getFetchStatus, getMarketCalendar, getMarketLive, getPortfolio } from '../services/api'
 import { useAuth } from '../lib/auth'
+import { getActiveAccountId } from '../lib/accounts'
 import {
   ArrowLeft, Star, Share2, Building2, Users, MapPin, Calendar,
   Globe, TrendingUp, TrendingDown, Newspaper, ChevronRight,
   Check, AlertTriangle, Sparkles, X, Upload, Database, FileText,
   RefreshCw, ChevronDown, ExternalLink,
 } from 'lucide-react'
-import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
+import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
 import { aggregateOhlc } from '../lib/ohlc'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import MarketChart from '../components/MarketChart'
 import InfoDot from '../components/InfoDot'
 import NewsThumb from '../components/NewsThumb'
@@ -277,6 +280,16 @@ export default function Company() {
   const [mcNote, setMcNote] = useState('')
   const [tradeMsg, setTradeMsg] = useState('')
   const [tradeErr, setTradeErr] = useState('')
+  const [activeAcc, setActiveAcc] = useState(null)
+
+  useEffect(() => {
+    if (!user) { setActiveAcc(null); return }
+    let cancelled = false
+    getPortfolio(getActiveAccountId())
+      .then(r => { if (!cancelled) setActiveAcc(r.data?.account || null) })
+      .catch(() => { if (!cancelled) setActiveAcc(null) })
+    return () => { cancelled = true }
+  }, [user])
 
   const openTrade = (side) => {
     if (!full) return
@@ -300,7 +313,7 @@ export default function Company() {
     setTradeErr('')
     setSending(false)
     setOwned(0)
-    getPosition(full.company.symbol)
+    getPosition(full.company.symbol, getActiveAccountId())
       .then(r => setOwned(r.data?.qty || 0))
       .catch(() => {})
   }
@@ -334,10 +347,13 @@ export default function Company() {
       limit_price: tradeType === 'limit' ? execPx : null,
       take_profit: tpV,
       stop_loss: slV,
+      account_id: getActiveAccountId(),
     })
       .then(res => {
         setSending(false)
         const pending = res?.data?.status === 'pending'
+        const execPrice = res?.data?.price
+        if (!pending && execPrice != null) setTradePrice(String(execPrice))
         setTradeMsg(t(lang, pending ? 'orderPending' : 'tradePlaced'))
         if (!pending) setOwned(o => trade === 'buy' ? o + qty : Math.max(0, o - qty))
       })
@@ -351,13 +367,11 @@ export default function Company() {
   if (loading && !full) {
     return (
       <div className="mobile-root">
-        <div className="loading-center"><div className="spinner" /></div>
+        <div className="loading-center"><TriLoader compact label={t(lang, 'loading')} /></div>
         <BottomNav />
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
-          .spinner { width: 26px; height: 26px; border: 3px solid #262626; border-top-color: #18C27C; border-radius: 50%; animation: spin 0.8s linear infinite; }
-          @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
       </div>
     )
@@ -377,11 +391,11 @@ export default function Company() {
         </div>
         <BottomNav />
         <style jsx>{`
-          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #0E1627; color: #fff; font-family: Inter, -apple-system, sans-serif; }
+          .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
           .err-box { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #9AA3B2; font-size: 14px; }
-          .err-title { font-size: 32px; font-weight: 700; color: #fff; }
-          .retry-btn { background: #18C27C; border: none; border-radius: 12px; color: #00130a; padding: 10px 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; margin-top: 6px; }
+          .err-title { font-size: 32px; font-weight: 600; color: #fff; }
+          .retry-btn { background: #18C27C; border: none; border-radius: 12px; color: #00130a; padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; margin-top: 6px; }
         `}</style>
       </div>
     )
@@ -403,9 +417,15 @@ export default function Company() {
   const hist = history || []
   const chartData = aggregateOhlc(hist, periodDef.kind)
   const clean = chartData.filter(d => d && d.close != null && !Number.isNaN(+d.close))
-  const chartChg = clean.length >= 2 && clean[0].open != null
-    ? ((clean[clean.length - 1].close - clean[0].open) / clean[0].open) * 100
-    : null
+  const lastClean = clean.length ? clean[clean.length - 1] : null
+  const prevClean = clean.length >= 2 ? clean[clean.length - 2] : null
+  const chartChg = period === '1J'
+    ? (price?.change_percent ?? company.change_percent ?? null)
+    : period === 'MAX'
+      ? (lastClean && clean[0] && lastClean.close != null && clean[0].open != null
+        ? ((lastClean.close - clean[0].open) / clean[0].open) * 100 : null)
+      : (lastClean && prevClean && lastClean.close != null && prevClean.close != null
+        ? ((lastClean.close - prevClean.close) / prevClean.close) * 100 : null)
 
   const fmtMd = n => n != null
     ? (Math.abs(n) >= 1e9 ? `${(n / 1e9).toFixed(2)} Md` : `${(n / 1e6).toFixed(1)} M`)
@@ -414,7 +434,6 @@ export default function Company() {
     ? (n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)} K` : String(n))
     : '—'
   const pct = v => v != null ? `${v.toFixed(1)}%` : '—'
-  const num = v => v != null ? v.toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'
   const num2 = v => v != null ? v.toFixed(2) : '—'
 
   const fv = (k, d) => {
@@ -483,8 +502,8 @@ export default function Company() {
     { label: 'BPA', value: num2(company.eps ?? ratios?.eps), help: 'hBpa' },
     { label: t(lang, 'debtEquity'), value: num2(ratios?.debt_to_equity), help: 'hDebtEquity' },
     { label: t(lang, 'currentRatio'), value: num2(ratios?.current_ratio), help: 'hCurrentRatio' },
-    { label: t(lang, 'dividendPerShare'), value: ratios?.dividend_per_share != null ? fmtPrice(lang, ratios.dividend_per_share) : '—', help: 'hDivPerShare' },
-    { label: t(lang, 'fcfShare'), value: ratios?.fcf_per_share != null ? fmtPrice(lang, ratios.fcf_per_share) : '—', help: 'hFcfShare' },
+    { label: t(lang, 'dividendPerShare'), value: ratios?.dividend_per_share != null ? fmtPriceCur(lang, ratios.dividend_per_share, company.currency) : '—', help: 'hDivPerShare' },
+    { label: t(lang, 'fcfShare'), value: ratios?.fcf_per_share != null ? fmtPriceCur(lang, ratios.fcf_per_share, company.currency) : '—', help: 'hFcfShare' },
   ]
 
   const shares = company.shares_outstanding
@@ -515,7 +534,7 @@ export default function Company() {
           </div>
           <div className="co-actions">
             <button className="icon-btn" aria-label={t(lang, 'share')} onClick={() => {
-              if (navigator.share) navigator.share({ title: company.name, text: `${company.symbol} — ${fmtPrice(lang, price?.current)}` }).catch(() => {})
+              if (navigator.share) navigator.share({ title: company.name, text: `${company.symbol} — ${fmtPriceCur(lang, price?.current, company.currency)}` }).catch(() => {})
             }}>
               <Share2 size={20} />
             </button>
@@ -528,7 +547,11 @@ export default function Company() {
         <section className="hero">
           <div className="hero-logo-wrap">
             {company.logo_url ? (
-              <img src={company.logo_url} alt={company.symbol} className="hero-logo" />
+              <img
+                crossOrigin="anonymous" src={company.logo_url} alt={company.symbol} className="hero-logo"
+                onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
+                onError={onLogoError}
+              />
             ) : (
               <div className="hero-logo-fallback">{company.symbol?.[0]}</div>
             )}
@@ -541,7 +564,7 @@ export default function Company() {
             {full.data_synthetic && <span className="tag synth">{t(lang, 'synthBadge')}</span>}
           </div>
           <div className="hero-price-row">
-            <span className="hero-price">{fmtPrice(lang, price?.current)}</span>
+            <span className="hero-price">{fmtPriceCur(lang, price?.current, company.currency)}</span>
             <span className={`hero-chg ${up ? 'up' : down ? 'down' : 'flat'}`}>
               {up ? '+' : ''}{fmtChange(lang, chg)}
             </span>
@@ -582,7 +605,7 @@ export default function Company() {
         <section className="chart-card">
           <div className="chart-head">
             <div>
-              <div className="chart-price">{fmtPrice(lang, chartData[chartData.length - 1]?.close ?? price?.current)}</div>
+              <div className="chart-price">{fmtPriceCur(lang, chartData[chartData.length - 1]?.close ?? price?.current, company.currency)}</div>
               <div className={`chart-chg ${chartChg != null && chartChg >= 0 ? 'up' : 'down'}`}>
                 {chartChg != null ? `${chartChg >= 0 ? '+' : ''}${chartChg.toFixed(2)}%` : ''}
               </div>
@@ -600,7 +623,7 @@ export default function Company() {
             </div>
           </div>
           <div className="chart-wrap">
-            <MarketChart data={chartData} period={period.toLowerCase()} lang={lang} symbol={company?.symbol} />
+            <MarketChart data={chartData} period={period.toLowerCase()} lang={lang} symbol={company?.symbol} currency={company?.currency} />
           </div>
           <div className="chart-legend">
             <span className="lg up"><i className="lg-candle-up" /> {t(lang, 'chartUp')}</span>
@@ -611,8 +634,14 @@ export default function Company() {
 
         <section className="trade-row">
           {mcNote && <div className="mc-note"><AlertTriangle size={13} /> {mcNote}</div>}
-          <button className="trade-btn buy" onClick={() => openTrade('buy')}>{t(lang, 'buy')}</button>
-          <button className="trade-btn sell" onClick={() => openTrade('sell')}>{t(lang, 'sell')}</button>
+          {(company?.instrument_type && company.instrument_type !== 'equity') || company?.exchange === 'NGX' ? (
+            <div className="trade-unav">{t(lang, 'tradeUnavailable')}</div>
+          ) : (
+            <>
+              <button className="trade-btn buy" onClick={() => openTrade('buy')}>{t(lang, 'buy')}</button>
+              <button className="trade-btn sell" onClick={() => openTrade('sell')}>{t(lang, 'sell')}</button>
+            </>
+          )}
         </section>
 
         <div className="co-tabs">
@@ -655,10 +684,10 @@ export default function Company() {
                   </div>
                 </div>
                 <div className="info-item">
-                  <span className="ii-icon"><TrendingUp size={15} /></span>
+                  <span className="ii-icon"><Building2 size={15} /></span>
                   <div>
-                    <div className="ii-label">{t(lang, 'employees')}</div>
-                    <div className="ii-value">{num(profile.employees)}</div>
+                    <div className="ii-label">{t(lang, 'president')}</div>
+                    <div className="ii-value">{profile.president || '—'}</div>
                   </div>
                 </div>
                 <div className="info-item">
@@ -672,7 +701,13 @@ export default function Company() {
                   <span className="ii-icon"><Globe size={15} /></span>
                   <div>
                     <div className="ii-label">{t(lang, 'website')}</div>
-                    <div className="ii-value link">{company.website || '—'}</div>
+                    <div className="ii-value">
+                      {company.website ? (
+                        <a className="ii-link" href={company.website} target="_blank" rel="noreferrer">
+                          {company.website.replace(/^https?:\/\/(www\.)?/, '')}
+                        </a>
+                      ) : '—'}
+                    </div>
                   </div>
                 </div>
                 <div className="info-item">
@@ -723,7 +758,7 @@ export default function Company() {
                 <Upload size={13} /> {t(lang, 'finImportPdf')}
               </button>
               <button className="fr-btn" onClick={doSync} disabled={syncBusy}>
-                <RefreshCw size={13} className={`fr-spin ${syncBusy ? 'spin' : ''}`} /> {t(lang, 'finSyncReports')}
+                {syncBusy ? <TriLoader inline /> : <RefreshCw size={13} />} {t(lang, 'finSyncReports')}
               </button>
             </div>
             {syncMsg && <div className="fr-msg ok">{syncMsg}</div>}
@@ -790,10 +825,10 @@ export default function Company() {
                 return (
                   <div key={i} className="hist-row">
                     <span className="mono hist-date">{String(d.date).slice(0, 10)}</span>
-                    <span className="mono">{fmtPrice(lang, d.open)}</span>
-                    <span className="mono">{fmtPrice(lang, d.high)}</span>
-                    <span className="mono">{fmtPrice(lang, d.low)}</span>
-                    <span className="mono hist-close">{fmtPrice(lang, d.close)}</span>
+                    <span className="mono">{fmtPriceCur(lang, d.open, company.currency)}</span>
+                    <span className="mono">{fmtPriceCur(lang, d.high, company.currency)}</span>
+                    <span className="mono">{fmtPriceCur(lang, d.low, company.currency)}</span>
+                    <span className="mono hist-close">{fmtPriceCur(lang, d.close, company.currency)}</span>
                     <span className="mono hist-vol">{fmtVol(d.volume)}</span>
                     {chg != null && <span className={`mono hist-chg ${chg >= 0 ? 'up' : 'down'}`}>{chg >= 0 ? '+' : ''}{chg.toFixed(2)}%</span>}
                   </div>
@@ -822,7 +857,7 @@ export default function Company() {
             {dividends.slice(-6).reverse().map((d, i) => (
               <div key={i} className="div-row">
                 <span className="mono">{d.fiscal_year}</span>
-                <span className="mono">{fmtPrice(lang, d.dividend_per_share)}</span>
+                <span className="mono">{fmtPriceCur(lang, d.dividend_per_share, company.currency)}</span>
                 <span className="mono up">{d.yield_pct != null ? d.yield_pct.toFixed(2) + '%' : '—'}</span>
               </div>
             ))}
@@ -859,7 +894,7 @@ export default function Company() {
               <span className="ai-premium">PREMIUM</span>
             </div>
           <div className="ai-score-row">
-            <ScoreRing score={totalScore} />
+            {totalScore != null && <ScoreRing score={totalScore} />}
             <div className="ai-score-info">
               <span className={`rec-badge ${recClass}`}>{recLabel}</span>
               <span className="ai-score-label">
@@ -873,6 +908,33 @@ export default function Company() {
             </div>
           </div>
           {ai?.summary && <p className="ai-summary">{ai.summary}</p>}
+
+          <div className="ai-bars">
+            <div className="ai-bars-title">{t(lang, 'scoreBreakdown')}</div>
+            {[
+              { k: 'profitability_score', i18n: 'strProfit' },
+              { k: 'growth_score', i18n: 'strGrowth' },
+              { k: 'valuation_score', i18n: 'strValuation' },
+              { k: 'debt_score', i18n: 'strDebt' },
+              { k: 'liquidity_score', i18n: 'strLiquidity' },
+              { k: 'moat_score', i18n: 'strMoat' },
+              { k: 'momentum_score', i18n: 'strMomentum' },
+            ].map(item => {
+              const v = (scorecard || {})[item.k]
+              if (v == null) return null
+              const val = Math.max(0, Math.min(10, +v))
+              const color = val >= 7 ? '#18C27C' : val >= 5 ? '#facc15' : '#F04438'
+              return (
+                <div key={item.k} className="ai-bar-row">
+                  <span className="ai-bar-label">{t(lang, item.i18n)}</span>
+                  <div className="ai-bar-track">
+                    <div className="ai-bar-fill" style={{ width: `${val * 10}%`, background: color }} />
+                  </div>
+                  <span className="ai-bar-val mono">{val.toFixed(1)}</span>
+                </div>
+              )
+            })}
+          </div>
 
           <div className="ai-col">
             <div className="ai-col-title good"><TrendingUp size={14} /> {t(lang, 'strengths')}</div>
@@ -925,7 +987,7 @@ export default function Company() {
             <div className="fc-grid">
               <div className="fc-item">
                 <span className="fc-label">{t(lang, 'targetPrice')}<InfoDot text={t(lang, 'hTargetPrice')} /></span>
-                <span className="fc-value">{target != null ? fmtPrice(lang, target) : '—'}</span>
+                <span className="fc-value">{target != null ? fmtPriceCur(lang, target, company.currency) : '—'}</span>
               </div>
               <div className="fc-item">
                 <span className="fc-label">{t(lang, 'upside')}<InfoDot text={t(lang, 'hUpside')} /></span>
@@ -935,15 +997,15 @@ export default function Company() {
               </div>
               <div className="fc-item">
                 <span className="fc-label">DCF<InfoDot text={t(lang, 'hDcf')} /></span>
-                <span className="fc-value">{valuation?.dcf_value != null ? fmtPrice(lang, valuation.dcf_value) : '—'}</span>
+                <span className="fc-value">{valuation?.dcf_value != null ? fmtPriceCur(lang, valuation.dcf_value, company.currency) : '—'}</span>
               </div>
               <div className="fc-item">
                 <span className="fc-label">Graham<InfoDot text={t(lang, 'hGraham')} /></span>
-                <span className="fc-value">{valuation?.graham_value != null ? fmtPrice(lang, valuation.graham_value) : '—'}</span>
+                <span className="fc-value">{valuation?.graham_value != null ? fmtPriceCur(lang, valuation.graham_value, company.currency) : '—'}</span>
               </div>
               <div className="fc-item">
                 <span className="fc-label">Buffett<InfoDot text={t(lang, 'hBuffett')} /></span>
-                <span className="fc-value">{valuation?.buffett_value != null ? fmtPrice(lang, valuation.buffett_value) : '—'}</span>
+                <span className="fc-value">{valuation?.buffett_value != null ? fmtPriceCur(lang, valuation.buffett_value, company.currency) : '—'}</span>
               </div>
               <div className="fc-item">
                 <span className="fc-label">{t(lang, 'valuationDiscount')}<InfoDot text={t(lang, 'hDiscount')} /></span>
@@ -1080,6 +1142,13 @@ export default function Company() {
                 </span>
                 <button className="tm-close" onClick={closeTrade} aria-label={t(lang, 'cancel')}><X size={18} /></button>
               </div>
+              {activeAcc && (
+                <div className="tm-acc">
+                  <span className="tm-acc-name">{activeAcc.name}</span>
+                  <span className="tm-acc-tag">{t(lang, activeAcc.type === 'real' ? 'accReal' : 'accDemo')}</span>
+                  <span className="tm-acc-bal mono">{fmtPrice(lang, activeAcc.balance)} FCFA</span>
+                </div>
+              )}
               {tradeMsg ? (
                 <div className="tm-done">
                   <span className="tm-done-icon"><Check size={40} color="#18C27C" /></span>
@@ -1179,7 +1248,7 @@ export default function Company() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -1194,27 +1263,27 @@ export default function Company() {
         .icon-btn:hover { background: #1a1a1a; }
         .fav-active { background: rgba(255,209,102,0.1); }
         .co-actions { display: flex; gap: 2px; }
-        .co-title span { font-size: 18px; font-weight: 700; color: #F8F8FA; }
+        .co-title span { font-size: 20px; font-weight: 600; color: #F8F8FA; }
         .hero { display: flex; flex-direction: column; align-items: center; padding: 8px 0 16px; }
         .hero-logo-wrap {
           width: 76px; height: 76px; border-radius: 22px; overflow: hidden;
           background: linear-gradient(160deg, #1E1E1E, #131313);
           display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
         }
-        .hero-logo { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
-        .hero-logo-fallback { font-size: 30px; font-weight: 700; color: #8b5cf6; }
-        .hero-name { font-size: 24px; font-weight: 700; color: #F8F8FA; text-align: center; margin: 0 0 8px; }
+        .hero-logo { width: 100%; height: 100%; object-fit: contain; padding: 10px; box-sizing: border-box; }
+        .hero-logo-fallback { display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 600; color: #8b5cf6; }
+        .hero-name { font-size: 26px; font-weight: 600; color: #F8F8FA; text-align: center; margin: 0 0 8px; }
         .hero-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; }
         .tag {
-          font-size: 12px; font-weight: 600; color: #9AA3B2;
+          font-size: 13px; font-weight: 600; color: #9AA3B2;
           background: #1E1E1E; border: 1px solid #2a2a2a;
           border-radius: 8px; padding: 5px 12px;
         }
         .tag.ticker { color: #18C27C; background: rgba(24,194,124,0.1); border-color: rgba(24,194,124,0.3); font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .tag.synth { color: #ffd166; background: rgba(255,209,102,0.1); border-color: rgba(255,209,102,0.35); }
         .hero-price-row { display: flex; align-items: center; gap: 12px; }
-        .hero-price { font-size: 40px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
-        .hero-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .hero-price { font-size: 44px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
+        .hero-chg { font-size: 18px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .hero-chg.up { color: #18C27C;  }
         .hero-chg.down { color: #F04438;  }
         .hero-chg.flat { color: #9AA3B2; }
@@ -1227,8 +1296,8 @@ export default function Company() {
           padding: 12px 10px; display: flex; flex-direction: column; gap: 4px;
           align-items: center;
         }
-        .stat-label { font-size: 14px; font-weight: 400; color: #9AA3B2; }
-        .stat-value { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stat-label { font-size: 15px; font-weight: 400; color: #9AA3B2; }
+        .stat-value { font-size: 18px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .label-row { display: inline-flex; align-items: center; gap: 4px; }
         .stats-card .label-row { justify-content: center; }
         .chart-card {
@@ -1238,8 +1307,8 @@ export default function Company() {
         }
         @keyframes tvIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
         .chart-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-        .chart-price { font-size: 30px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
-        .chart-chg { font-size: 16px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .chart-price { font-size: 32px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;  }
+        .chart-chg { font-size: 18px; font-weight: 500; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .chart-chg.up { color: #18C27C;  }
         .chart-chg.down { color: #F04438;  }
         .chart-wrap { display: flex; flex-direction: column; height: clamp(420px, 62vh, 680px); min-height: 420px; }
@@ -1249,7 +1318,7 @@ export default function Company() {
           font-size: 13px; font-weight: 600; padding: 6px 10px;
           border-radius: 8px; cursor: pointer; font-family: inherit;
         }
-        .period.active { background: #18C27C; color: #00130a; font-weight: 700; }
+        .period.active { background: #18C27C; color: #00130a; font-weight: 600; }
         .chart-empty { color: #555; padding: 60px 0; font-size: 12px; }
         .chart-legend { display: flex; gap: 14px; justify-content: center; margin-top: 8px; }
         .lg { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9AA3B2; }
@@ -1266,20 +1335,25 @@ export default function Company() {
           border-radius: 12px; padding: 10px 12px;
         }
         .trade-btn {
-          flex: 1; height: 48px; border: none; border-radius: 14px;
-          font-size: 17px; font-weight: 600; cursor: pointer; font-family: inherit;
+          flex: 1; height: 52px; border: none; border-radius: 14px;
+          font-size: 19px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
         .trade-btn.buy { background: #18C27C; color: #00130a; }
         .trade-btn.sell { background: #F04438; color: #fff; }
+        .trade-unav {
+          flex: 1; height: 52px; display: flex; align-items: center; justify-content: center;
+          border-radius: 14px; font-size: 15px; font-weight: 600; letter-spacing: 0.3px;
+          color: #8b93a3; background: #15161a; border: 1px dashed #3a3f4a;
+        }
         .co-tabs {
           display: flex; gap: 8px; margin-bottom: 16px;
           overflow-x: auto; padding-bottom: 2px;
         }
         .co-tabs::-webkit-scrollbar { display: none; }
         .co-tab {
-          flex: 1; white-space: nowrap; padding: 10px 8px;
+          flex: 1; white-space: nowrap; padding: 11px 8px;
           background: #141414; border: 1px solid #262626; border-radius: 14px;
-          color: #9AA3B2; font-size: 13px; font-weight: 600;
+          color: #9AA3B2; font-size: 14px; font-weight: 600;
           cursor: pointer; font-family: inherit;
           transition: background 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
         }
@@ -1299,7 +1373,7 @@ export default function Company() {
         }
         .co-cal-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; }
         .co-cal-src {
-          flex: none; font-size: 10.5px; font-weight: 700; color: #8b5cf6;
+          flex: none; font-size: 10.5px; font-weight: 600; color: #8b5cf6;
           background: rgba(139,92,246,0.12); border-radius: 8px; padding: 3px 8px;
         }
         .trade-overlay {
@@ -1316,7 +1390,7 @@ export default function Company() {
         }
         .tm-head { display: flex; align-items: center; justify-content: space-between; }
         .tm-side {
-          font-size: 15px; font-weight: 700; padding: 5px 12px; border-radius: 10px;
+          font-size: 15px; font-weight: 600; padding: 5px 12px; border-radius: 10px;
           font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
         }
         .tm-side.buy { background: rgba(24,194,124,0.15); color: #18C27C; }
@@ -1329,7 +1403,17 @@ export default function Company() {
           font-size: 12px; color: #9AA3B2;
           background: #1E1E1E; border-radius: 10px; padding: 9px 12px;
         }
-        .tm-owned b { color: #fff; font-weight: 700; }
+        .tm-owned b { color: #fff; font-weight: 600; }
+        .tm-acc {
+          display: flex; align-items: center; gap: 8px;
+          background: #1E1E1E; border-radius: 10px; padding: 9px 12px; margin-bottom: 10px; font-size: 12px;
+        }
+        .tm-acc-name { font-weight: 600; color: #fff; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .tm-acc-tag {
+          font-size: 10px; font-weight: 600; letter-spacing: 0.15px; text-transform: uppercase;
+          color: #a78bfa; background: rgba(139,92,246,0.16); padding: 3px 7px; border-radius: 7px;
+        }
+        .tm-acc-bal { color: #18C27C; font-weight: 600; }
         .tm-row { display: flex; flex-direction: column; gap: 6px; }
         .tm-label { font-size: 11px; color: #9AA3B2; font-weight: 600; }
         .tm-otype { display: flex; gap: 8px; }
@@ -1337,7 +1421,7 @@ export default function Company() {
           flex: 1; height: 38px;
           background: #1B1B1B; color: #9AA3B2;
           border: 1px solid #2a2a2a; border-radius: 10px;
-          font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+          font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
         }
         .tm-otype-btn.on {
           background: rgba(24,194,124,0.12); color: #18C27C; border-color: rgba(24,194,124,0.4);
@@ -1353,7 +1437,7 @@ export default function Company() {
           font-size: 13px; color: #9AA3B2;
           background: #1E1E1E; border-radius: 10px; padding: 10px 12px;
         }
-        .tm-total .mono { font-size: 15px; font-weight: 700; color: #fff; }
+        .tm-total .mono { font-size: 15px; font-weight: 600; color: #fff; }
         .tm-err {
           display: flex; align-items: center; gap: 6px;
           font-size: 12px; color: #ff8a8a;
@@ -1362,7 +1446,7 @@ export default function Company() {
         }
         .tm-btn {
           height: 48px; border: none; border-radius: 14px;
-          font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+          font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
           background: #18C27C; color: #00130a;
         }
         .tm-btn.sell { background: #F04438; color: #fff; }
@@ -1373,7 +1457,7 @@ export default function Company() {
           background: rgba(24,194,124,0.12);
           display: flex; align-items: center; justify-content: center;
         }
-        .tm-done-title { font-size: 15px; font-weight: 700; }
+        .tm-done-title { font-size: 15px; font-weight: 600; }
         .tm-done-sub { font-size: 12px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .tm-done .tm-btn { width: 100%; margin-top: 6px; }
         .imp-drop {
@@ -1415,7 +1499,7 @@ export default function Company() {
           background: none; border: none; color: #fff; cursor: pointer;
           padding: 11px 12px; font-family: inherit; text-align: left;
         }
-        .stmt-type { font-size: 12px; font-weight: 700; color: #a78bfa; white-space: nowrap; }
+        .stmt-type { font-size: 12px; font-weight: 600; color: #a78bfa; white-space: nowrap; }
         .stmt-meta {
           flex: 1; min-width: 0; font-size: 11px; color: #9AA3B2;
           font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
@@ -1450,7 +1534,7 @@ export default function Company() {
         }
         .hist-head {
           font-size: 10px; color: #9AA3B2; font-weight: 600;
-          text-transform: uppercase; letter-spacing: 0.3px;
+          text-transform: uppercase; letter-spacing: 0.1px;
           padding: 8px 6px; border-bottom: 1px solid #2a2a2a;
         }
         .hist-row {
@@ -1459,7 +1543,7 @@ export default function Company() {
         }
         .hist-row:last-child { border-bottom: none; }
         .hist-date { color: #9AA3B2; font-size: 10px; }
-        .hist-close { color: #fff; font-weight: 700; }
+        .hist-close { color: #fff; font-weight: 600; }
         .hist-vol { color: #9AA3B2; }
         .hist-chg { text-align: right; }
         .hist-chg.up { color: #18C27C; }
@@ -1474,7 +1558,7 @@ export default function Company() {
         }
         .card-title {
           display: flex; align-items: center; gap: 7px;
-          font-size: 17px; font-weight: 700; margin-bottom: 14px;
+          font-size: 19px; font-weight: 600; margin-bottom: 14px;
         }
         .card-toggle {
           display: flex; align-items: center; justify-content: space-between; width: 100%;
@@ -1484,35 +1568,40 @@ export default function Company() {
         .card-toggle.closed { margin-bottom: 0; }
         .ct-title {
           display: flex; align-items: center; gap: 7px;
-          font-size: 15px; font-weight: 700; color: #fff;
+          font-size: 15px; font-weight: 600; color: #fff;
         }
         .ct-chev { color: #6f6f6f; transition: transform 0.2s; flex-shrink: 0; }
         .ct-chev.open { transform: rotate(180deg); }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
         .info-item { display: flex; gap: 10px; align-items: flex-start; }
         .ii-icon {
-          width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px;
+          width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px;
           background: rgba(139,92,246,0.12); color: #a78bfa;
           display: flex; align-items: center; justify-content: center;
         }
-        .ii-label { font-size: 11px; color: #9AA3B2; margin-bottom: 2px; }
-        .ii-value { font-size: 14px; font-weight: 600; word-break: break-word; }
-        .ii-value.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 12.5px; }
-        .ii-value.link { color: #a78bfa; }
-        .activity { font-size: 13px; color: #9AA3B2; line-height: 1.35; margin: 14px 0 0; }
-        .info-empty { font-size: 13px; color: #9AA3B2; line-height: 1.35; margin: 4px 0; }
+        .ii-label { font-size: 12px; color: #9AA3B2; margin-bottom: 3px; }
+        .ii-value { font-size: 15px; font-weight: 600; word-break: break-word; }
+        .ii-value.mono { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 13px; }
+        .ii-link {
+          color: #a78bfa; text-decoration: none; font-size: 14px; font-weight: 600;
+          display: inline-block; max-width: 100%; overflow: hidden;
+          text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+        }
+        .ii-link:active { opacity: 0.7; }
+        .activity { font-size: 14.5px; color: #c9c9c9; line-height: 1.5; margin: 16px 0 0; }
+        .info-empty { font-size: 14px; color: #9AA3B2; line-height: 1.45; margin: 4px 0; }
         .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .fin-item {
           background: #141414; border-radius: 14px; padding: 12px 14px;
           display: flex; flex-direction: column; gap: 3px;
         }
-        .fin-label { font-size: 11px; color: #9AA3B2; }
-        .fin-value { font-size: 16px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .fin-label { font-size: 12px; color: #9AA3B2; }
+        .fin-value { font-size: 17.5px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .div-head, .div-row {
           display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px;
           padding: 8px 0; border-bottom: 1px solid #2a2a2a;
         }
-        .div-head { font-size: 11px; color: #9AA3B2; text-transform: uppercase; letter-spacing: 0.5px; }
+        .div-head { font-size: 11px; color: #9AA3B2; text-transform: uppercase; letter-spacing: 0; }
         .div-head span { display: inline-flex; align-items: center; gap: 3px; }
         .div-row { font-size: 13px; }
         .div-head span:last-child, .div-row span:last-child { text-align: right; }
@@ -1526,25 +1615,25 @@ export default function Company() {
         .sh-legend-item .mono { margin-left: auto; color: #fff; font-weight: 600; }
         .sw { width: 10px; height: 10px; border-radius: 3px; }
         .ai-card {
-          background: linear-gradient(160deg, #181a24, #101018);
+          background: linear-gradient(160deg, #101010, #050505);
           border: 1px solid rgba(114,102,217,0.25);
           border-radius: 18px; padding: 16px; margin-bottom: 12px;
         }
         .ai-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
         .ai-badge {
           display: flex; align-items: center; gap: 6px;
-          color: #a78bfa; font-size: 13px; font-weight: 700;
+          color: #a78bfa; font-size: 13px; font-weight: 600;
         }
         .ai-premium {
-          font-size: 9px; font-weight: 700; letter-spacing: 1px;
+          font-size: 11px; font-weight: 600; letter-spacing: 0.1px;
           color: #a78bfa; background: rgba(114,102,217,0.15);
           padding: 3px 8px; border-radius: 6px;
         }
         .ai-score-row { display: flex; align-items: center; gap: 18px; margin-bottom: 14px; }
         .ai-score-info { display: flex; flex-direction: column; gap: 6px; }
         .rec-badge {
-          align-self: flex-start; font-size: 13px; font-weight: 700;
-          padding: 4px 14px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+          align-self: flex-start; font-size: 13px; font-weight: 600;
+          padding: 4px 14px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0;
         }
         .rec-badge.buy { color: #18C27C; background: rgba(24,194,124,0.12); }
         .rec-badge.hold { color: #facc15; background: rgba(250,204,21,0.12); }
@@ -1552,18 +1641,34 @@ export default function Company() {
         .ai-score-label { font-size: 12px; color: #9AA3B2; }
         .ai-confidence { font-size: 11px; color: #9AA3B2; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .ai-score-label, .ai-confidence { display: inline-flex; align-items: center; gap: 5px; }
-        .ai-summary { font-size: 12px; color: #c9c9c9; line-height: 1.35; margin: 0 0 14px; }
+        .ai-summary { font-size: 13.5px; color: #c9c9c9; line-height: 1.5; margin: 0 0 16px; }
+        .ai-bars { margin-bottom: 16px; }
+        .ai-bars-title {
+          font-size: 13px; font-weight: 600; color: #fff;
+          margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+        }
+        .ai-bar-row {
+          display: flex; align-items: center; gap: 10px;
+          margin-bottom: 8px;
+        }
+        .ai-bar-label { flex: none; width: 130px; font-size: 12.5px; color: #c9c9c9; }
+        .ai-bar-track {
+          flex: 1; height: 8px; border-radius: 6px;
+          background: #1E1E1E; overflow: hidden;
+        }
+        .ai-bar-fill { height: 100%; border-radius: 6px; transition: width 400ms ease-out; }
+        .ai-bar-val { flex: none; width: 34px; text-align: right; font-size: 12.5px; font-weight: 600; color: #fff; }
         .ai-col { margin-bottom: 12px; }
         .ai-col-title {
           display: flex; align-items: center; gap: 6px;
-          font-size: 13px; font-weight: 700; margin-bottom: 8px;
+          font-size: 14px; font-weight: 600; margin-bottom: 8px;
         }
         .ai-col-title.good { color: #18C27C; }
         .ai-col-title.bad { color: #F04438; }
         .ai-list-item {
           display: flex; align-items: center; gap: 8px;
-          padding: 8px 10px; border-radius: 10px; margin-bottom: 6px;
-          font-size: 12px;
+          padding: 9px 10px; border-radius: 10px; margin-bottom: 6px;
+          font-size: 13px;
         }
         .ai-list-item.good { background: rgba(24,194,124,0.06); color: #d8f7ec; }
         .ai-list-item.bad { background: rgba(240,68,56,0.06); color: #ffd6d6; }
@@ -1571,14 +1676,14 @@ export default function Company() {
         .ai-list-item.good .mono { color: #18C27C; }
         .ai-list-item.bad .mono { color: #F04438; }
         .ai-none { font-size: 11px; color: #666; }
-        .ai-forecast { margin-top: 14px; padding-top: 14px; border-top: 1px solid #26262f; }
+        .ai-forecast { margin-top: 14px; padding-top: 14px; border-top: 1px solid #222222; }
         .fc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .fc-item {
           background: #14141c; border-radius: 10px; padding: 9px 10px;
           display: flex; flex-direction: column; gap: 3px;
         }
-        .fc-label { font-size: 10px; color: #9AA3B2; display: inline-flex; align-items: center; gap: 4px; }
-        .fc-value { font-size: 13px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .fc-label { font-size: 11px; color: #9AA3B2; display: inline-flex; align-items: center; gap: 4px; }
+        .fc-value { font-size: 14.5px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .news-item {
           padding: 10px 0; border-bottom: 1px solid #2a2a2a;
           cursor: pointer;
@@ -1588,7 +1693,7 @@ export default function Company() {
         .news-text { flex: 1; min-width: 0; }
         .news-source { font-size: 10px; color: #18C27C; font-weight: 600; margin-right: 8px; }
         .news-date { font-size: 10px; color: #666; }
-        .news-title { font-size: 13px; font-weight: 600; color: #e8e8e8; margin-top: 4px; line-height: 1.35; }
+        .news-title { font-size: 14px; font-weight: 600; color: #e8e8e8; margin-top: 4px; line-height: 1.4; }
         .news-empty { font-size: 12px; color: #666; padding: 8px 0; }
         .footnote { text-align: center; font-size: 10px; color: #555; padding: 8px 0 4px; }
       `}</style>

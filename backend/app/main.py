@@ -1,21 +1,63 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response as FastAPIResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from pydantic import BaseModel
 from .config import settings
 from .core.http_cache import ResponseCacheMiddleware
+from .core.shared_store import store
 from .database import engine, Base
 from .models.news import NewsItem
-from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community, challenges, notifications
+from .models.broker_connect import BrokerClientAccount, BrokerSession, BrokerLoginEvent
+from .models.payment import DepositOrder
+from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community, challenges, notifications, broker_connect, kyc, kyc_webhook, admin_kyc, payments, subscription
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
+import secrets
+import json
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 import threading
+import uuid
+
+# Modèle pour les rapports de violation CSP
+class CSPViolationReport(BaseModel):
+    report_id: str
+    violation_type: str
+    uri: str
+    severity: str
+    referrer: str
+    timestamp: str
+
+# Routeur pour le reporting CSP
+csp_router = APIRouter()
+
+@csp_router.post("/report")
+async def csp_report(report: CSPViolationReport):
+    """Endpoint pour recevoir les rapports de violation CSP du navigateur."""
+    # Journaliser la violation de sécurité
+    logger.warning(
+        f"CSP Violation: {report.violation_type} | "
+        f"URI: {report.uri} | "
+        f"Severity: {report.severity} | "
+        f"Referrer: {report.referrer} | "
+        f"Report ID: {report.report_id}"
+    )
+    
+    # Ici, on pourrait sauvegarder en base de données, envoyer une alerte, etc.
+    # Pour l'exemple, on retourne juste un accusé de réception
+    return {
+        "status": "received",
+        "report_id": report.report_id,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 docs_enabled = settings.DEBUG
 app = FastAPI(
@@ -34,7 +76,7 @@ app.add_middleware(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|[0-9.]+|.*\.bluerock\.ai|bluerock\.ai|.*\.netlify\.app|netlify\.app)(:\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.bluerock\.ai|bluerock\.ai|.*\.netlify\.app|netlify\.app)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,16 +89,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Caméra autorisée uniquement pour le flux de vérification hébergé Didit
+        # (liveness / selfie) — jamais pour l'application elle-même.
+        response.headers["Permissions-Policy"] = (
+            f"camera=(self \"{settings.DIDIT_FRAME_ORIGIN}\"), microphone=(), geolocation=()"
+        )
+        # Générer un nonce unique par requête pour le CSP
+        nonce = secrets.token_hex(16)
+    
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
+            f"frame-src {settings.DIDIT_FRAME_ORIGIN}; "
             "img-src 'self' data: https://ui-avatars.com https://www.brvm.org; "
             "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "connect-src 'self' https://www.brvm.org"
+            f"script-src 'self' 'unsafe-inline' 'nonce-{nonce}'; "
+            "connect-src 'self' https://www.brvm.org; "
+            "font-src 'self' data:; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "upgrade-insecure-requests; "
+            "block-all-mixed-content;"
+            f"report-uri /api/csp/report;"
         )
         if not settings.DEBUG:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+        response.headers["X-CSP-Nonce"] = nonce
+        response.headers["Set-Cookie"] = f"csp_nonce={nonce}; Path=/; Max-Age=3600; SameSite=Lax"
         return response
 
 
@@ -80,11 +140,101 @@ app.include_router(auth.router)
 app.include_router(portfolio.router)
 app.include_router(premium.router)
 app.include_router(brokers.router)
+app.include_router(broker_connect.router)
 app.include_router(community.router)
 app.include_router(challenges.router)
 app.include_router(notifications.router)
+app.include_router(kyc.router)
+app.include_router(kyc_webhook.router)
+app.include_router(admin_kyc.router)
+app.include_router(payments.router)
+app.include_router(subscription.router)
+
+app.include_router(csp_router)
 
 scheduler = BackgroundScheduler()
+
+
+def _schema_managed_by_alembic() -> bool:
+    """Le schéma est géré par Alembic dès que la table alembic_version existe
+    (baseline stampée). Dans ce régime, les micro-migrations legacy (ALTER
+    ad-hoc au démarrage) sont désactivées ; les backfills de données restent."""
+    from sqlalchemy import inspect
+    return "alembic_version" in set(inspect(engine).get_table_names())
+
+
+def _migrate_v2():
+    """Découplage auth → portefeuilles (v2) : les comptes portefeuille ne sont
+    plus rattachés directement à l'utilisateur.
+
+    - accounts → portfolios (entité indépendante, sans user_id)
+    - positions/orders.account_id → portfolio_id
+    - premium_plans.managed_account_id → managed_portfolio_id
+    - user_portfolios : table de liaison utilisateur ↔ portefeuille
+      (un utilisateur peut créer plusieurs comptes portefeuille).
+
+    Idempotent : vérifie l'existence des objets avant chaque ALTER.
+    Exécutée AVANT create_all pour que les données de `accounts` survivent.
+
+    Cette étape est un héritage pré-Alembic : elle ne s'exécute plus
+    lorsque le schéma est versionné (baseline stampée sur la base existante).
+    """
+    if _schema_managed_by_alembic():
+        logger.info("Schema v2: legacy migration ignorée (schéma géré par Alembic)")
+        return
+    from sqlalchemy import inspect, text
+    with engine.begin() as conn:
+        insp = inspect(engine)
+        tables = set(insp.get_table_names())
+
+        def cols(t):
+            return {c["name"] for c in insp.get_columns(t)} if t in tables else set()
+
+        # 1. accounts → portfolios
+        if "accounts" in tables and "portfolios" not in tables:
+            logger.info("Schema v2: renaming accounts → portfolios")
+            conn.execute(text("ALTER TABLE accounts RENAME TO portfolios"))
+            tables = set(inspect(engine).get_table_names())
+
+        # 2. Colonnes account_id → portfolio_id
+        if "positions" in tables and "account_id" in cols("positions") and "portfolio_id" not in cols("positions"):
+            logger.info("Schema v2: positions.account_id → portfolio_id")
+            conn.execute(text("ALTER TABLE positions RENAME COLUMN account_id TO portfolio_id"))
+        if "orders" in tables and "account_id" in cols("orders") and "portfolio_id" not in cols("orders"):
+            logger.info("Schema v2: orders.account_id → portfolio_id")
+            conn.execute(text("ALTER TABLE orders RENAME COLUMN account_id TO portfolio_id"))
+        if "premium_plans" in tables and "managed_account_id" in cols("premium_plans") and "managed_portfolio_id" not in cols("premium_plans"):
+            logger.info("Schema v2: premium_plans.managed_account_id → managed_portfolio_id")
+            conn.execute(text("ALTER TABLE premium_plans RENAME COLUMN managed_account_id TO managed_portfolio_id"))
+
+        # 3. user_portfolios (table de liaison) + backfill depuis portfolios.user_id
+        if "portfolios" in tables:
+            pcols = cols("portfolios")
+            if "user_portfolios" not in tables:
+                logger.info("Schema v2: creating user_portfolios")
+                conn.execute(text(
+                    "CREATE TABLE user_portfolios ("
+                    " id SERIAL PRIMARY KEY,"
+                    " user_id INTEGER NOT NULL REFERENCES users(id),"
+                    " portfolio_id INTEGER NOT NULL REFERENCES portfolios(id),"
+                    " is_owner BOOLEAN NOT NULL DEFAULT TRUE,"
+                    " created_at TIMESTAMP DEFAULT NOW()"
+                    ")"
+                ))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_portfolios_user_id ON user_portfolios(user_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_portfolios_portfolio_id ON user_portfolios(portfolio_id)"))
+                tables = set(inspect(engine).get_table_names())
+            if "user_id" in pcols:
+                logger.info("Schema v2: backfilling user_portfolios from portfolios.user_id")
+                conn.execute(text(
+                    "INSERT INTO user_portfolios (user_id, portfolio_id, is_owner, created_at) "
+                    "SELECT p.user_id, p.id, TRUE, p.created_at FROM portfolios p "
+                    "WHERE p.user_id IS NOT NULL"
+                ))
+                conn.execute(text("ALTER TABLE portfolios DROP COLUMN user_id"))
+                conn.execute(text("DROP INDEX IF EXISTS ix_accounts_user_id"))
+                conn.execute(text("DROP INDEX IF EXISTS idx_accounts_user_id"))
+                conn.execute(text("ALTER TABLE portfolios DROP CONSTRAINT IF EXISTS accounts_user_id_fkey"))
 
 
 def _ensure_schema():
@@ -92,6 +242,10 @@ def _ensure_schema():
 
     Idempotent : vérifie l'existence de chaque colonne avant ALTER.
     À terme : remplacer par des migrations Alembic versionnées.
+
+    Les ALTER ad hoc sont désactivés dès que le schéma est géré par Alembic
+    (table alembic_version présente) ; les backfills de données ci-dessous,
+    data-only et idempotents, s'exécutent dans tous les cas.
     """
     from sqlalchemy import inspect, text
     insp = inspect(engine)
@@ -99,8 +253,9 @@ def _ensure_schema():
         "market_data": ["is_synthetic"],
         "financial_statements": ["is_synthetic"],
         "dividends": ["is_synthetic"],
-        "positions": ["take_profit", "stop_loss"],
-        "orders": ["order_type", "limit_price", "status", "take_profit", "stop_loss", "executed_at"],
+        "positions": ["take_profit", "stop_loss", "portfolio_id"],
+        "orders": ["order_type", "limit_price", "status", "take_profit", "stop_loss", "executed_at", "plan_id", "portfolio_id", "broker_ref"],
+        "portfolios": ["broker_client_id"],
         "users": [
             "avatar",
             "auth_id",
@@ -132,18 +287,53 @@ def _ensure_schema():
             "last_pnl_pct",
             "last_tracked_at",
             "last_day_change_pct",
+            "linked_to_portfolio",
+            "linked_at",
+            "managed_portfolio_id",
+            "pin_hash",
         ],
         "notifications": ["email_sent"],
         "companies": ["instrument_type"],
+        "challenges": ["entry_fee", "registration_end"],
+        "challenge_positions": ["current_price"],
+        "broker_accounts": [
+            "kyc_id",
+            "sgi_note",
+            "user_response",
+            "transmitted_at",
+            "reviewed_at",
+            "account_opened_at",
+        ],
+        "user_kyc": [
+            "first_name",
+            "last_name",
+            "invest_experience",
+            "invest_objectives",
+            "invest_knowledge",
+            "risk_tolerance",
+            "invest_horizon",
+            "verified_at",
+        ],
+        "kyc_verifications": [
+            "session_status",
+            "verification_url",
+            "decision",
+        ],
     }
     ts_cols = {"email_verify_expires", "email_verify_sent_at", "locked_until", "password_reset_expires", "executed_at",
-               "issued_at", "matured_at", "cancelled_at", "completed_at", "last_tracked_at"}
+               "issued_at", "matured_at", "cancelled_at", "completed_at", "last_tracked_at", "linked_at",
+               "registration_end", "transmitted_at", "reviewed_at", "account_opened_at", "verified_at"}
     float_cols = {
         "positions": {"take_profit", "stop_loss"},
         "orders": {"limit_price", "take_profit", "stop_loss"},
         "premium_plans": {"start_value", "last_value", "last_pnl_pct", "last_day_change_pct"},
+        "challenges": {"entry_fee"},
+        "challenge_positions": {"current_price"},
     }
     with engine.begin() as conn:
+        if _schema_managed_by_alembic():
+            logger.info("Schema: micro-migrations legacy désactivées (gérées par Alembic)")
+            tables = {}
         for table, columns in tables.items():
             if table not in insp.get_table_names():
                 continue
@@ -154,12 +344,42 @@ def _ensure_schema():
                     if col in ts_cols and existing[col] not in ("TIMESTAMP", "DATETIME", "DateTime"):
                         logger.info(f"Schema: converting {table}.{col} to TIMESTAMP")
                         conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE TIMESTAMP USING {col}::timestamp"))
+                    if col == "broker_client_id" and existing[col] == "VARCHAR":
+                        logger.info(f"Schema: converting {table}.{col} to INTEGER")
+                        conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE INTEGER USING NULLIF({col}, '')::integer"))
                     continue
-                if col in ("email_verified", "totp_enabled", "email_verify_attempts", "failed_attempts", "password_reset_attempts"):
-                    ddl = "BOOLEAN" if col in ("email_verified", "totp_enabled") else "INTEGER"
-                    default = "FALSE" if col in ("email_verified", "totp_enabled") else "0"
+                if col in ("email_verified", "totp_enabled", "linked_to_portfolio",
+                           "email_verify_attempts", "failed_attempts", "password_reset_attempts"):
+                    if col in ("email_verified", "totp_enabled", "linked_to_portfolio"):
+                        ddl, default = "BOOLEAN", "FALSE"
+                    else:
+                        ddl, default = "INTEGER", "0"
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl} NOT NULL DEFAULT {default}"))
+                elif col == "plan_id" and table == "orders":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_orders_plan_id ON {table}({col})"))
+                elif col == "portfolio_id" and table in ("positions", "orders"):
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table}_portfolio_id ON {table}({col})"))
+                elif col == "managed_portfolio_id" and table == "premium_plans":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_premium_plans_managed_portfolio ON premium_plans(managed_portfolio_id)"))
+                elif col == "broker_ref" and table == "orders":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_orders_broker_ref ON {table}({col})"))
+                elif col == "broker_client_id" and table == "portfolios":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_portfolios_broker_client_id ON {table}({col})"))
+                elif col == "kyc_id" and table == "broker_accounts":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_broker_accounts_kyc_id ON {table}({col})"))
                 elif col == "auth_id":
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} UUID"))
@@ -189,9 +409,139 @@ def _ensure_schema():
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR"))
 
+        # Backfill : dossier historique rempli via full_name → découpage
+        # "nom prénom(s)" (legacy) dans first_name / last_name.
+        if "user_kyc" in insp.get_table_names():
+            conn.execute(text(
+                "UPDATE user_kyc SET "
+                "last_name = SPLIT_PART(full_name, ' ', 1), "
+                "first_name = LTRIM(SUBSTRING(full_name FROM POSITION(' ' IN full_name) + 1)) "
+                "WHERE full_name IS NOT NULL AND full_name <> '' "
+                "AND (first_name IS NULL OR first_name = '')"
+            ))
+
+        # Portefeuilles de défis : initialise le dernier cours synchronisé à
+        # partir du prix moyen d'entrée (la tâche de sync mettra à jour au marché).
+        if "challenge_positions" in insp.get_table_names():
+            conn.execute(text(
+                "UPDATE challenge_positions SET current_price = COALESCE(current_price, avg_price) "
+                "WHERE current_price IS NULL"
+            ))
+
+        # Comptes portefeuille : portfolio par défaut + rattachement des données
+        # existantes (backfill idempotent).
+        if "portfolios" in insp.get_table_names() and "user_portfolios" in insp.get_table_names():
+            rows = conn.execute(text(
+                "SELECT u.id, u.account_type, u.broker_name FROM users u "
+                "WHERE NOT EXISTS (SELECT 1 FROM user_portfolios up "
+                "JOIN portfolios pf ON pf.id = up.portfolio_id WHERE up.user_id = u.id)"
+            )).fetchall()
+            for uid, atype, bname in rows:
+                name = bname or ("Compte réel" if atype == "real" else "Compte démo")
+                ptype = "real" if atype == "real" else "demo"
+                balance = 0 if atype == "real" else 100000000
+                pf_id = conn.execute(text(
+                    "INSERT INTO portfolios (name, type, broker_name, balance, is_default, created_at) "
+                    "VALUES (:n, :t, :b, :bal, TRUE, NOW()) RETURNING id"
+                ), {"n": name, "t": ptype, "b": bname, "bal": balance}).scalar()
+                conn.execute(text(
+                    "INSERT INTO user_portfolios (user_id, portfolio_id, is_owner, created_at) "
+                    "VALUES (:u, :p, TRUE, NOW())"
+                ), {"u": uid, "p": pf_id})
+            conn.execute(text(
+                "UPDATE positions SET portfolio_id = (SELECT pf.id FROM portfolios pf "
+                "JOIN user_portfolios up ON up.portfolio_id = pf.id "
+                "WHERE up.user_id = positions.user_id AND pf.is_default = TRUE) "
+                "WHERE portfolio_id IS NULL"
+            ))
+            conn.execute(text(
+                "UPDATE orders SET portfolio_id = (SELECT pf.id FROM portfolios pf "
+                "JOIN user_portfolios up ON up.portfolio_id = pf.id "
+                "WHERE up.user_id = orders.user_id AND pf.is_default = TRUE) "
+                "WHERE portfolio_id IS NULL"
+            ))
+
+        # Défis : unicité du nom des challenges (empêche les doublons générés
+        # par un seed ré-exécuté ou une casse variable en multi-workers).
+        if "challenges" in insp.get_table_names():
+            dups = conn.execute(text(
+                "SELECT id FROM challenges c WHERE c.id <> (SELECT MIN(c2.id) FROM challenges c2 "
+                "WHERE LOWER(c2.name) = LOWER(c.name))"
+            )).fetchall()
+            if dups:
+                logger.info("Schema: purging %d duplicate challenge(s)", len(dups))
+                for (cid,) in dups:
+                    eids = [r[0] for r in conn.execute(text(
+                        "SELECT id FROM challenge_entries WHERE challenge_id = :c"), {"c": cid}).fetchall()]
+                    if eids:
+                        pids = [r[0] for r in conn.execute(text(
+                            "SELECT id FROM challenge_portfolios WHERE entry_id IN :e"),
+                            {"e": tuple(eids)}).fetchall()] if eids else []
+                        if pids:
+                            conn.execute(text(
+                                "DELETE FROM challenge_trades WHERE portfolio_id IN :p"), {"p": tuple(pids)})
+                            conn.execute(text(
+                                "DELETE FROM challenge_positions WHERE portfolio_id IN :p"), {"p": tuple(pids)})
+                        conn.execute(text(
+                            "DELETE FROM challenge_value_snapshots WHERE entry_id IN :e"), {"e": tuple(eids)})
+                        conn.execute(text(
+                            "DELETE FROM challenge_portfolios WHERE entry_id IN :e"), {"e": tuple(eids)})
+                        conn.execute(text(
+                            "DELETE FROM challenge_entries WHERE challenge_id = :c"), {"c": cid})
+                    conn.execute(text("DELETE FROM challenges WHERE id = :c"), {"c": cid})
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_challenges_name_lower "
+                "ON challenges (LOWER(name))"
+            ))
+
+        # KYC : migration des statuts historiques vers les statuts de la spec
+        # (incomplete → not_started, submitted → verification_in_progress,
+        # approved → verified, additional_info → review_required).
+        if "user_kyc" in insp.get_table_names():
+            migrated = {
+                "incomplete": "not_started",
+                "submitted": "verification_in_progress",
+                "approved": "verified",
+                "additional_info": "review_required",
+            }
+            for old, new in migrated.items():
+                conn.execute(text(
+                    "UPDATE user_kyc SET status = :new WHERE status = :old"
+                ), {"old": old, "new": new})
+
+
+def _jobs_enabled() -> bool:
+    """Un seul worker doit exécuter les jobs planifiés (scheduler en mémoire).
+
+    WORKER_JOBS=1 (ou true/yes/on) active le scheduler sur ce processus ;
+    WORKER_JOBS=0 (ou false/no/off) le désactive. Variable absente =
+    comportement historique (actif), typique du dev single-process.
+
+    Depuis le passage au SharedStore, chaque job prend aussi un verrou
+    distribué : même si plusieurs instances tournent avec WORKER_JOBS=1,
+    un seul exécute réellement le job à la fois (anti double-exécution).
+    """
+    raw = os.environ.get("WORKER_JOBS")
+    if raw is None:
+        return True
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _job_guard(name: str, ttl_seconds: int):
+    """Verrou distribué pour un job planifié (SharedStore / Redis).
+
+    Renvoie un jeton si le verrou est obtenu (ce worker exécute le job),
+    None si un autre worker le détient déjà (on saute ce tour)."""
+    token = store.acquire_lock(f"job:{name}", ttl=ttl_seconds)
+    return token
+
 
 @app.on_event("startup")
 def on_startup():
+    try:
+        _migrate_v2()
+    except Exception as e:
+        logger.warning(f"Schema v2 migration skipped: {e}")
     Base.metadata.create_all(bind=engine)
     try:
         _ensure_schema()
@@ -210,15 +560,37 @@ def on_startup():
         logger.warning(f"Could not seed community: {e}")
     try:
         from .database import SessionLocal
-        from .services.challenge_seed import seed_challenges
+        from .services.challenge_seed import (
+            seed_challenges, ensure_open_challenge, ensure_competition_challenge,
+            prune_legacy_challenges,
+        )
         db = SessionLocal()
         try:
+            prune_legacy_challenges(db)
             result = seed_challenges(db)
             logger.info(f"Challenges seed: {result.get('status')} ({result.get('challenges', 0)} défis)")
+            open_result = ensure_open_challenge(db)
+            logger.info(f"Open challenge seed: {open_result.get('status')} "
+                        f"(id={open_result.get('challenge_id')})")
+            comp_result = ensure_competition_challenge(db)
+            logger.info(f"Competition challenge seed: {comp_result.get('status')} "
+                        f"(id={comp_result.get('challenge_id')})")
         finally:
             db.close()
     except Exception as e:
         logger.warning(f"Could not seed challenges: {e}")
+    try:
+        from .database import SessionLocal
+        from .services.broker_connect_seed import purge_broker_client_accounts
+        db = SessionLocal()
+        try:
+            result = purge_broker_client_accounts(db)
+            logger.info(f"Broker connect purge: {result.get('status')} "
+                        f"({result.get('deleted', 0)} comptes démo supprimés)")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Could not purge broker client accounts: {e}")
     try:
         from .database import SessionLocal
         from .routers.macro import seed_macro
@@ -261,96 +633,217 @@ def on_startup():
     try:
         from .scrapers.live_feed import live_feed
         live_feed.refresh(force=True)
-
-        def _live_job():
-            try:
-                live_feed.refresh()
-            except Exception as e:
-                logger.warning(f"Live feed job error: {e}")
-            try:
-                from .database import SessionLocal
-                from .services.order_engine import run_order_engine
-                db = SessionLocal()
-                try:
-                    res = run_order_engine(db)
-                    if res["limit"] or res["tp_sl"] or res["cancelled"]:
-                        logger.info(
-                            "Order engine: %d ordres limit exécutés, %d TP/SL déclenchés, %d ordres annulés",
-                            res["limit"], res["tp_sl"], res["cancelled"],
-                        )
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.warning(f"Order engine error: {e}")
-
-        scheduler.add_job(_live_job, "interval", seconds=30, id="brvm_live", replace_existing=True)
-        logger.info("BRVM live feed scheduled (every 30s during market hours)")
     except Exception as e:
-        logger.warning(f"Could not start live feed scheduler: {e}")
-
-    try:
-        from .scrapers.financial_reports import sync_financials
-
-        _financial_lock = threading.Lock()
-
-        def _financial_sync_job():
-            """Ingère automatiquement les rapports financiers nouvellement publiés
-            sur brvm.org : extraction PDF → stockage → recalcul ratios/scorecard/valorisation."""
-            if not _financial_lock.acquire(blocking=False):
-                return
+        logger.warning(f"Could not warm live feed: {e}")
+    if getattr(settings, "NGX_ENABLED", True):
+        try:
+            from .database import SessionLocal
+            from .services.ngx_seed import seed_ngx_catalog, sync_ngx_from_api
+            db = SessionLocal()
             try:
-                from .database import SessionLocal
-                db = SessionLocal()
-                try:
-                    result = sync_financials(db, max_years=2)
-                    ingested = sum(len(r["ingested"]) for r in result["results"])
-                    logger.info(
-                        "Financial sync: %d sociétés analysées, %d rapports ingérés",
-                        result["companies"], ingested,
-                    )
-                finally:
-                    db.close()
-            except Exception as e:
-                logger.warning(f"Financial sync error: {e}")
+                res = seed_ngx_catalog(db)
+                if res["created"]:
+                    logger.info(f"NGX catalog seed: {res['created']} sociétés créées "
+                                f"({res['updated']} mises à jour)")
             finally:
-                _financial_lock.release()
+                db.close()
+            # Premier refresh du flux NGX (best-effort, ne bloque pas le démarrage).
+            from .scrapers.ngx_feed import ngx_live_feed
+            ngx_live_feed.refresh(force=True)
+        except Exception as e:
+            logger.warning(f"Could not seed NGX catalog/feed: {e}")
 
-        from datetime import datetime, timedelta
-        scheduler.add_job(
-            _financial_sync_job, "interval", hours=6, id="financial_reports",
-            replace_existing=True,
-            next_run_time=datetime.now() + timedelta(minutes=2),
-        )
-        logger.info("Financial reports sync scheduled (every 6h, first run in 2 min)")
-    except Exception as e:
-        logger.warning(f"Could not schedule financial reports sync: {e}")
+    jobs_on = _jobs_enabled()
+    if not jobs_on:
+        logger.info("Scheduler désactivé sur ce worker (WORKER_JOBS != 1)")
+    if jobs_on:
+        try:
+            from .scrapers.live_feed import live_feed
 
-    try:
-        from .database import SessionLocal
-        from .services.premium_tracking import track_all_active
-
-        def _plan_tracking_job():
-            """Suivi quotidien des plans patrimoniaux actifs : valorisation,
-            snapshots journaliers et génération d'alertes."""
-            try:
-                db = SessionLocal()
+            def _live_job():
+                token = _job_guard("brvm_live", 25)
+                if token is None:
+                    return
                 try:
-                    res = track_all_active(db)
-                    if res["plans"]:
-                        logger.info(
-                            "Plan tracking: %d plans suivis, %d snapshots, %d alertes, %d terminés",
-                            res["plans"], res["snapshots"], res["alerts"], res["completed"],
-                        )
+                    live_feed.refresh()
+                except Exception as e:
+                    logger.warning(f"Live feed job error: {e}")
+                try:
+                    from .database import SessionLocal
+                    from .services.order_engine import run_order_engine
+                    db = SessionLocal()
+                    try:
+                        res = run_order_engine(db)
+                        if res["limit"] or res["tp_sl"] or res["cancelled"]:
+                            logger.info(
+                                "Order engine: %d ordres limit exécutés, %d TP/SL déclenchés, %d ordres annulés (%d prix temps réel)",
+                                res["limit"], res["tp_sl"], res["cancelled"], res.get("realtime", 0),
+                            )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Order engine error: {e}")
                 finally:
-                    db.close()
-            except Exception as e:
-                logger.warning(f"Plan tracking error: {e}")
+                    store.release_lock("job:brvm_live", token)
 
-        scheduler.add_job(_plan_tracking_job, "interval", hours=3, id="premium_tracking",
-                          replace_existing=True)
-        logger.info("Premium plan tracking scheduled (every 3h)")
-    except Exception as e:
-        logger.warning(f"Could not schedule premium tracking: {e}")
+            scheduler.add_job(_live_job, "interval", seconds=30, id="brvm_live", replace_existing=True)
+            logger.info("BRVM live feed scheduled (every 30s during market hours)")
+        except Exception as e:
+            logger.warning(f"Could not start live feed scheduler: {e}")
+
+    if jobs_on and getattr(settings, "NGX_ENABLED", True):
+        try:
+            from .scrapers.ngx_feed import ngx_live_feed
+
+            def _ngx_job():
+                token = _job_guard("ngx_live", 50)
+                if token is None:
+                    return
+                try:
+                    ngx_live_feed.refresh()
+                except Exception as e:
+                    logger.warning(f"NGX live feed job error: {e}")
+                finally:
+                    store.release_lock("job:ngx_live", token)
+
+            scheduler.add_job(_ngx_job, "interval", seconds=60, id="ngx_live",
+                              replace_existing=True)
+            logger.info("NGX live feed scheduled (every 60s, throttle 20min en séance)")
+        except Exception as e:
+            logger.warning(f"Could not start NGX feed scheduler: {e}")
+
+    if jobs_on:
+        try:
+            from .scrapers.news_feed import news_feed
+
+            def _news_job():
+                """Scrape des news en continu (temps réel) : Google/Bing News,
+                flux BRVM et presse — indépendant des requêtes clients."""
+                token = _job_guard("news_refresh", 150)
+                if token is None:
+                    return
+                try:
+                    news_feed.refresh(force=True)
+                except Exception as e:
+                    logger.warning(f"News refresh job error: {e}")
+                finally:
+                    store.release_lock("job:news_refresh", token)
+
+            scheduler.add_job(_news_job, "interval", seconds=180,
+                              id="news_refresh", replace_existing=True)
+            logger.info("News feed scheduled (every 180s, scraping en continu)")
+        except Exception as e:
+            logger.warning(f"Could not start news scheduler: {e}")
+
+    if jobs_on and settings.FINANCIAL_SYNC_ENABLED:
+        try:
+            from .scrapers.financial_reports import sync_financials
+
+            def _financial_sync_job():
+                """Ingère automatiquement les rapports financiers nouvellement publiés
+                sur brvm.org : extraction PDF → stockage → recalcul ratios/scorecard/valorisation."""
+                token = _job_guard("financial_reports", 1800)
+                if token is None:
+                    return
+                try:
+                    from .database import SessionLocal
+                    db = SessionLocal()
+                    try:
+                        result = sync_financials(db, max_years=2)
+                        ingested = sum(len(r["ingested"]) for r in result["results"])
+                        logger.info(
+                            "Financial sync: %d sociétés analysées, %d rapports ingérés",
+                            result["companies"], ingested,
+                        )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Financial sync error: {e}")
+                finally:
+                    store.release_lock("job:financial_reports", token)
+
+            from datetime import datetime, timedelta
+            scheduler.add_job(
+                _financial_sync_job, "interval", hours=6, id="financial_reports",
+                replace_existing=True,
+                next_run_time=datetime.now() + timedelta(minutes=2),
+            )
+            logger.info("Financial reports sync scheduled (every 6h, first run in 2 min)")
+        except Exception as e:
+            logger.warning(f"Could not schedule financial reports sync: {e}")
+    else:
+        logger.info("Financial reports sync désactivé (FINANCIAL_SYNC_ENABLED=false)")
+
+    if jobs_on:
+        try:
+            from .database import SessionLocal
+            from .services.premium_tracking import track_all_active
+
+            def _plan_tracking_job():
+                """Suivi quotidien des plans patrimoniaux actifs : valorisation,
+                snapshots journaliers, alertes et rééquilibrage automatique des
+                plans liés au portefeuille."""
+                token = _job_guard("premium_tracking", 1800)
+                if token is None:
+                    return
+                try:
+                    db = SessionLocal()
+                    try:
+                        res = track_all_active(db)
+                        if res["plans"]:
+                            logger.info(
+                                "Plan tracking: %d plans suivis, %d snapshots, %d alertes, %d terminés",
+                                res["plans"], res["snapshots"], res["alerts"], res["completed"],
+                            )
+                        from .services.rebalancer import rebalance_linked
+                        rb = rebalance_linked(db)
+                        if rb["orders"]:
+                            logger.info("Auto-rebalance: %d plans gérés, %d ordres passés",
+                                        rb["plans"], rb["orders"])
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Plan tracking error: {e}")
+                finally:
+                    store.release_lock("job:premium_tracking", token)
+
+            scheduler.add_job(_plan_tracking_job, "interval", hours=3, id="premium_tracking",
+                              replace_existing=True)
+            logger.info("Premium plan tracking scheduled (every 3h)")
+        except Exception as e:
+            logger.warning(f"Could not schedule premium tracking: {e}")
+
+    if jobs_on:
+        try:
+            from .routers.challenges import sync_challenge_portfolios
+
+            def _challenge_sync_job():
+                """Synchronise les portefeuilles de défis avec les cours réels du
+                marché : positions marquées au prix live (sinon clôture) et
+                snapshot de valeur du jour actualisé pour le sparkline."""
+                token = _job_guard("challenge_market_sync", 50)
+                if token is None:
+                    return
+                try:
+                    from .database import SessionLocal
+                    db = SessionLocal()
+                    try:
+                        res = sync_challenge_portfolios(db)
+                        if not res["priced"] and res["entries"]:
+                            logger.info(
+                                "Challenge sync: %d comptes, marché fermé (dernière clôture)", res["entries"])
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Challenge sync error: {e}")
+                finally:
+                    store.release_lock("job:challenge_market_sync", token)
+
+            scheduler.add_job(_challenge_sync_job, "interval", seconds=60,
+                              id="challenge_market_sync", replace_existing=True)
+            logger.info("Challenge market sync scheduled (every 60s)")
+        except Exception as e:
+            logger.warning(f"Could not schedule challenge sync: {e}")
 
     try:
         scheduler.start()
@@ -368,13 +861,23 @@ if os.path.isdir(static_dir):
 
 @app.get("/api/health")
 def health_check():
+    db_ok = True
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
     return {
-        "status": "healthy",
+        "status": "healthy" if db_ok else "degraded",
         "version": settings.VERSION,
         "app": settings.APP_NAME,
         "debug": settings.DEBUG,
+        "database": "ok" if db_ok else "unreachable",
+        "redis": "connected" if store.connected else "memory_fallback",
     }
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)
+

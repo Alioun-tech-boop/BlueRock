@@ -134,13 +134,21 @@ class ValuationService:
             else:
                 recommendation = "SELL"
         
+        # Garde-fou : si aucune valeur intrinsèque n'est calculable, ne pas
+        # persister une ligne vide (elle masquerait les valorisations d'autres
+        # exercices dans les sélections "plus récente d'abord").
+        has_value = any(v is not None for v in
+                        [dcf_value, graham_value, buffett_value, blended_target])
+        if not has_value:
+            return None
+
         # Remplace toute valorisation existante pour (entreprise, année) : évite les doublons
         self.db.query(Valuation).filter(
             Valuation.company_id == company_id,
             Valuation.fiscal_year == fiscal_year,
         ).delete(synchronize_session=False)
         self.db.flush()
-        
+
         valuation = Valuation(
             company_id=company_id,
             fiscal_year=fiscal_year,
@@ -152,7 +160,7 @@ class ValuationService:
             discount_percent=discount_percent,
             recommendation=recommendation
         )
-        
+
         self.db.add(valuation)
         self.db.commit()
         self.db.refresh(valuation)

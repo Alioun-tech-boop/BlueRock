@@ -3,14 +3,14 @@ import {
   createChart, CandlestickSeries, HistogramSeries, LineSeries,
   ColorType, CrosshairMode, LineStyle, createSeriesMarkers,
 } from 'lightweight-charts'
-import { fmtPrice, fmtCompact } from '../lib/i18n'
+import { fmtPrice, fmtPriceCur, fmtCompact } from '../lib/i18n'
 import {
   MousePointer2, TrendingUp, Minus, GitBranch, Square, Type, Eraser,
-  Plus, RotateCcw, Scan, Hand, Maximize, Minimize,
+  Plus, RotateCcw, Scan, Hand, Maximize, Minimize, SlidersHorizontal,
 } from 'lucide-react'
 
 const C = {
-  bg: '#0D1426',
+  bg: '#000000',
   upBody: '#35D07F',
   upBorder: '#35D07F',
   downBody: '#F6465D',
@@ -18,7 +18,7 @@ const C = {
   text: '#9AA5B8',
   axis: '#7B8798',
   ema: { 20: '#3B82F6', 50: '#FACC15', 200: '#A855F7' },
-  tipBg: '#141D32',
+  tipBg: '#0F0F0F',
   tipBorder: '#2A3A5C',
   boll: '#8B5CF6',
   vwap: '#14B8A6',
@@ -48,6 +48,37 @@ const DRAW_TOOLS = [
   { id: 'text', icon: Type, title: 'Label' },
   { id: 'erase', icon: Eraser, title: 'Erase' },
 ]
+
+const TT = (lang, k) => ({
+  candle: lang === 'en' ? 'Candlesticks' : 'Bougies',
+  line: lang === 'en' ? 'Line' : 'Ligne',
+  zoomIn: lang === 'en' ? 'Zoom in' : 'Zoom avant',
+  zoomOut: lang === 'en' ? 'Zoom out' : 'Zoom arrière',
+  reset: lang === 'en' ? 'Reset view' : 'Réinitialiser',
+  full: lang === 'en' ? 'Fullscreen' : 'Plein écran',
+  exitFull: lang === 'en' ? 'Exit fullscreen' : 'Quitter le plein écran',
+  tools: lang === 'en' ? 'Tools' : 'Outils',
+  eraseHint: lang === 'en' ? 'Click a drawing to delete' : 'Cliquez sur un tracé pour le supprimer',
+  drawHint: lang === 'en' ? 'Drag on chart to draw' : 'Faites glisser sur le graphique pour dessiner',
+}[k])
+
+const CandleSvg = () => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+    <path d="M3.2 2.5v3.1M3.2 10.4v3.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <rect x="1.8" y="5.6" width="2.8" height="4.8" rx="0.7" fill="currentColor" />
+    <path d="M8 2v2.1M8 11.9V14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <rect x="6.6" y="4.1" width="2.8" height="7.8" rx="0.7" fill="currentColor" />
+    <path d="M12.8 3.5v1.1M12.8 11.4v1.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    <rect x="11.4" y="4.6" width="2.8" height="6.8" rx="0.7" fill="currentColor" />
+  </svg>
+)
+
+const LineSvg = () => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+    <path d="M2 12.5 6 8l2.4 2.2L14 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="14" cy="4" r="1.4" fill="currentColor" />
+  </svg>
+)
 
 function ema(values, period) {
   const out = new Array(values.length).fill(null)
@@ -190,7 +221,7 @@ const IND_ROWS = [
   { key: 'macd', k: 'macd', label: 'MACD', color: C.macdLine },
 ]
 
-export default forwardRef(function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [], symbol = '', toolsOpen = false, onToolsOpenChange }, ref) {
+export default forwardRef(function MarketChart({ data = [], period = '1a', lang = 'fr', statusText = '', markers = [], symbol = '', currency = 'XOF', toolsOpen = false, onToolsOpenChange, liveVolume = null }, ref) {
   const rootRef = useRef(null)
   const chartElRef = useRef(null)
   const wrapRef = useRef(null)
@@ -210,8 +241,13 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   const hoveringRef = useRef(false)
   const [tool, setTool] = useState('cursor')
   const [full, setFull] = useState(false)
+  const [chartType, setChartType] = useState('candle') // candle | line
+  const typeRef = useRef('candle')
+  const [localTools, setLocalTools] = useState(false)
   const [drawings, setDrawingsState] = useState([])
   const [textDraft, setTextDraft] = useState('')
+
+  const toolsVisible = onToolsOpenChange ? !!toolsOpen : localTools
 
   const setDrawings = (next) => {
     drawingsRef.current = next
@@ -282,17 +318,32 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         minBarSpacing: 2.5,
         maxBarSpacing: 40,
         rightOffset: 1,
-        textColor: 'transparent',
+        textColor: C.axis,
         timeVisible: false,
         secondsVisible: false,
+        tickMarkFormatter: (time, type) => {
+          const s = String(time)
+          if (!s) return ''
+          const y = s.slice(0, 4)
+          const mi = parseInt(s.slice(5, 7), 10) - 1
+          const d = s.slice(8, 10)
+          const M = lang === 'en'
+            ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            : ['jan', 'fév', 'mar', 'avr', 'mai', 'juin', 'juil', 'aoû', 'sep', 'oct', 'nov', 'déc']
+          if (type === 0) return y // changement d'année → année seule
+          if (type === 1) return M[mi] || '' // changement de mois → mois court
+          if (type === 2) return d // jour → numéro du jour
+          return `${d}/${M[mi] || ''}`
+        },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#22304A', labelTextColor: '#E8EEF7' },
-        horzLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#22304A', labelTextColor: '#E8EEF7' },
+        vertLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#262626', labelTextColor: '#E8EEF7' },
+        horzLine: { color: 'rgba(148,163,184,0.30)', width: 1, style: LineStyle.Solid, labelBackgroundColor: '#262626', labelTextColor: '#E8EEF7' },
       },
       localization: {
         priceFormatter: v => fmtPrice(lang, v, 0),
+        volumeFormatter: v => fmtCompact(lang, v),
         timeFormatter: t => {
           const s = String(t)
           const [y, m, d] = s.slice(0, 10).split('-')
@@ -321,7 +372,25 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
       lastValueVisible: false,
       priceLineVisible: false,
     })
-    chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 }, visible: false })
+    chart.priceScale('vol').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+      visible: true,
+      ticksVisible: false,
+      borderVisible: false,
+      entireTextOnly: true,
+    })
+
+    const line = chart.addSeries(LineSeries, {
+      color: '#2ACB8A',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: '#000000',
+      crosshairMarkerBackgroundColor: '#2ACB8A',
+      visible: false,
+    })
 
     const emas = {}
     for (const p of EMAS) {
@@ -336,8 +405,25 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
       })
     }
 
-    const st = { chart, candle, vol, emas, markersPlugin: createSeriesMarkers(candle) }
+    const st = { chart, candle, vol, line, emas, markersPlugin: createSeriesMarkers(candle) }
     stateRef.current = st
+
+    const main = () => (typeRef.current === 'line' ? st.line : st.candle)
+
+    const barAt = (i) => {
+      const b = main().dataByIndex(i)
+      if (!b) return null
+      if (typeRef.current === 'line') {
+        const vbar = st.vol.dataByIndex(i)
+        return {
+          time: b.time, open: b.value, high: b.value, low: b.value, close: b.value,
+          volume: vbar && vbar.value != null ? vbar.value : 0,
+        }
+      }
+      return b
+    }
+    st.barAt = barAt
+    st.main = main
 
     const fit = () => {
       const len = rows.length
@@ -362,38 +448,40 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     }
 
     const updatePriceLine = () => {
-      const line = lineRef.current
+      const lineEl = lineRef.current
       const tag = tagRef.current
-      if (!line || !tag) return
-      const all = st.candle.data()
+      if (!lineEl || !tag) return
+      const all = main().data()
       const last = all.length ? all[all.length - 1] : null
       if (!last || hoveringRef.current) {
-        line.style.opacity = '0'
+        lineEl.style.opacity = '0'
         tag.style.opacity = '0'
         return
       }
-      const y = st.candle.priceToCoordinate(last.close)
+      const lc = typeRef.current === 'line' ? last.value : last.close
+      const lo = typeRef.current === 'line' ? last.value : last.open
+      const y = main().priceToCoordinate(lc)
       if (y == null) {
-        line.style.opacity = '0'
+        lineEl.style.opacity = '0'
         tag.style.opacity = '0'
         return
       }
-      const color = last.close >= last.open ? C.upBody : C.downBody
-      line.style.opacity = '1'
-      line.style.top = `${y}px`
-      line.style.borderTopColor = color + '88'
+      const color = lc >= lo ? C.upBody : C.downBody
+      lineEl.style.opacity = '1'
+      lineEl.style.top = `${y}px`
+      lineEl.style.borderTopColor = color + '88'
       tag.style.opacity = '1'
       tag.style.top = `${y}px`
       tag.style.background = '#FFFFFF'
       tag.style.color = '#0D1426'
-      tag.textContent = fmtPrice(lang, last.close, 0)
+      tag.textContent = fmtPriceCur(lang, lc, currency, 0)
     }
 
     const LEG_KEYS = ['ema20', 'ema50', 'ema200', 'boll', 'vwap', 'rsi', 'macd']
 
     const setLeg = (i) => {
       const leg = legRefs.current
-      const all = st.candle.data()
+      const all = main().data()
       const len = all.length
       const last = len ? len - 1 : null
       const idx = i != null && i >= 0 && i < len ? i : last
@@ -408,13 +496,13 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         }
         return
       }
-      const bar = st.candle.dataByIndex(idx)
+      const bar = barAt(idx)
       const prev = idx > 0 ? st.candle.dataByIndex(idx - 1) : null
       if (!bar) return
       const up = bar.close >= bar.open
       const col = up ? C.upBody : C.downBody
       if (leg.price) {
-        leg.price.textContent = fmtPrice(lang, bar.close, 0)
+        leg.price.textContent = fmtPriceCur(lang, bar.close, currency, 0)
         leg.price.style.color = col
       }
       if (leg.chg) {
@@ -457,9 +545,10 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     const onCrosshair = param => {
       const tip = tipRef.current
       const seriesData = param.seriesData
-      const d = seriesData ? seriesData.get(st.candle) : null
+      const active = typeRef.current === 'line' ? st.line : st.candle
+      const raw = seriesData ? seriesData.get(active) : null
       const idx = param.logical != null && Number.isFinite(param.logical) ? Math.round(param.logical) : null
-      if (!d || !param.point || idx == null) {
+      if (!raw || !param.point || idx == null) {
         if (tip) tip.style.opacity = '0'
         st.setLeg(null)
         hoveringRef.current = false
@@ -469,6 +558,14 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
       hoveringRef.current = true
       if (lineRef.current) lineRef.current.style.opacity = '0'
       if (tagRef.current) tagRef.current.style.opacity = '0'
+      let d = raw
+      if (typeRef.current === 'line') {
+        const vbar = st.vol.dataByIndex(idx)
+        d = {
+          time: raw.time, open: raw.value, high: raw.value, low: raw.value, close: raw.value,
+          volume: vbar && vbar.value != null ? vbar.value : 0,
+        }
+      }
       st.setLeg(idx)
       if (!tip) return
       const wrap = tip.parentElement.getBoundingClientRect()
@@ -491,7 +588,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         return lang === 'en' ? `${m}/${dd}/${y}` : `${dd}/${m}/${y}`
       })()
       tip.innerHTML = `
-        <div class="mc-tip-title" style="color:${up ? C.upBody : C.downBody}">${fmtPrice(lang, d.close, 0)}</div>
+        <div class="mc-tip-title" style="color:${up ? C.upBody : C.downBody}">${fmtPriceCur(lang, d.close, currency, 0)}</div>
         <div class="mc-tip-date">${dateStr}</div>
         <div class="mc-tip-row"><span>O</span><b>${fmtPrice(lang, d.open, 0)}</b></div>
         <div class="mc-tip-row"><span>H</span><b style="color:${C.upBody}">${fmtPrice(lang, d.high, 0)}</b></div>
@@ -511,9 +608,11 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     st.chart.timeScale().subscribeVisibleTimeRangeChange(onRangeChange)
 
     const ro = new ResizeObserver(() => {
-      const r = chartEl.parentElement.getBoundingClientRect()
-      if (r.width && r.height) {
-        st.chart.resize(r.width, r.height)
+      const el = chartEl.parentElement
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      if (w && h) {
+        st.chart.resize(w, h)
         updatePriceLine()
         redrawRef.current()
       }
@@ -539,6 +638,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     const st = stateRef.current
     if (!st) return
     st.candle.setData(rows)
+    st.line.setData(rows.map(r => ({ time: r.time, value: r.close })))
     st.vol.setData(rows.map(r => ({
       time: r.time,
       value: r.volume,
@@ -550,6 +650,37 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     }
     if (st.updatePriceLine) st.updatePriceLine()
   }, [rows])
+
+  useEffect(() => {
+    const st = stateRef.current
+    if (!st || !liveVolume || !liveVolume.volume) return
+    const last = rows[rows.length - 1]
+    if (!last) return
+    const t = liveVolume.date
+    const flatColor = 'rgba(148,163,184,0.55)'
+    if (t === last.time) {
+      const color = last.close >= last.open
+        ? 'rgba(53,208,127,0.45)' : 'rgba(246,70,93,0.45)'
+      st.vol.update({ time: t, value: liveVolume.volume, color })
+      return
+    }
+    if (t > last.time && liveVolume.estimated) {
+      st.candle.update({ time: t, open: last.close, high: last.close, low: last.close, close: last.close })
+      st.line.update({ time: t, value: last.close })
+      st.vol.update({ time: t, value: liveVolume.volume, color: flatColor })
+    }
+  }, [liveVolume, rows])
+
+  useEffect(() => {
+    typeRef.current = chartType
+    const st = stateRef.current
+    if (!st) return
+    st.candle.applyOptions({ visible: chartType === 'candle' })
+    st.line.applyOptions({ visible: chartType === 'line' })
+    if (st.main) st.main()
+    if (st.updatePriceLine) st.updatePriceLine()
+    redrawRef.current()
+  }, [chartType])
 
   useEffect(() => {
     const st = stateRef.current
@@ -650,8 +781,8 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   useEffect(() => {
     const st = stateRef.current
     if (!st) return
-    st.markersPlugin.setMarkers(markers || [])
-  }, [markers])
+    st.markersPlugin.setMarkers(chartType === 'candle' ? (markers || []) : [])
+  }, [markers, chartType])
 
   useEffect(() => { redraw() }, [drawings, tool, inds])
 
@@ -707,19 +838,25 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   }
 
   const toggleFull = () => {
-    setFull(v => {
-      const next = !v
-      requestAnimationFrame(() => {
-        const st = stateRef.current
-        if (!st || !wrapRef.current) return
-        const r = wrapRef.current.getBoundingClientRect()
-        if (r.width && r.height) st.chart.resize(r.width, r.height)
-      })
-      return next
-    })
+    const root = rootRef.current
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => setFull(false))
+    } else if (root && root.requestFullscreen) {
+      root.requestFullscreen()
+        .then(() => setFull(true))
+        .catch(() => setFull(v => !v))
+    } else {
+      setFull(v => !v)
+    }
   }
 
   useImperativeHandle(ref, () => ({ toggleFull }))
+
+  useEffect(() => {
+    const onFs = () => setFull(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
 
   useEffect(() => {
     if (!full) return
@@ -739,14 +876,15 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     const wrap = wrapRef.current
     if (!wrap) return { x: 0, y: 0 }
     const rect = wrap.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const zoom = Number(getComputedStyle(document.documentElement).zoom) || 1
+    return { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
   }
 
   const pointToData = (p) => {
     const st = stateRef.current
     if (!st) return { time: null, price: null }
     const time = st.chart.timeScale().coordinateToTime(p.x)
-    const price = st.candle.coordinateToPrice(p.y)
+    const price = st.main().coordinateToPrice(p.y)
     return { time, price: price == null ? null : Math.round(price * 100) / 100 }
   }
 
@@ -755,11 +893,12 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     if (!st) return -1
     let bestI = -1
     let bestD = 12
+    const main = st.main()
     drawingsRef.current.forEach((d, i) => {
       const x1 = d.t1 != null ? st.chart.timeScale().timeToCoordinate(d.t1) : null
-      const y1 = d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null
+      const y1 = d.p1 != null ? main.priceToCoordinate(d.p1) : null
       const x2 = d.t2 != null ? st.chart.timeScale().timeToCoordinate(d.t2) : null
-      const y2 = d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null
+      const y2 = d.p2 != null ? main.priceToCoordinate(d.p2) : null
       let dd = 999
       if (d.tool === 'hline') {
         if (y1 != null) dd = Math.abs(p.y - y1)
@@ -791,6 +930,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     const st = stateRef.current
     if (!st) return
     const p = getPoint(e)
+    const main = st.main()
     if (tool === 'erase') {
       const i = pickDrawing(p)
       if (i >= 0) setDrawings(drawingsRef.current.filter((_, k) => k !== i))
@@ -801,9 +941,9 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
       if (i >= 0) {
         const d = drawingsRef.current[i]
         const x1 = d.t1 != null ? st.chart.timeScale().timeToCoordinate(d.t1) : null
-        const y1 = d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null
+        const y1 = d.p1 != null ? main.priceToCoordinate(d.p1) : null
         const x2 = d.t2 != null ? st.chart.timeScale().timeToCoordinate(d.t2) : null
-        const y2 = d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null
+        const y2 = d.p2 != null ? main.priceToCoordinate(d.p2) : null
         const grips = []
         if (d.tool === 'hline' && y1 != null && d.t1 != null) grips.push({ key: 'p1', x: st.chart.timeScale().timeToCoordinate(d.t1), y: y1, dx: 0, dy: 0 })
         else if (d.tool === 'text' && x1 != null && y1 != null) grips.push({ key: 'p1', x: x1, y: y1, dx: 0, dy: 0 })
@@ -821,7 +961,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
               const next = drawingsRef.current.slice()
               const cur = { ...next[i] }
               if (g.key === 'p1') {
-                if (cur.tool === 'hline') cur.p1 = pt.y == null ? cur.p1 : (st.candle.coordinateToPrice(pt.y) ?? cur.p1)
+                if (cur.tool === 'hline') cur.p1 = pt.y == null ? cur.p1 : (main.coordinateToPrice(pt.y) ?? cur.p1)
                 else { if (nd.time) cur.t1 = nd.time; if (nd.price != null) cur.p1 = nd.price }
               } else {
                 if (nd.time) cur.t2 = nd.time
@@ -933,12 +1073,15 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
 
     const tx = (t) => (t != null ? st.chart.timeScale().timeToCoordinate(t) : null)
 
-    const toXY = (d) => ({
-      x1: tx(d.t1),
-      y1: d.p1 != null ? st.candle.priceToCoordinate(d.p1) : null,
-      x2: d.t2 != null ? tx(d.t2) : null,
-      y2: d.p2 != null ? st.candle.priceToCoordinate(d.p2) : null,
-    })
+    const toXY = (d) => {
+      const main = st.main()
+      return {
+        x1: tx(d.t1),
+        y1: d.p1 != null ? main.priceToCoordinate(d.p1) : null,
+        x2: d.t2 != null ? tx(d.t2) : null,
+        y2: d.p2 != null ? main.priceToCoordinate(d.p2) : null,
+      }
+    }
 
     const paint = (d, dashed) => {
       const { x1, y1, x2, y2 } = toXY(d)
@@ -979,7 +1122,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         if (x1 == null || y1 == null) return
         parts.push(
           <g key={d.id}>
-            <rect x={x1 - 3} y={y1 - 14} width={Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)} height="18" rx="4" fill="#141A26" stroke={color} strokeWidth="1" />
+            <rect x={x1 - 3} y={y1 - 14} width={Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)} height="18" rx="4" fill="#111111" stroke={color} strokeWidth="1" />
             <text x={x1} y={y1 + 1} fill="#E2E8F0" fontSize="11" fontWeight="600">{d.text || '...'}</text>
           </g>
         )
@@ -1030,7 +1173,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     }
 
     const timeLabels = []
-    const svgRect = svg.getBoundingClientRect()
+    const svgRect = { width: svg.clientWidth, height: svg.clientHeight }
     const visRange = st.chart.timeScale().getVisibleLogicalRange()
     const barSpacing = st.chart.timeScale().options().barSpacing
     const daily = period === '1j' || period === '5j' || period === 'max' || period === 'all'
@@ -1083,54 +1226,6 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
 
   return (
     <div className={`mc-root${full ? ' fullscreen' : ''}`} ref={rootRef}>
-      {toolsOpen && (
-        <>
-      <div className="mc-toolbar">
-        {CHIPS.map(c => {
-          const on = typeof c.k === 'number' ? emasOn[c.k] : inds[c.k]
-          return (
-            <span
-              key={String(c.k)}
-              className={`mc-chip ${on ? 'on' : ''}`}
-              style={on ? { color: c.color, background: c.color + '1F' } : {}}
-              onClick={() => typeof c.k === 'number' ? toggleEma(c.k) : toggleInd(c.k)}
-            >{c.label}</span>
-          )
-        })}
-        {statusText && <span className="mc-status">{statusText}</span>}
-      </div>
-      <div className="mc-dtoolbar">
-        <span className="mc-dgroup">
-          {DRAW_TOOLS.map(ct => {
-            const Icon = ct.icon
-            const active = tool === ct.id
-            return (
-              <button
-                key={ct.id}
-                className={`mc-dbtn ${active ? 'active' : ''}`}
-                title={ct.title}
-                onClick={() => setTool(active ? 'cursor' : ct.id)}
-              >
-                <Icon size={15} />
-              </button>
-            )
-          })}
-        </span>
-        <span className="mc-dgroup right">
-          <button className="mc-dbtn" title="Zoom in" onClick={() => zoomBy(1 / 1.35)}><Plus size={15} /></button>
-          <button className="mc-dbtn" title="Zoom out" onClick={() => zoomBy(1.35)}><Minus size={15} /></button>
-          <button className={`mc-dbtn ${tool === 'scan' ? 'active' : ''}`} title="Zoom box" onClick={() => setTool(tool === 'scan' ? 'cursor' : 'scan')}><Scan size={15} /></button>
-          <button className="mc-dbtn" title="Reset view" onClick={zoomReset}><RotateCcw size={15} /></button>
-          <button className={`mc-dbtn ${full ? 'active' : ''}`} title={full ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFull}>
-            {full ? <Minimize size={15} /> : <Maximize size={15} />}
-          </button>
-        </span>
-        {tool !== 'cursor' && (
-          <span className="mc-dhint"><Hand size={11} /> {tool === 'erase' ? 'Click a drawing to delete' : 'Drag on chart to draw'}</span>
-        )}
-      </div>
-        </>
-      )}
       <div className="mc-wrap" ref={wrapRef}>
         {symbol && <div className="mc-watermark">{symbol}</div>}
         <div ref={chartElRef} className="mc-chart" />
@@ -1140,8 +1235,64 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           style={{ pointerEvents: svgPointerEvents }}
           onPointerDown={onSvgPointerDown}
         />
-        {toolsOpen && (
-        <div className="mc-legend">
+        <div className="mc-quick">
+          <button className={`mc-qbtn ${chartType === 'candle' ? 'active' : ''}`} title={TT(lang, 'candle')} onClick={() => setChartType('candle')}><CandleSvg /></button>
+          <button className={`mc-qbtn ${chartType === 'line' ? 'active' : ''}`} title={TT(lang, 'line')} onClick={() => setChartType('line')}><LineSvg /></button>
+          <span className="mc-qsep" />
+          <button className="mc-qbtn" title={TT(lang, 'zoomIn')} onClick={() => zoomBy(1 / 1.35)}><Plus size={15} /></button>
+          <button className="mc-qbtn" title={TT(lang, 'zoomOut')} onClick={() => zoomBy(1.35)}><Minus size={15} /></button>
+          <button className="mc-qbtn" title={TT(lang, 'reset')} onClick={zoomReset}><RotateCcw size={15} /></button>
+          <button className={`mc-qbtn${full ? ' on' : ''}`} title={full ? TT(lang, 'exitFull') : TT(lang, 'full')} onClick={toggleFull}>
+            {full ? <Minimize size={15} /> : <Maximize size={15} />}
+          </button>
+          <span className="mc-qsep" />
+          <button className={`mc-qbtn${toolsVisible ? ' active' : ''}`} title={TT(lang, 'tools')} onClick={() => (onToolsOpenChange ? onToolsOpenChange(!toolsOpen) : setLocalTools(v => !v))}>
+            <SlidersHorizontal size={15} />
+          </button>
+        </div>
+        {toolsVisible && (
+          <>
+            <div className="mc-toolbar mc-float-ind">
+              {CHIPS.map(c => {
+                const on = typeof c.k === 'number' ? emasOn[c.k] : inds[c.k]
+                return (
+                  <span
+                    key={String(c.k)}
+                    className={`mc-chip ${on ? 'on' : ''}`}
+                    style={on ? { color: c.color, background: c.color + '1F' } : {}}
+                    onClick={() => typeof c.k === 'number' ? toggleEma(c.k) : toggleInd(c.k)}
+                  >{c.label}</span>
+                )
+              })}
+              {statusText && <span className="mc-status">{statusText}</span>}
+            </div>
+            <div className="mc-dtoolbar mc-float-draw">
+              <span className="mc-dgroup">
+                {DRAW_TOOLS.map(ct => {
+                  const Icon = ct.icon
+                  const active = tool === ct.id
+                  return (
+                    <button
+                      key={ct.id}
+                      className={`mc-dbtn ${active ? 'active' : ''}`}
+                      title={ct.title}
+                      onClick={() => setTool(active ? 'cursor' : ct.id)}
+                    >
+                      <Icon size={15} />
+                    </button>
+                  )
+                })}
+              </span>
+              <span className="mc-dgroup right">
+                <button className={`mc-dbtn ${tool === 'scan' ? 'active' : ''}`} title="Zoom box" onClick={() => setTool(tool === 'scan' ? 'cursor' : 'scan')}><Scan size={15} /></button>
+              </span>
+              {tool !== 'cursor' && (
+                <span className="mc-dhint"><Hand size={11} /> {tool === 'erase' ? TT(lang, 'eraseHint') : TT(lang, 'drawHint')}</span>
+              )}
+            </div>
+          </>
+        )}
+        <div className={`mc-legend${toolsVisible ? ' mc-legend-min' : ''}`}>
           <div className="mc-lg-row1">
             <span className="mc-lg-sym">{symbol || '—'}</span>
             <span ref={el => { legRefs.current.price = el }} className="mc-lg-price">—</span>
@@ -1163,7 +1314,6 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
             })}
           </div>
         </div>
-        )}
         <div ref={lineRef} className="mc-pline" />
         <div ref={tagRef} className="mc-ptag" />
         <div ref={tipRef} className="mc-tip" />
@@ -1181,31 +1331,60 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           font-family: Inter, -apple-system, sans-serif;
         }
         .mc-root.fullscreen {
-          position: fixed; inset: 0; z-index: 1000; height: 100vh;
-          padding: 14px 14px 6px;
+          position: fixed; inset: 0; z-index: 1000; height: 100dvh;
+          background: ${C.bg};
         }
-        .mc-root.fullscreen .mc-wrap { border-radius: 14px; overflow: hidden; }
-        .mc-root.fullscreen .mc-toolbar { padding-left: 2px; }
-        .mc-root.fullscreen .mc-dtoolbar { padding-left: 2px; }
+        .mc-root.fullscreen .mc-wrap { border-radius: 0; }
+        .mc-quick {
+          position: absolute; top: 8px; right: 8px; z-index: 7;
+          display: flex; align-items: center; gap: 2px;
+          background: rgba(13,13,13,0.9); border: 1px solid #262626; border-radius: 10px;
+          padding: 3px; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+          backdrop-filter: blur(8px);
+        }
+        .mc-qbtn {
+          width: 28px; height: 28px; border: none; border-radius: 8px;
+          background: none; color: #8E95A3; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
+        }
+        .mc-qbtn:hover { background: #1A1A1A; color: #E2E8F0; }
+        .mc-qbtn.active { background: rgba(42,203,138,0.16); color: #2ACB8A; }
+        .mc-qbtn.on { background: rgba(42,203,138,0.16); color: #2ACB8A; }
+        .mc-qsep { width: 1px; height: 16px; background: #262626; margin: 0 2px; }
         .mc-toolbar {
-          display: flex; align-items: center; gap: 6px; padding: 0 8px 8px;
-          flex-wrap: wrap; border-bottom: 1px solid rgba(148,163,184,0.12);
+          display: flex; align-items: center; gap: 6px; padding: 0;
+          flex-wrap: wrap;
+        }
+        .mc-toolbar.mc-float-ind {
+          position: absolute; z-index: 7;
+          top: 50px; right: 8px;
+          flex-direction: column; align-items: stretch; gap: 5px;
+          background: rgba(13,13,13,0.9); border: 1px solid #262626; border-radius: 10px;
+          padding: 5px; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+          backdrop-filter: blur(8px);
+          max-width: 96px;
         }
         .mc-chip {
           display: flex; align-items: center; gap: 5px;
           font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
-          background: #141D32; border: 1px solid #22304A; color: #7B8798;
-          cursor: pointer; user-select: none;
+          background: #0F0F0F; border: 1px solid #262626; color: #7B8798;
+          cursor: pointer; user-select: none; white-space: nowrap;
           transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
         }
         .mc-chip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.4; }
         .mc-chip.on::before { opacity: 1; }
         .mc-status { margin-left: auto; font-size: 10px; color: #666; white-space: nowrap; }
-        .mc-dtoolbar {
+        .mc-dtoolbar.mc-float-draw {
+          position: absolute; z-index: 7;
+          bottom: 8px; left: 50%; transform: translateX(-50%);
           display: flex; align-items: center; gap: 8px;
-          padding: 0 8px 6px;
+          background: rgba(13,13,13,0.9); border: 1px solid #262626; border-radius: 10px;
+          padding: 3px; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+          backdrop-filter: blur(8px);
+          max-width: calc(100% - 16px);
         }
-        .mc-dgroup { display: flex; align-items: center; gap: 2px; background: #141D32; border-radius: 9px; padding: 2px; }
+        .mc-dgroup { display: flex; align-items: center; gap: 2px; background: #0F0F0F; border-radius: 9px; padding: 2px; }
         .mc-dgroup.right { margin-left: auto; }
         .mc-dbtn {
           width: 26px; height: 26px; border: none; border-radius: 7px;
@@ -1213,7 +1392,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           display: flex; align-items: center; justify-content: center;
           padding: 0; transition: background 100ms ease-out, color 100ms ease-out;
         }
-        .mc-dbtn:hover { background: #1E2A44; color: #E2E8F0; }
+        .mc-dbtn:hover { background: #1A1A1A; color: #E2E8F0; }
         .mc-dbtn.active { background: rgba(53,208,127,0.18); color: #35D07F; }
         .mc-dhint {
           display: flex; align-items: center; gap: 4px;
@@ -1221,12 +1400,19 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         }
         @media (min-width: 768px) {
           .mc-wrap { min-height: 420px; }
+          .mc-toolbar.mc-float-ind {
+            flex-direction: row; flex-wrap: wrap; justify-content: center;
+            top: 8px; left: 50%; right: auto; transform: translateX(-50%);
+            max-width: none;
+          }
+          .mc-root.fullscreen .mc-toolbar.mc-float-ind { left: 50%; top: 52px; }
         }
         @media (max-width: 767px) {
           .mc-legend {
             min-width: 0; max-width: calc(100% - 16px);
             padding: 6px 9px 7px; font-size: 10px; top: 8px; left: 8px;
           }
+          .mc-legend.mc-legend-min { display: none; }
           .mc-lg-sym { font-size: 11px; }
           .mc-lg-ohlc { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
           .mc-lg-inds { display: none; }
@@ -1240,13 +1426,13 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           position: absolute; inset: 0; z-index: 2;
           pointer-events: none; user-select: none;
           display: flex; align-items: center; justify-content: center;
-          font-size: clamp(56px, 9vw, 110px); font-weight: 700; letter-spacing: 3px;
+          font-size: clamp(56px, 9vw, 110px); font-weight: 700; letter-spacing: -0.02em;
           color: rgba(255,255,255,0.028); font-variant-numeric: tabular-nums;
         }
-        .mc-overlay { position: absolute; inset: 0; z-index: 3; touch-action: none; }
+        .mc-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; touch-action: none; }
         .mc-legend {
           position: absolute; top: 10px; left: 10px; z-index: 5;
-          background: rgba(13,20,38,0.88); border: 1px solid #22304A;
+          background: rgba(0,0,0,0.88); border: 1px solid #262626;
           border-radius: 10px; padding: 8px 12px 9px;
           font-size: 10.5px; pointer-events: none; user-select: none;
           min-width: 208px; box-shadow: 0 8px 24px rgba(0,0,0,0.35);
@@ -1258,7 +1444,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           font-weight: 700; font-size: 10px; padding: 2px 6px; border-radius: 5px;
           color: #8E95A3; font-variant-numeric: tabular-nums;
         }
-        .mc-lg-ohlc { margin-top: 5px; color: #8E95A3; font-variant-numeric: tabular-nums; letter-spacing: 0.2px; white-space: nowrap; }
+        .mc-lg-ohlc { margin-top: 5px; color: #8E95A3; font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: nowrap; }
         .mc-lg-date { color: #5B6678; margin-top: 2px; font-size: 9.5px; }
         .mc-lg-inds {
           margin-top: 6px; border-top: 1px solid rgba(148,163,184,0.12);
@@ -1288,13 +1474,13 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         .mc-tv {
           position: absolute; left: 8px; bottom: 8px; z-index: 5;
           width: 40px; height: 40px; border-radius: 50%;
-          background: #0E1627;
+          background: #000000;
           display: flex; align-items: center; justify-content: center;
           opacity: 0.6; pointer-events: none;
         }
         .mc-tv span {
           color: #fff; font-size: 8px; font-weight: 700;
-          letter-spacing: 0.25px; font-family: Inter, sans-serif;
+          letter-spacing: 0; font-family: Inter, sans-serif;
           white-space: nowrap;
         }
         .mc-tip {

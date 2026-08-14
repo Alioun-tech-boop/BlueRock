@@ -13,15 +13,26 @@ DATE_FMT = "%Y-%m-%d"
 
 
 def _latest_prices(db: Session) -> dict[str, float]:
-    """Dernier cours par symbole, en 1 requête (DISTINCT ON company_id)."""
+    """Dernier cours par symbole, en 1 requête (cache partagé 5 s)."""
+    from ..services.prices import latest_prices
+    return latest_prices(db)
+
+
+def _close_pairs(db: Session) -> dict[str, list[float]]:
+    """Les 2 derniers cours par symbole (dernier puis veille), en 1 requête."""
     from sqlalchemy import text
     rows = db.execute(text(
-        "SELECT DISTINCT ON (md.company_id) co.symbol, md.close_price "
-        "FROM market_data md JOIN companies co ON co.id = md.company_id "
-        "WHERE md.close_price IS NOT NULL "
-        "ORDER BY md.company_id, md.date DESC"
+        "SELECT symbol, close_price, rn FROM ("
+        "  SELECT co.symbol AS symbol, md.close_price AS close_price, "
+        "         ROW_NUMBER() OVER (PARTITION BY md.company_id ORDER BY md.date DESC) AS rn "
+        "  FROM market_data md JOIN companies co ON co.id = md.company_id "
+        "  WHERE md.close_price IS NOT NULL"
+        ") t WHERE rn <= 2"
     )).all()
-    return {r[0]: float(r[1]) for r in rows}
+    out: dict[str, list[float]] = {}
+    for r in rows:
+        out.setdefault(r[0], []).append(float(r[1]))
+    return out
 
 
 def _latest_scores(db: Session, symbols: list[str]) -> dict[str, dict]:
@@ -148,6 +159,7 @@ def track_plan(db: Session, plan: PremiumPlan) -> dict:
         return result
 
     prices = _latest_prices(db)
+    pairs = _close_pairs(db)
     invested = snap.get("invested") or 0
     cash_buffer = snap.get("cash_buffer") or 0
 
@@ -201,7 +213,6 @@ def track_plan(db: Session, plan: PremiumPlan) -> dict:
         fair = a.get("fair_value")
         if not px or not entry or entry <= 0:
             continue
-        chg = (px - entry) / entry * 100
 
         # 1. Objectif atteint (cours ≥ valeur intrinsèque)
         if fair and fair > 0 and px >= fair:
@@ -211,13 +222,16 @@ def track_plan(db: Session, plan: PremiumPlan) -> dict:
                     None)
             result["alerts"] += 1
 
-        # 2. Forte variation journalière
-        elif abs(chg) >= 3.0:
-            sign = "+" if chg > 0 else ""
-            _notify(db, plan, f"plan_move_{symbol}", f"Mouvement fort : {symbol} {sign}{chg:.1f}%",
-                    f"Depuis l'émission du plan, {symbol} varie de {sign}{chg:.1f}% "
-                    f"({entry:,.0f} → {px:,.0f} FCFA).")
-            result["alerts"] += 1
+        # 2. Forte variation sur la dernière séance
+        prev_px = (pairs.get(symbol) or [None, None])[1]
+        if prev_px and prev_px > 0:
+            dchg = (px - prev_px) / prev_px * 100
+            if abs(dchg) >= 3.0:
+                sign = "+" if dchg > 0 else ""
+                _notify(db, plan, f"plan_move_{symbol}", f"Mouvement fort : {symbol} {sign}{dchg:.1f}%",
+                        f"{symbol} a varié de {sign}{dchg:.1f}% en une séance "
+                        f"({prev_px:,.0f} → {px:,.0f} FCFA).")
+                result["alerts"] += 1
 
         # 3. Opportunité : décote accentuée
         sc = scores.get(symbol) or {}
@@ -260,25 +274,29 @@ def track_all_active(db: Session) -> dict:
 
 
 def coverage_of(db: Session, plan: PremiumPlan) -> dict:
-    """Alignement du portefeuille réel sur l'allocation cible du plan."""
-    snap = _plan_allocation(plan)
-    allocation = snap.get("allocation") or []
+    """Alignement du portefeuille réel sur l'allocation cible du plan.
+    Les cibles sont recalculées avec l'argent disponible sur le compte géré."""
+    from ..services.rebalancer import adaptive_targets, managed_account
     prices = _latest_prices(db)
-    positions = {p.symbol: p.qty for p in db.query(Position).filter(Position.user_id == plan.user_id).all()}
+    account = managed_account(db, plan)
+    positions = {p.symbol: p.qty for p in db.query(Position).filter(
+        Position.user_id == plan.user_id, Position.portfolio_id == account.id
+    ).all()}
 
     lines = []
     total_target = 0.0
     total_held = 0.0
-    for a in allocation:
-        px = prices.get(a.get("symbol")) or a.get("current_price") or 0
-        target_shares = a.get("shares") or 0
-        held_qty = positions.get(a.get("symbol"), 0) or 0
+    for t in adaptive_targets(db, plan, account, prices):
+        symbol = t["symbol"]
+        px = t["px"]
+        target_shares = t["target_shares"]
+        held_qty = positions.get(symbol, 0) or 0
         target_value = target_shares * px
         held_value = min(held_qty, target_shares) * px
         total_target += target_value
         total_held += held_value
         lines.append({
-            "symbol": a.get("symbol"),
+            "symbol": symbol,
             "target_shares": target_shares,
             "held_qty": held_qty,
             "aligned_pct": round(held_value / target_value * 100, 1) if target_value > 0 else 0.0,

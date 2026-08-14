@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import { getScreen, getSectors } from '../services/api'
 import { ArrowLeft, RefreshCw, X, Filter } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 
 const RATINGS = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC', 'CC', 'C']
 
@@ -117,7 +119,7 @@ export default function Screen() {
 
         <div className="result-list">
           {loading ? (
-            <div className="loading-row"><div className="spinner" /></div>
+            <div className="loading-row"><TriLoader compact /></div>
           ) : stocks.length === 0 ? (
             <div className="empty">
               <Filter size={22} />
@@ -131,7 +133,7 @@ export default function Screen() {
             <div key={s.company_id || idx} className="result-row" onClick={() => router.push(`/company?id=${s.company_id}`)}>
               <div className="rr-rank">{idx + 1}</div>
               <div className="rr-logo">
-                {s.logo_url ? <img src={s.logo_url} alt="" /> : null}
+                {s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}
               </div>
               <div className="rr-symbol">{s.symbol}</div>
               <div className="rr-info">
@@ -151,7 +153,7 @@ export default function Screen() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -199,7 +201,7 @@ export default function Screen() {
         }
         .rr-rank { font-size: 12px; color: #9AA3B2; width: 22px; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .rr-logo { width: 28px; height: 28px; border-radius: 50%; background: #1a1a1a; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
-        .rr-logo img { width: 100%; height: 100%; object-fit: cover; }
+        .rr-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; box-sizing: border-box; }
         .rr-symbol { font-size: 18px; font-weight: 700; color: #F8F8FA; width: 74px; }
         .rr-info { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
         .rr-sector { font-size: 14px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

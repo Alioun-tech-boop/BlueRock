@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from ..core.security import require_admin
 from ..database import get_db
 from ..models.company import Company, Sector
+from ..data.countries import COUNTRY_BY_SYMBOL, DEFAULT_COUNTRY
 import json, os
 
 router = APIRouter(prefix="/api/seed", tags=["Seed Data"])
@@ -68,6 +69,7 @@ def seed_companies(db: Session = Depends(get_db), _=Depends(require_admin)):
                 symbol=data["symbol"],
                 name=data["name"],
                 sector=_map_sector(data["sector"]),
+                country=COUNTRY_BY_SYMBOL.get(data["symbol"], DEFAULT_COUNTRY),
                 shares_outstanding=data.get("shares_outstanding"),
                 per=data.get("per") or None,
                 reference_price=data.get("reference_price") or None,
@@ -91,12 +93,30 @@ def seed_instruments(db: Session = Depends(get_db), _=Depends(require_admin)):
                 name=data["name"],
                 sector=Sector.AUTRE,
                 instrument_type=data["instrument_type"],
+                country=COUNTRY_BY_SYMBOL.get(data["symbol"], DEFAULT_COUNTRY),
                 description=data.get("description"),
             )
             db.add(company)
             count += 1
     db.commit()
     return {"status": "success", "instruments_created": count, "instruments_total": len(INSTRUMENTS)}
+
+
+@router.post("/ngx")
+def seed_ngx(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Seed du catalogue des sociétés cotées à la NGX (Nigeria).
+    Idempotent : les sociétés existantes ne sont jamais modifiées (sauf
+    marché incohérent), aucune donnée n'est écrasée."""
+    from ..services.ngx_seed import seed_ngx_catalog
+    return seed_ngx_catalog(db)
+
+
+@router.post("/ngx-sync")
+def seed_ngx_sync(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """Synchronise le catalogue NGX depuis l'API NGN Market (liste officielle
+    + prix du jour persistés). Requiert une clé dans settings.NGN_MARKET_API_KEY."""
+    from ..services.ngx_seed import sync_ngx_from_api
+    return sync_ngx_from_api(db)
 
 
 @router.post("/all")
@@ -113,6 +133,7 @@ def seed_all(db: Session = Depends(get_db), _=Depends(require_admin)):
                 symbol=data["symbol"],
                 name=data["name"],
                 sector=_map_sector(data["sector"]),
+                country=COUNTRY_BY_SYMBOL.get(data["symbol"], DEFAULT_COUNTRY),
                 shares_outstanding=data.get("shares_outstanding"),
                 per=data.get("per") or None,
                 reference_price=data.get("reference_price") or None,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../services/api'
 import { useAuth } from '../lib/auth'
 import { ChevronLeft, Bell, BellRing, CheckCheck, Activity, AlertTriangle, Target, Sparkles, Info } from 'lucide-react'
@@ -61,7 +62,7 @@ export default function Notifications() {
     <div className="mobile-root">
       <div className="safe-area">
         <header className="pg-header">
-          <button className="back-btn" onClick={() => router.push('/menu')}>
+          <button className="back-btn" onClick={() => router.push('/portfolio')}>
             <ChevronLeft size={22} />
           </button>
           <div className="pg-title-wrap">
@@ -76,7 +77,7 @@ export default function Notifications() {
         </header>
 
         {loading ? (
-          <div className="empty">{t(lang, 'notifLoading')}</div>
+          <div className="empty"><TriLoader compact label={t(lang, 'notifLoading')} /></div>
         ) : items.length === 0 ? (
           <div className="empty">
             <BellRing size={28} color="#333" />
@@ -104,14 +105,14 @@ export default function Notifications() {
           </div>
         )}
 
-        <div className="footer-note">BlueRock © 2026</div>
+        <div className="footer-note">Bluerock © 2026</div>
       </div>
 
-      <BottomNav active="menu" />
+      <BottomNav active="portfolio" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -123,11 +124,11 @@ export default function Notifications() {
           background: #141414; color: #fff;
         }
         .pg-title-wrap { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-        .pg-title { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; }
+        .pg-title { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 600; }
         .pg-sub { font-size: 11px; color: #9AA3B2; }
         .read-all {
           display: flex; align-items: center; gap: 5px;
-          font-size: 11px; font-weight: 700; color: #18C27C;
+          font-size: 11px; font-weight: 600; color: #18C27C;
           background: rgba(24,194,124,0.1); border: 1px solid rgba(24,194,124,0.3);
           border-radius: 10px; padding: 7px 10px; cursor: pointer; flex-shrink: 0;
         }

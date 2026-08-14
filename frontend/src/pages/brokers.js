@@ -1,9 +1,9 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
-import { getBrokers } from '../services/api'
+import { getBrokers, getMarketLive } from '../services/api'
 import { detectLang, t } from '../lib/i18n'
-import { ArrowLeft, Star, ChevronDown, MessageCircle, Users, Check, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Star, ChevronDown, MapPin, Building2, Check, ShieldCheck } from 'lucide-react'
 
 const PALETTES = [
   ['#42E8F4', '#0d3540'],
@@ -24,19 +24,15 @@ function initials(name) {
   return ((words[0]?.[0] || '') + (words[1]?.[0] || '')).toUpperCase()
 }
 
-function formatK(n) {
-  if (n >= 1000) return (n / 1000).toFixed(1).replace('.', ',') + ' K'
-  return String(Math.round(n))
-}
-
 export default function Brokers() {
   const router = useRouter()
   const [lang, setLang] = useState('fr')
   const [groups, setGroups] = useState([])
+  const [exchange, setExchange] = useState('all')
   const [catIndex, setCatIndex] = useState(0)
   const [sortMode, setSortMode] = useState('note')
   const [sortOpen, setSortOpen] = useState(false)
-  const [orders, setOrders] = useState(420915752)
+  const [volume, setVolume] = useState(null)
 
   useEffect(() => {
     setLang(detectLang())
@@ -44,18 +40,27 @@ export default function Brokers() {
       const byCountry = r.data?.brokers || {}
       const list = Object.entries(byCountry)
         .filter(([, cats]) => (cats.SGI || []).length + (cats.SGO || []).length > 0)
-        .map(([country, cats]) => ({
-          country,
-          brokers: [...(cats.SGI || []), ...(cats.SGO || [])].sort((a, b) => b.note - a.note),
-        }))
+        .map(([country, cats]) => {
+          const all = [...(cats.SGI || []), ...(cats.SGO || [])]
+          return {
+            country,
+            exchange: all[0]?.exchange || (country === 'Nigeria' ? 'NGX' : 'BRVM'),
+            brokers: all.sort((a, b) => b.note - a.note),
+          }
+        })
       setGroups(list)
     }).catch(() => {})
   }, [])
 
   useEffect(() => {
-    const iv = setInterval(() => {
-      setOrders(o => o + Math.floor(Math.random() * 7000) + 1)
-    }, 1800)
+    const load = () => {
+      getMarketLive().then(r => {
+        const v = r.data?.activities?.transaction_value
+        if (typeof v === 'number' && v > 0) setVolume(v)
+      }).catch(() => {})
+    }
+    load()
+    const iv = setInterval(load, 60000)
     return () => clearInterval(iv)
   }, [])
 
@@ -63,6 +68,7 @@ export default function Brokers() {
   const catLabels = [t(lang, 'brokersAll'), 'SGI', 'SGO']
 
   const filtered = groups
+    .filter(g => exchange === 'all' || g.exchange === exchange)
     .map(g => ({
       country: g.country,
       brokers: g.brokers.filter(b => cats[catIndex] === 'all' || b.category === cats[catIndex]),
@@ -75,8 +81,8 @@ export default function Brokers() {
       ),
     }))
 
-  const goToAccount = () => {
-    router.push('/compte-titre')
+  const goToAccount = (b) => {
+    router.push(`/compte-titre?broker=${encodeURIComponent(b.name)}`)
   }
 
   const tier = (n) => {
@@ -85,9 +91,9 @@ export default function Brokers() {
     return { label: 'SILVER', color: '#6f6f6f' }
   }
 
-  const digits = String(orders)
-  const head = digits.slice(0, -3).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
-  const tail = digits.slice(-3)
+  const digits = volume != null ? String(Math.round(volume)) : ''
+  const head = digits ? digits.slice(0, -3).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : ''
+  const tail = digits ? digits.slice(-3) : ''
 
   let idx = 0
 
@@ -107,15 +113,37 @@ export default function Brokers() {
             <span className="bu-title">{t(lang, 'brokersUnavailable')}</span>
             <span className="bu-sub">{t(lang, 'brokersUnavailableSub')}</span>
           </div>
-          <button className="bu-cta" onClick={() => router.push('/compte-titre')}>{t(lang, 'ctDemoCta')}</button>
+          <button className="bu-cta" onClick={() => router.push('/compte-titre')}>{t(lang, 'ctOpenAccount')}</button>
         </div>
 
         <div className="b-hero">
           <div className="b-orders">
-            {head ? <span className="b-head-digits">{head} </span> : null}
-            <span key={tail} className="b-tail">{tail}</span>
+            {volume == null ? (
+              <span className="b-head-digits">—</span>
+            ) : (
+              <>
+                {head ? <span className="b-head-digits">{head} </span> : null}
+                <span key={tail} className="b-tail">{tail}</span>
+              </>
+            )}
           </div>
           <div className="b-sub">{t(lang, 'brokersOrders')}</div>
+        </div>
+
+        <div className="b-market">
+          {[
+            { id: 'all', label: t(lang, 'brokersMarketAll') },
+            { id: 'BRVM', label: 'BRVM' },
+            { id: 'NGX', label: 'NGX' },
+          ].map(m => (
+            <button
+              key={m.id}
+              className={`b-market-pill ${exchange === m.id ? 'active' : ''}`}
+              onClick={() => setExchange(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
 
         <div className="b-cats">
@@ -157,12 +185,10 @@ export default function Brokers() {
               const seed = seedHash(b.name)
               const pal = PALETTES[seed % PALETTES.length]
               const note5 = (b.note / 2).toFixed(1)
-              const reviews = 800 + (seed >> 4) % 9200
-              const users = reviews * (3 + (seed >> 8) % 4)
               const tgr = tier(b.note)
               const delay = `${(idx++) * 40}ms`
               return (
-                <button className="b-card" key={b.name} style={{ animationDelay: delay }} onClick={goToAccount}>
+                <button className="b-card" key={b.name} style={{ animationDelay: delay }} onClick={() => goToAccount(b)}>
                   <div className="b-head">
                     <div className="b-logo-stack">
                       <div className="b-logo-back b-lb-1" style={{ background: `linear-gradient(135deg, ${pal[1]}, #0a0a0a)` }} />
@@ -194,8 +220,8 @@ export default function Brokers() {
                   </div>
 
                   <div className="b-stats">
-                    <span className="b-stat"><MessageCircle size={15} /> {formatK(reviews)}</span>
-                    <span className="b-stat"><Users size={15} /> {formatK(users)}</span>
+                    {b.city ? <span className="b-stat"><MapPin size={15} /> {b.city}</span> : null}
+                    {b.category ? <span className="b-stat"><Building2 size={15} /> {b.category}</span> : null}
                   </div>
 
                   <span className="b-cta">{t(lang, 'brokersOpenAccount')}</span>
@@ -210,7 +236,7 @@ export default function Brokers() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -224,7 +250,7 @@ export default function Brokers() {
         }
         .icon-btn:hover { background: #1a1a1a; }
         .b-title {
-          font-size: 30px; font-weight: 700; letter-spacing: 0.25px;
+          font-size: 30px; font-weight: 700; letter-spacing: 0;
           text-transform: lowercase; line-height: 1;
         }
         .b-hero { padding: 6px 0 18px; }
@@ -244,7 +270,7 @@ export default function Brokers() {
         }
         .b-orders {
           font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
-          font-size: 44px; font-weight: 700; letter-spacing: 0.25px; line-height: 1;
+          font-size: 44px; font-weight: 700; letter-spacing: 0; line-height: 1;
           white-space: nowrap;
         }
         .b-head-digits { color: #fff; }
@@ -255,6 +281,18 @@ export default function Brokers() {
         }
         @keyframes tickIn { from { opacity: 0; transform: translateY(7px); } }
         .b-sub { font-size: 16px; color: #9AA3B2; margin-top: 8px; }
+        .b-market { display: flex; gap: 8px; padding: 2px 0 6px; }
+        .b-market-pill {
+          height: 34px; padding: 0 18px; border-radius: 999px;
+          border: 1px solid #2E2E2E; background: transparent; color: #A5ADBB;
+          font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit;
+          transition: all 0.15s ease;
+        }
+        .b-market-pill.active {
+          background: rgba(66, 232, 244, 0.1);
+          border-color: rgba(66, 232, 244, 0.55);
+          color: #42E8F4;
+        }
         .b-cats { display: flex; gap: 8px; padding: 2px 0 4px; }
         .b-cat-pill {
           height: 42px; padding: 0 20px; border-radius: 16px;
@@ -291,7 +329,7 @@ export default function Brokers() {
         .b-sort-opt:hover { background: #242424; }
         .b-country {
           font-size: 14px; font-weight: 600; text-transform: uppercase;
-          letter-spacing: 0.25px; color: #F2F4F7;
+          letter-spacing: 0; color: #F2F4F7;
           margin: 18px 4px 10px;
         }
         .b-card {
@@ -321,13 +359,13 @@ export default function Brokers() {
           box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
           z-index: 2;
         }
-        .b-logo span { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.25px; }
+        .b-logo span { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0; }
         .b-head-main {
           flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
         }
         .b-name { font-size: 18px; font-weight: 700; color: #F8F8FA; line-height: 1.1; word-break: break-word; }
         .b-badge {
-          font-size: 13px; font-weight: 700; letter-spacing: 0.25px;
+          font-size: 13px; font-weight: 700; letter-spacing: 0;
           text-transform: uppercase; color: #fff;
           padding: 3px 10px; border-radius: 8px;
         }

@@ -11,6 +11,8 @@ class AIResponse(BaseModel):
     answer: str
     context_used: bool = False
     ai_type: str = "rule-based"
+    tokens_remaining: Optional[int] = None
+    tier: Optional[str] = None
 
 class AnalysisReportResponse(BaseModel):
     id: int

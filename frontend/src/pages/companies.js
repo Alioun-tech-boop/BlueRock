@@ -1,9 +1,12 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
+import TriLoader from '../components/TriLoader'
 import { getCompanies } from '../services/api'
-import { Search, ArrowLeft, Star, FileText } from 'lucide-react'
-import { detectLang, t, fmtPrice, fmtChange } from '../lib/i18n'
+import { Search, ArrowLeft, Star, FileText, Lock } from 'lucide-react'
+import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
+import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import { useAuth } from '../lib/auth'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -20,10 +23,13 @@ function saveJSON(key, value) {
 
 export default function Companies() {
   const router = useRouter()
+  const { user } = useAuth()
+  const isPro = user?.tier === 'pro'
   const [lang, setLang] = useState('fr')
   const [stocks, setStocks] = useState([])
   const [search, setSearch] = useState('')
   const [type, setType] = useState('equity')
+  const [exchange, setExchange] = useState('BRVM')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [favorites, setFavorites] = useState([])
@@ -32,7 +38,8 @@ export default function Companies() {
   const fetchData = (silent = false) => {
     if (!silent) setLoading(true)
     setError(false)
-    getCompanies({ instrument_type: type, limit: 100 })
+    const ex = exchange === 'NGX' && !isPro ? 'BRVM' : exchange
+    getCompanies({ instrument_type: type, exchange: ex, limit: 100 })
       .then(r => { if (mounted.current) setStocks(r.data.companies || []) })
       .catch(() => { if (!silent && mounted.current) setError(true) })
       .finally(() => { if (!silent && mounted.current) setLoading(false) })
@@ -42,11 +49,23 @@ export default function Companies() {
     mounted.current = true
     setLang(detectLang())
     setFavorites(loadJSON(FAV_KEY, []))
+    if (router.query?.exchange === 'NGX' && !isPro) {
+      setExchange('BRVM')
+      return
+    }
     fetchData()
     return () => { mounted.current = false }
-  }, [type])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, exchange, isPro])
 
-  const switchType = (t) => { if (t !== type) { setType(t); setSearch('') } }
+  const switchType = (v) => { if (v !== type) { setType(v); setSearch('') } }
+  const switchExchange = (v) => {
+    if (v !== exchange) {
+      setExchange(v)
+      if (v === 'NGX' && type !== 'equity') setType('equity')
+      setSearch('')
+    }
+  }
 
   const toggleFavorite = (symbol) => {
     setFavorites(prev => {
@@ -97,6 +116,24 @@ export default function Companies() {
           ))}
         </div>
 
+        <div className="exchange-tabs">
+          {[
+            { id: 'BRVM', label: 'BRVM' },
+            { id: 'NGX', label: 'NGX', locked: !isPro },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              className={`type-tab ${exchange === tab.id ? 'active' : ''} ${tab.locked ? 'locked' : ''}`}
+              onClick={() => tab.locked ? router.push('/premium') : switchExchange(tab.id)}
+              title={tab.locked ? t(lang, 'proLocked') : undefined}
+            >
+              {tab.id === 'NGX' ? 'NGX' : 'BRVM'}
+              {tab.locked && <Lock size={10} style={{ marginLeft: 4 }} />}
+              <span className="ex-sub">{tab.id === 'NGX' ? '₦' : 'FCFA'}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="search-bar">
           <span className="sb-chip"><img src="/logo-sm.png" alt="" className="sb-logo" /></span>
           <input
@@ -115,7 +152,7 @@ export default function Companies() {
 
         <div className="stock-list">
           {loading ? (
-            <div className="loading-row"><div className="spinner" /></div>
+            <div className="loading-row"><TriLoader compact /></div>
           ) : sorted.length === 0 ? (
             <div className="empty-box">
               <Search size={22} />
@@ -129,17 +166,27 @@ export default function Companies() {
             return (
               <div key={s.symbol} className="stock-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
                 <div className="stock-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
-                  {s.logo_url ? <img src={s.logo_url} alt={s.symbol} className="stock-logo-img" /> : s.symbol?.[0]}
+                  {s.logo_url ? (
+                    <img
+                      crossOrigin="anonymous" src={s.logo_url} alt={s.symbol} className="stock-logo-img"
+                      onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
+                      onError={onLogoError}
+                    />
+                  ) : s.symbol?.[0]}
                 </div>
                 <div className="stock-info">
-                  <div className="stock-name">{s.symbol}</div>
+                  <div className="stock-name">
+                    <span>{s.symbol}</span>
+                    <span className={`ex-badge ${s.exchange === 'NGX' ? 'ngx' : 'brvm'}`}>{s.exchange || 'BRVM'}</span>
+                  </div>
                   <div className="stock-sub">{s.name?.substring(0, 30)}</div>
                   <div className="stock-tags">
+                    {s.sub_sector && <span className="sm-sub">{s.sub_sector}</span>}
                     {s.rating && <span className="sm-rating">{s.rating}</span>}
                   </div>
                 </div>
                 <div className="stock-right">
-                  <div className="stock-price">{fmtPrice(lang, s.current_price)}</div>
+                  <div className="stock-price">{fmtPriceCur(lang, s.current_price, s.currency)}</div>
                   <div className={`stock-chg ${up ? 'up' : down ? 'down' : 'flat'}`}>{fmtChange(lang, chg)}</div>
                 </div>
                 <div className="row-actions">
@@ -167,7 +214,7 @@ export default function Companies() {
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;
-          background: #0E1627; color: #fff;
+          background: #000000; color: #fff;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 16px 8px; }
@@ -195,6 +242,22 @@ export default function Companies() {
           transition: background 160ms ease-out, color 160ms ease-out;
         }
         .type-tab.active { background: #8b5cf6; color: #fff; }
+        .exchange-tabs {
+          display: flex; gap: 6px; margin-bottom: 12px;
+        }
+        .exchange-tabs .type-tab { flex: 0 0 auto; padding: 0 14px; width: auto; }
+        .ex-sub { font-size: 9px; opacity: 0.7; margin-left: 4px; }
+        .ex-badge {
+          font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+          margin-left: 6px; vertical-align: middle; letter-spacing: 0.3px;
+        }
+        .ex-badge.brvm { color: #34d399; background: rgba(52,211,153,0.15); }
+        .ex-badge.ngx { color: #8b5cf6; background: rgba(139,92,246,0.15); }
+        .sm-sub {
+          font-size: 9px; font-weight: 600; color: #9AA3B2;
+          background: rgba(154,163,178,0.12); padding: 1px 6px; border-radius: 8px;
+        }
+        .stock-cur { font-size: 11px; color: #9AA3B2; }
         .search-bar {
           display: flex; align-items: center; gap: 10px;
           background: #1B1B1B; border-radius: 14px;
@@ -237,7 +300,7 @@ export default function Companies() {
           font-weight: 700; font-size: 15px; flex-shrink: 0;
           overflow: hidden;
         }
-        .stock-logo-img { width: 100%; height: 100%; object-fit: cover; }
+        .stock-logo-img { width: 100%; height: 100%; object-fit: contain; padding: 6px; box-sizing: border-box; }
         .stock-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .stock-name { font-size: 14px; font-weight: 600; }
         .stock-sub { font-size: 11px; color: #9AA3B2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -247,7 +310,7 @@ export default function Companies() {
           background: rgba(24,194,124,0.12); padding: 1px 6px; border-radius: 8px;
         }
         .stock-right { text-align: right; display: flex; flex-direction: column; gap: 2px; min-width: 68px; }
-        .stock-price { font-size: 14px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
+        .stock-price { font-size: 12.5px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .stock-chg { font-size: 11px; font-weight: 600; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; }
         .stock-chg.up { color: #18C27C; }
         .stock-chg.down { color: #F04438; }

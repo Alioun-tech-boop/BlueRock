@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import PatrimoineShell from '../../components/PatrimoineShell'
 import PatrimoineSectionStyles from '../../components/PatrimoineSectionStyles'
 import PatrimoineEmpty from '../../components/PatrimoineEmpty'
@@ -7,9 +8,28 @@ import { cancelPremiumPlan } from '../../services/api'
 import { Activity, CheckCircle2, XCircle, Sparkles, Wallet, Bell, X } from 'lucide-react'
 
 export default function Apercu() {
+  const [cancelErr, setCancelErr] = useState('')
   return (
     <PatrimoineShell section="apercu">
-      {({ plan, type, lang, reload }) => (
+      {({ plan, type, lang, reload }) => {
+        const cancelPlan = async () => {
+          if (!window.confirm(t(lang, 'planCancelConfirm'))) return
+          let payload = {}
+          if (plan.has_pin) {
+            const pin = (window.prompt(t(lang, 'planPinRequired')) || '').trim()
+            if (!pin) return
+            payload = { pin }
+          }
+          setCancelErr('')
+          try {
+            await cancelPremiumPlan(plan.id, payload)
+          } catch (e) {
+            setCancelErr(e.response && e.response.data && e.response.data.detail || t(lang, 'premiumError'))
+            return
+          }
+          reload()
+        }
+        return (
         <>
           <PatrimoineSectionStyles />
           {!plan ? (
@@ -43,15 +63,12 @@ export default function Apercu() {
                 {plan.status === 'active' && (
                   <button
                     className="cancel-btn"
-                    onClick={async () => {
-                      if (!window.confirm(t(lang, 'planCancelConfirm'))) return
-                      try { await cancelPremiumPlan(plan.id) } catch {}
-                      reload()
-                    }}
+                    onClick={cancelPlan}
                   >
                     <X size={14} /> {t(lang, 'planCancelBtn')}
                   </button>
                 )}
+                {cancelErr && <div className="error-box">{cancelErr}</div>}
               </div>
 
               {plan.status === 'active' && plan.coverage && (
@@ -73,7 +90,7 @@ export default function Apercu() {
                       <div key={i} className="alert-row">
                         <div className="alert-title">{a.title}</div>
                         {a.body && <div className="alert-body">{a.body}</div>}
-                        <div className="alert-date">{a.created_at}</div>
+                        <div className="alert-date">{fmtDate(a.created_at)}</div>
                       </div>
                     ))
                   ) : (
@@ -83,9 +100,10 @@ export default function Apercu() {
               )}
             </>
           )}
-          <div className="footer-note">BlueRock © 2026</div>
+          <div className="footer-note">Bluerock © 2026</div>
         </>
-      )}
+        )
+      }}
     </PatrimoineShell>
   )
 }
