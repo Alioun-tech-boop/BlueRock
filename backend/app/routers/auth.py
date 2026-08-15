@@ -14,7 +14,7 @@ import re
 import secrets
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -626,6 +626,12 @@ def legacy_login(req: LegacyLoginRequest, request: Request, db: Session = Depend
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    if user.locked_until and user.locked_until > datetime.utcnow():
+        remain = int((user.locked_until - datetime.utcnow()).total_seconds())
+        raise HTTPException(
+            status_code=429,
+            detail=f"Compte verrouillé. Réessayez dans {remain // 60 + 1} min.",
+        )
     # Comptes pré-Supabase : le hash PBKDF2 est stocké dans password_hash
     # (legacy_hash n'existait pas au moment du dump). Après migration, les deux
     # sont vides — un compte Supabase pur ne passe donc jamais ici.
@@ -637,6 +643,11 @@ def legacy_login(req: LegacyLoginRequest, request: Request, db: Session = Depend
     if not salt or not stored:
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
     if not hmac.compare_digest(hash_password(req.password, salt), stored):
+        user.failed_attempts = (user.failed_attempts or 0) + 1
+        if user.failed_attempts >= settings.LOGIN_MAX_ATTEMPTS:
+            user.locked_until = datetime.utcnow() + timedelta(minutes=settings.LOGIN_LOCK_MINUTES)
+            user.failed_attempts = 0
+        db.commit()
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
 
     su = admin_find_user_by_email(email)
@@ -666,6 +677,8 @@ def social_simulate(req: SocialSimulateRequest, request: Request, db: Session = 
     email dédié, ce qui donne exactement l'expérience de connexion (session
     Supabase valide + profil applicatif) sans passer par l'OAuth.
     """
+    if not settings.ALLOW_SOCIAL_SIMULATE:
+        raise HTTPException(status_code=403, detail="Connexion sociale indisponible")
     if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
         raise HTTPException(status_code=503, detail="Supabase non configuré")
     check_rate_limit(request, limit=10, window_seconds=900)

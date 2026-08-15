@@ -16,7 +16,7 @@ def require_admin(x_admin_token: Optional[str] = Header(default=None)) -> None:
     """Endpoints d'administration : exigent le token admin (env ADMIN_TOKEN)."""
     if not settings.ADMIN_TOKEN:
         raise HTTPException(status_code=503, detail="Admin non configuré sur ce serveur")
-    if not x_admin_token or x_admin_token != settings.ADMIN_TOKEN:
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, settings.ADMIN_TOKEN):
         raise HTTPException(status_code=403, detail="Accès admin refusé")
 
 

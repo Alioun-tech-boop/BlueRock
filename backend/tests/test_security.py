@@ -28,6 +28,8 @@ def _register_user():
     n'existe plus : l'inscription est gérée côté Supabase.
     """
     r = client.post("/api/auth/social-simulate", json={"provider": "demo"})
+    if r.status_code == 403:
+        pytest.skip("ALLOW_SOCIAL_SIMULATE désactivé sur le serveur — activez-le (dev) pour ces tests")
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["access_token"], "token manquant"

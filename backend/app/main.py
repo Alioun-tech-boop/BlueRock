@@ -9,6 +9,7 @@ from .config import settings
 from .core.http_cache import ResponseCacheMiddleware
 from .core.shared_store import store
 from .core.request_log import RequestLoggingMiddleware
+from .core.rate_limit import check_rate_limit
 from .core import metrics
 from .database import engine, Base
 from .models.news import NewsItem
@@ -41,15 +42,19 @@ class CSPViolationReport(BaseModel):
 csp_router = APIRouter()
 
 @csp_router.post("/report")
-async def csp_report(report: CSPViolationReport):
+async def csp_report(report: CSPViolationReport, request: Request):
     """Endpoint pour recevoir les rapports de violation CSP du navigateur."""
-    # Journaliser la violation de sécurité
+    check_rate_limit(request, limit=30, window_seconds=60)
+    # Journaliser la violation de sécurité (champs tronqués pour éviter
+    # l'injection de lignes de log et la surcharge disque).
+    def trunc(v: str, n: int = 200) -> str:
+        return (v or "")[:n].replace("\n", " ").replace("\r", " ")
     logger.warning(
-        f"CSP Violation: {report.violation_type} | "
-        f"URI: {report.uri} | "
-        f"Severity: {report.severity} | "
-        f"Referrer: {report.referrer} | "
-        f"Report ID: {report.report_id}"
+        f"CSP Violation: {trunc(report.violation_type)} | "
+        f"URI: {trunc(report.uri)} | "
+        f"Severity: {trunc(report.severity)} | "
+        f"Referrer: {trunc(report.referrer)} | "
+        f"Report ID: {trunc(report.report_id, 64)}"
     )
     
     # Ici, on pourrait sauvegarder en base de données, envoyer une alerte, etc.

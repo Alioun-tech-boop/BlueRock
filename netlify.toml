@@ -5,3 +5,24 @@
 
 [build.environment]
   NEXT_PUBLIC_API_URL = "https://bluerock-api.onrender.com"
+  NEXT_PUBLIC_SUPABASE_URL = "https://nvdvaanstzqzapfgbael.supabase.co"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52ZHZhYW5zdHpxemFwZmdiYWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4OTEyOTEsImV4cCI6MjEwMTQ2NzI5MX0.v-AmCqsydQoPFBjWtfrl4fJajyoRe0edLHA_SmSUl4w"
+
+# Headers de sécurité — le site est un export statique (pas de serveur Node).
+# CSP adapté au build réel : styled-components injecte des <style> inline
+# (style-src 'unsafe-inline') et Next un script bootstrap inline.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self \"https://verify.didit.me\"), microphone=(self \"https://verify.didit.me\"), geolocation=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://ui-avatars.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://bluerock-api.onrender.com https://nvdvaanstzqzapfgbael.supabase.co wss://nvdvaanstzqzapfgbael.supabase.co https://verification.didit.me; frame-src 'self' https://verify.didit.me https://verification.didit.me; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+# Jamais mettre en cache les pages HTML (données de marché en temps réel)
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-store"

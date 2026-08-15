@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     # Fonctionnalités temporairement indisponibles (interrupteurs).
     # False = la fonctionnalité est masquée côté UI et refusée côté API.
     # Réactivables à tout moment via .env, sans redéploiement.
+    # connexion sociale simulée (dev uniquement — prise de contrôle de compte si actif en prod)
+    ALLOW_SOCIAL_SIMULATE: bool = False
+
     FEATURE_SUBSCRIPTION_ENABLED: bool = True      # abonnement Pro (offre payante)
     FEATURE_BROKER_ACCOUNTS_ENABLED: bool = True   # ouverture de compte-titre réel (SGI)
     FEATURE_KYC_ENABLED: bool = True               # parcours de vérification d'identité
