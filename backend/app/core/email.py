@@ -6,6 +6,7 @@ développement local, sinon l'envoi est simplement ignoré.
 """
 import logging
 import smtplib
+import socket
 from email.message import EmailMessage
 from email.utils import formataddr
 
@@ -48,7 +49,9 @@ def send_email(to: str, subject: str, html: str, text: str | None = None) -> boo
     msg.add_alternative(html, subtype="html")
 
     try:
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT) as smtp:
+        host = socket.gethostbyname(settings.SMTP_HOST)
+        smtp = smtplib.SMTP(host, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT)
+        with smtp:
             smtp.ehlo()
             if settings.SMTP_STARTTLS:
                 smtp.starttls()
