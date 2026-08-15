@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response as FastAPIResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -122,13 +121,41 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+class AllowedHostsMiddleware(BaseHTTPMiddleware):
+    """Validation du Host header (production) avec exemption de /api/health.
+
+    Équivalent du TrustedHostMiddleware, mais les probes de santé passent
+    toujours : Render (et d'autres load balancers) envoient parfois le health
+    check avec un Host interne (IP de conteneur) qui ne matche aucune entrée
+    de ALLOWED_HOSTS — le refuser fait échouer le déploiement alors que
+    /api/health ne renvoie aucun donnée sensible.
+    """
+
+    def __init__(self, app, allowed_hosts):
+        super().__init__(app)
+        self.allowed_hosts = allowed_hosts
+
+    async def dispatch(self, request, call_next):
+        if self.allowed_hosts != ["*"]:
+            host = (request.headers.get("host") or "").lower().rsplit(":", 1)[0]
+            allowed = any(
+                host.endswith(p) if p.startswith(".") else host == p
+                for p in self.allowed_hosts
+            )
+            if not allowed and request.url.path != "/api/health":
+                logger.warning("Host header rejeté: %r (path=%s)", host, request.url.path)
+                return Response("Invalid host header", status_code=400)
+        return await call_next(request)
+
+
 # En dev, on accepte toutes les origines hôtes (IP LAN du réseau local).
 # En prod, strict : domaine + localhost.
 if settings.DEBUG:
     allowed_hosts = ["*"]
 else:
     allowed_hosts = [h.strip() for h in settings.ALLOWED_HOSTS.split(",") if h.strip()] or ["*"]
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+app.add_middleware(AllowedHostsMiddleware, allowed_hosts=allowed_hosts)
 
 app.include_router(companies.router)
 app.include_router(analysis.router)
