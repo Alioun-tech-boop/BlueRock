@@ -81,14 +81,14 @@ export default function Menu() {
 
         {user ? (
           <div className="acct-card" onClick={() => router.push('/profile')}>
-            <div className="acct-avatar"><UserRound size={18} /></div>
+            <div className="acct-avatar">
+              {typeof user.avatar === 'string' && user.avatar.startsWith('data:image/')
+                ? <img className="acct-avatar-img" src={user.avatar} alt={user.name || 'avatar'} />
+                : <UserRound size={18} />}
+            </div>
             <div className="acct-info">
               <span className="acct-name">{user.name}</span>
               <span className="acct-email">{user.email}</span>
-              <span className={`acct-type-badge ${user.account_type}`}>
-                {user.account_type === 'real' ? t('authReal') : t('authDemo')}
-                {user.account_type === 'real' && user.broker_name ? ` · ${user.broker_name}` : ''}
-              </span>
             </div>
             <span className="row-arrow">›</span>
           </div>
@@ -172,16 +172,12 @@ export default function Menu() {
           width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           background: rgba(24,194,124,0.12); color: #18C27C;
+          overflow: hidden;
         }
+        .acct-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .acct-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
         .acct-name { font-size: 14px; font-weight: 600; }
         .acct-email { font-size: 11px; color: #9AA3B2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .acct-type-badge {
-          align-self: flex-start; font-size: 10px; font-weight: 600;
-          padding: 2px 8px; border-radius: 8px; margin-top: 2px;
-        }
-        .acct-type-badge.demo { color: #4ea8ff; background: rgba(78,168,255,0.12); }
-        .acct-type-badge.real { color: #ffd166; background: rgba(255,209,102,0.12); }
         .footer-note { text-align: center; font-size: 11px; color: #555; padding: 12px 0; }
       `}</style>
     </div>

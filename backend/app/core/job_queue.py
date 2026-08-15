@@ -90,13 +90,15 @@ def fail(db: Session, job: BackgroundJob, error: str):
     db.commit()
 
 
-def enqueue_email(db: Session, template: str, *, to: str, ttl_minutes: int | None = None,
-                  name: str | None = None) -> int:
+def enqueue_email(db: Session, template: str, *, to: str, code: str | None = None,
+                  ttl_minutes: int | None = None, name: str | None = None) -> int:
     """Inscrit un email dans la file (payload figé au moment de l'enqueue).
 
     Templates pris en charge par le worker : verify, reset, welcome, notification.
     """
     payload: dict = {"template": template, "to": to}
+    if code is not None:
+        payload["code"] = code
     if ttl_minutes is not None:
         payload["ttl_minutes"] = ttl_minutes
     if name is not None:

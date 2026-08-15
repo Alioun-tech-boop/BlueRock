@@ -436,7 +436,7 @@ class LegacyLoginRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
-    avatar: str | None = Field(default=None, max_length=16)
+    avatar: str | None = Field(default=None, max_length=3_000_000)
     email_notif_enabled: bool | None = None
 
 
@@ -749,6 +749,10 @@ def update_me(
         avatar = req.avatar.strip()
         if not avatar:
             user.avatar = None
+        elif avatar.startswith("data:image/"):
+            if len(avatar) > 3_000_000 or ";base64," not in avatar[:64]:
+                raise HTTPException(status_code=422, detail="Avatar invalide (photo trop grande ou format non supporté)")
+            user.avatar = avatar
         elif len(avatar) > 16 or not any(ord(ch) > 0x1F00 for ch in avatar):
             raise HTTPException(status_code=422, detail="Avatar invalide (emoji attendu)")
         else:

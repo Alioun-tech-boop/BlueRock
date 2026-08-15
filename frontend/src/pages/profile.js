@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { QRCodeSVG } from 'qrcode.react'
 import { useAuth } from '../lib/auth'
@@ -9,7 +9,7 @@ import BottomNav from '../components/BottomNav'
 import TriLoader from '../components/TriLoader'
 import {
   ArrowLeft, UserRound, Shield, Mail, Check, LogOut,
-  Copy, Wallet, BadgeCheck, X, Rocket, Users,
+  Copy, Wallet, BadgeCheck, X, Rocket, Users, Upload,
 } from 'lucide-react'
 
 const AVATARS = ['🦁', '🐘', '🐆', '🦓', '🦅', '🐬', '🌴', '🔥', '⚡', '💎', '🐊', '🦜', '🐢', '🦩', '🪙', '📈']
@@ -22,6 +22,34 @@ function errMsg(err, fallback) {
   return err?.message || err?.error_description || fallback
 }
 
+function isImageAvatar(v) {
+  return typeof v === 'string' && v.startsWith('data:image/')
+}
+
+function fileToAvatarDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('read_error'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('img_error'))
+      img.onload = () => {
+        const MAX = 256
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function ProfilePage() {
   const router = useRouter()
   const { user, loading, logout, updateUser, refreshProfile, resendVerification } = useAuth()
@@ -30,6 +58,8 @@ export default function ProfilePage() {
   const [name, setName] = useState('')
   const [avatar, setAvatar] = useState('')
   const [saveBusy, setSaveBusy] = useState(false)
+  const fileInputRef = useRef(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
 
   const [resendBusy, setResendBusy] = useState(false)
 
@@ -67,6 +97,21 @@ export default function ProfilePage() {
 
   const banner = (err, inf) => { setError(err); setInfo(inf) }
   const refetchMe = () => refreshProfile().catch(() => {})
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoBusy(true); banner(null, null)
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file)
+      setAvatar(dataUrl)
+    } catch {
+      banner(t(lang, 'authError'), null)
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
 
   const submitProfile = async (e) => {
     e.preventDefault()
@@ -217,7 +262,11 @@ export default function ProfilePage() {
 
         {/* ---- Carte identité ---- */}
         <div className="hero-card">
-          <div className="hero-avatar">{user.avatar || initial}</div>
+          <div className="hero-avatar">
+            {isImageAvatar(user.avatar)
+              ? <img className="hero-avatar-img" src={user.avatar} alt={user.name || 'avatar'} />
+              : (user.avatar || initial)}
+          </div>
           <div className="hero-info">
             <span className="hero-name">{user.name}</span>
             <span className="hero-email">{user.email}</span>
@@ -250,6 +299,15 @@ export default function ProfilePage() {
               ))}
               <button type="button" className={`avatar-cell clear ${!avatar ? 'active' : ''}`}
                 onClick={() => setAvatar('')}>{initial}</button>
+            </div>
+            <div className="avatar-upload-row">
+              {isImageAvatar(avatar) && <img className="avatar-upload-preview" src={avatar} alt="" />}
+              <button type="button" className="avatar-upload-btn" disabled={photoBusy}
+                onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                {photoBusy ? <Spinner /> : <Upload size={15} />}{t(lang, 'pfUploadPhoto')}
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" hidden
+                onChange={pickPhoto} />
             </div>
           </div>
           <button className="auth-submit" disabled={saveBusy || !name.trim()}>
@@ -495,7 +553,9 @@ export default function ProfilePage() {
           display: flex; align-items: center; justify-content: center;
           background: linear-gradient(135deg, #18C27C, #00994a);
           font-size: 30px; font-weight: 700; color: #00130a;
+          overflow: hidden;
         }
+        .hero-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
         .hero-name { font-size: 17px; font-weight: 700; }
         .hero-email { font-size: 12px; color: #9AA3B2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -516,6 +576,18 @@ export default function ProfilePage() {
         }
         .avatar-cell.active { border-color: #18C27C; background: rgba(24,194,124,0.1); }
         .avatar-cell.clear { font-weight: 700; color: #fff; font-size: 15px; }
+        .avatar-upload-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+        .avatar-upload-preview {
+          width: 44px; height: 44px; border-radius: 12px; object-fit: cover;
+          border: 1px solid #262626; background: #0d0d0d;
+        }
+        .avatar-upload-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 8px 12px; border-radius: 10px; border: 1px solid #1f2a22;
+          background: rgba(24,194,124,0.08); color: #18C27C;
+          font-size: 12px; font-weight: 700; cursor: pointer;
+        }
+        .avatar-upload-btn:disabled { opacity: 0.6; cursor: default; }
         .list-card { padding: 6px 14px; }
         .list-row {
           display: flex; align-items: center; gap: 12px;

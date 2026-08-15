@@ -411,7 +411,7 @@ export default function AuthPage() {
         setStep(STEPS.verifyEmail)
         // Compte non vérifié → envoie directement le code à 6 chiffres
         // (l'email Supabase de confirmation ne sert pas ici).
-        sendOtpEmail(email.trim(), 'verify').catch(() => {})
+        sendOtpEmail(email.trim(), 'verify').catch((err) => setError(err?.message || err?.error_description || t(lang, 'authError')))
       } else {
         setError(msg || t(lang, 'authInvalid'))
       }
@@ -444,7 +444,7 @@ export default function AuthPage() {
       setStep(STEPS.verifyEmail)
       // Envoie immédiatement le code à 6 chiffres : le mail Supabase de
       // confirmation ne contient qu'un lien (sans code) — inutilisable ici.
-      sendOtpEmail(email.trim(), 'verify').catch(() => {})
+      sendOtpEmail(email.trim(), 'verify').catch((err) => setError(err?.message || err?.error_description || t(lang, 'authError')))
     } catch (err) {
       setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }

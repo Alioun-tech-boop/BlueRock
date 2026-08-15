@@ -196,7 +196,7 @@ export function AuthProvider({ children }) {
       persist(merged)
       return merged
     })
-    if (patch?.name !== undefined && profileRef.current) {
+    if ((patch?.name !== undefined || patch?.avatar !== undefined) && profileRef.current) {
       profileRef.current = { ...profileRef.current, ...patch }
       apiUpdateMe({ name: patch.name, avatar: patch.avatar }).catch(() => {})
     }
