@@ -632,9 +632,30 @@ def on_startup():
         logger.warning(f"Could not warm calendar feed: {e}")
     try:
         from .scrapers.live_feed import live_feed
-        live_feed.refresh(force=True)
+
+        def _warm_market_feeds():
+            """Warm-up des flux de marché (BRVM puis NGX) en arrière-plan.
+
+            Exécutés séquentiellement dans un thread daemon : le démarrage HTTP
+            n'est plus bloqué et le pic mémoire du warm-up est lissé (au lieu
+            d'un chargement simultané qui dépassait 512 MB sur le plan free).
+            """
+            import time
+            time.sleep(2)
+            try:
+                live_feed.refresh(force=True)
+            except Exception as e:
+                logger.warning(f"Live feed warm-up error: {e}")
+            if getattr(settings, "NGX_ENABLED", True):
+                try:
+                    from .scrapers.ngx_feed import ngx_live_feed
+                    ngx_live_feed.refresh(force=True)
+                except Exception as e:
+                    logger.warning(f"NGX feed warm-up error: {e}")
+
+        threading.Thread(target=_warm_market_feeds, daemon=True).start()
     except Exception as e:
-        logger.warning(f"Could not warm live feed: {e}")
+        logger.warning(f"Could not warm market feeds: {e}")
     if getattr(settings, "NGX_ENABLED", True):
         try:
             from .database import SessionLocal
@@ -647,11 +668,8 @@ def on_startup():
                                 f"({res['updated']} mises à jour)")
             finally:
                 db.close()
-            # Premier refresh du flux NGX (best-effort, ne bloque pas le démarrage).
-            from .scrapers.ngx_feed import ngx_live_feed
-            ngx_live_feed.refresh(force=True)
         except Exception as e:
-            logger.warning(f"Could not seed NGX catalog/feed: {e}")
+            logger.warning(f"Could not seed NGX catalog: {e}")
 
     jobs_on = _jobs_enabled()
     if not jobs_on:
