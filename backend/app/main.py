@@ -845,6 +845,35 @@ def on_startup():
         except Exception as e:
             logger.warning(f"Could not schedule challenge sync: {e}")
 
+    if jobs_on:
+        try:
+            from .services.job_worker import drain_once
+
+            def _queue_drain_job():
+                """Draine la file PostgreSQL (emails, traitement KYC, …).
+
+                Le verrou distribué garantit qu'un seul worker traite la file à
+                la fois ; `FOR UPDATE SKIP LOCKED` protège les lignes entre
+                workers (safe même si le verrou expire pendant un drain long).
+                """
+                token = _job_guard("background_jobs", 25)
+                if token is None:
+                    return
+                try:
+                    n = drain_once()
+                    if n:
+                        logger.info("Queue drain: %d tâche(s) traitée(s)", n)
+                except Exception as e:
+                    logger.warning(f"Queue drain error: {e}")
+                finally:
+                    store.release_lock("job:background_jobs", token)
+
+            scheduler.add_job(_queue_drain_job, "interval", seconds=5,
+                              id="background_jobs", replace_existing=True)
+            logger.info("Background job queue drain scheduled (every 5s)")
+        except Exception as e:
+            logger.warning(f"Could not start background job drainer: {e}")
+
     try:
         scheduler.start()
     except Exception as e:

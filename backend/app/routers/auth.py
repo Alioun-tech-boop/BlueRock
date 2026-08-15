@@ -32,7 +32,8 @@ from ..core.supabase_auth import (
     admin_set_password,
     verify_supabase_jwt,
 )
-from ..core.email import send_verify_email
+from ..core.email import send_verify_email  # noqa: F401  (utilisé par les tests)
+from ..core.job_queue import enqueue_email
 from ..database import get_db
 from ..models.user import User
 
@@ -542,7 +543,9 @@ def send_otp(req: OtpSendRequest, request: Request, db: Session = Depends(get_db
         user.email_verify_sent_at = datetime.now()
         db.commit()
 
-    send_verify_email(email, code, ttl_minutes=10)
+    # Envoi délégué à la file Postgres (le worker exécute le SMTP en
+    # arrière-plan) : la requête répond immédiatement.
+    enqueue_email(db, "verify", to=email, code=code, ttl_minutes=10)
     return {"status": "ok", "ttl_minutes": 10}
 
 

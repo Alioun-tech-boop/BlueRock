@@ -76,6 +76,9 @@ ALL_REQUIRED_FIELDS = STEP1_FIELDS + INVESTOR_FIELDS
 # Statuts fournisseur pour lesquels la session est encore utilisable (iframe).
 ACTIVE_PROVIDER_STATUSES = {"Not Started", "In Progress", "Awaiting User", "Resubmitted"}
 
+# Statuts fournisseur pour lesquels on récupère la décision détaillée.
+DECISION_STATUSES = {"Approved", "Declined", "In Review", "Abandoned"}
+
 
 def _missing(kyc: UserKyc, fields: list[str]) -> list[str]:
     return [f for f in fields if not getattr(kyc, f, None)]
@@ -144,6 +147,31 @@ def _communicable_reason(decision: dict | None) -> str | None:
 
 def notify_kyc(db: Session, user_id: int, title: str, body: str):
     db.add(Notification(user_id=user_id, type="system", title=title, body=body, link="/kyc"))
+
+
+def notify_for_status(db: Session, user: User, kyc: UserKyc, status: str, note: str | None):
+    """Notifications utilisateur selon le statut BlueRock appliqué."""
+    if status == KYC_VERIFIED:
+        complete, _ = profile_complete(kyc)
+        if complete:
+            body = "Votre identité est vérifiée et votre profil investisseur est complet : votre dossier est prêt pour la transmission à la SGI."
+        else:
+            body = "Votre identité est vérifiée. Complétez maintenant votre profil investisseur."
+        notify_kyc(db, user.id, "Identité vérifiée", body)
+    elif status == KYC_REJECTED:
+        body = "Votre vérification d'identité a été refusée."
+        if note:
+            body += f" Motif : {note}"
+        notify_kyc(db, user.id, "Vérification refusée", body)
+    elif status == KYC_REVIEW_REQUIRED:
+        notify_kyc(db, user.id, "Vérification supplémentaire nécessaire",
+                   "Votre dossier nécessite une vérification supplémentaire. Vous serez notifié du résultat.")
+    elif status == KYC_RETRY_REQUIRED:
+        notify_kyc(db, user.id, "Vérification à relancer",
+                   "Votre session de vérification a expiré. Vous pouvez relancer la vérification.")
+    elif status == KYC_ERROR:
+        notify_kyc(db, user.id, "Erreur de vérification",
+                   "Une erreur technique est survenue pendant la vérification. Vous pouvez réessayer.")
 
 
 def apply_verification_event(db: Session, provider_name: str, provider_session_id: str,

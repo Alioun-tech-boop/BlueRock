@@ -1,4 +1,5 @@
 from datetime import datetime
+import asyncio
 import logging
 import os
 import threading
@@ -179,7 +180,9 @@ async def _store_upload(upload: UploadFile) -> tuple[str, str, str]:
     safe_name = f"{uuid.uuid4().hex[:8]}_{filename}"
     storage_path = f"{STORAGE_PREFIX}/{safe_name}"
     mime = (upload.content_type or "application/octet-stream").split(";")[0]
-    if not storage_upload(STORAGE_BUCKET, storage_path, content, mime):
+    # Upload HTTP synchrone (httpx) hors de l'event loop : le handler async
+    # ne bloque plus les autres requêtes pendant l'aller-retour Supabase.
+    if not await asyncio.to_thread(storage_upload, STORAGE_BUCKET, storage_path, content, mime):
         logger.warning("Storage Supabase indisponible pour %s", storage_path)
         raise HTTPException(status_code=502, detail="Impossible de stocker le média")
     return storage_path, filename[:240], mime[:120]

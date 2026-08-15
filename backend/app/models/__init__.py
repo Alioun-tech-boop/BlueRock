@@ -11,3 +11,4 @@ from .community import CommunityUser, CommunityPost, CommunityFollow, CommunityR
 from .kyc import UserKyc, KycDocument
 from .payment import DepositOrder
 from .broker_connect import BrokerClientAccount, BrokerSession, BrokerLoginEvent
+from .job import BackgroundJob

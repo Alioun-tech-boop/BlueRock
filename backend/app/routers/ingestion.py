@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import asyncio
 import os
 import shutil
 import uuid
@@ -82,13 +83,17 @@ async def ingest_pdf(
     with open(pdf_path, "wb") as f:
         f.write(content)
 
-    # Archivage dans Supabase Storage (bucket "uploads", chemin pdfs/…)
+    # Archivage dans Supabase Storage (bucket "uploads", chemin pdfs/…).
+    # Upload HTTP synchrone hors de l'event loop.
     storage_path = f"pdfs/{safe_name}"
-    if not storage_upload("uploads", storage_path, content, "application/pdf"):
+    if not await asyncio.to_thread(storage_upload, "uploads", storage_path, content, "application/pdf"):
         logger.warning("Storage Supabase indisponible — PDF non archivé")
 
     try:
-        extracted = PDFExtractor().extract_financial_statements(pdf_path)
+        # OCR/analyse CPU lourde (tesseract + pymupdf) hors de l'event loop.
+        extracted = await asyncio.to_thread(
+            PDFExtractor().extract_financial_statements, pdf_path
+        )
     except ValueError as e:
         os.remove(pdf_path)
         raise HTTPException(status_code=422, detail=str(e))
