@@ -1,8 +1,8 @@
-"""Envoi d'emails (SMTP configurable).
+"""Envoi d'emails transactionnels.
 
-Si aucun SMTP n'est configuré (SMTP_HOST vide), les emails ne sont pas
-envoyés : en mode DEBUG le contenu est loggé en console pour permettre le
-développement local, sinon l'envoi est simplement ignoré.
+Canal prioritaire : API Brevo (BREVO_API_KEY) — fiable depuis des IP cloud.
+Fallback : SMTP (SMTP_HOST) pour le développement local.
+Sans aucun canal : en mode DEBUG le contenu est loggé en console, sinon ignoré.
 """
 import logging
 import smtplib
@@ -24,11 +24,47 @@ def smtp_enabled() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_USER)
 
 
+def _send_brevo(to: str, subject: str, html: str, text: str | None) -> bool:
+    import requests
+
+    try:
+        resp = requests.post(
+            f"{settings.BREVO_API_URL}/smtp/email",
+            headers={
+                "api-key": settings.BREVO_API_KEY,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={
+                "sender": {"email": _from_addr(), "name": "BlueRock"},
+                "to": [{"email": to}],
+                "subject": subject,
+                "htmlContent": html,
+                "textContent": text or "Veuillez utiliser un client HTML.",
+            },
+            timeout=20,
+        )
+        if resp.status_code in (200, 201):
+            logger.info("Email envoyé (Brevo) -> %s | %s", to, subject)
+            return True
+        logger.warning(
+            "Échec d'envoi email (Brevo %s) -> %s | %s | %s",
+            resp.status_code, to, subject, resp.text[:300],
+        )
+        return False
+    except Exception as e:
+        logger.warning("Échec d'envoi email (Brevo) -> %s | %s | %s", to, subject, e)
+        return False
+
+
 def send_email(to: str, subject: str, html: str, text: str | None = None) -> bool:
     """Envoie un email HTML. Retourne True si l'envoi a abouti.
 
-    Sans SMTP configuré : logge le contenu en DEBUG, retourne False.
+    Canal prioritaire : API Brevo. Fallback : SMTP. Sans canal configuré :
+    logge le contenu en DEBUG, retourne False.
     """
+    if settings.BREVO_API_KEY:
+        return _send_brevo(to, subject, html, text)
     if not smtp_enabled():
         if settings.DEBUG:
             logger.info(

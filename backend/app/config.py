@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     SMTP_STARTTLS: bool = True
     SMTP_TIMEOUT: int = 15
 
+    # Brevo (transactionnel) — si BREVO_API_KEY est défini, les emails sont
+    # envoyés via l'API Brevo (fiabilité IP cloud), sinon via SMTP.
+    BREVO_API_KEY: Optional[str] = None
+    BREVO_API_URL: str = "https://api.brevo.com/v3"
+
     class Config:
         env_file = Path(__file__).resolve().parent.parent / ".env"
 
