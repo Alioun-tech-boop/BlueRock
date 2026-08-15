@@ -2,9 +2,11 @@
    Mobile et tablette : inchangés (colonne centrée + BottomNav). */
 
 @media (min-width: 1024px) {
-  /* Nav mobile masquée sur PC */
+  /* Nav bas de page conservée sur PC (centrée, colonne app classique) */
   .bottom-nav {
-    display: none !important;
+    max-width: 580px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
   }
 
   /* Toutes les pages occupent tout l'espace disponible */

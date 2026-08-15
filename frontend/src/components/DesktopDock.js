@@ -62,6 +62,10 @@ export default function DesktopDock() {
           -webkit-backdrop-filter: blur(24px) saturate(1.6);
           border: 1px solid rgba(255, 255, 255, 0.09);
           box-shadow: 0 12px 38px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+          pointer-events: none;
+        }
+        :global(.mac-dock .md-item) {
+          pointer-events: auto;
         }
         @media (min-width: 1024px) {
           :global(.mac-dock) {

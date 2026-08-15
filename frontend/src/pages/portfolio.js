@@ -596,7 +596,6 @@ export default function Portfolio() {
               <span className="pf-money-ico"><ArrowDownToLine size={20} strokeWidth={2.2} /></span>
               <span className="pf-money-txt">
                 <strong>{t(lang, 'accDeposit')}</strong>
-                <small>{t(lang, 'pfMoneyDepositSub')}</small>
               </span>
             </button>
             <button
@@ -616,7 +615,6 @@ export default function Portfolio() {
               <span className="pf-money-ico"><ArrowUpFromLine size={20} strokeWidth={2.2} /></span>
               <span className="pf-money-txt">
                 <strong>{t(lang, 'accWithdraw')}</strong>
-                <small>{t(lang, 'pfMoneyWithdrawSub')}</small>
               </span>
             </button>
           </div>
@@ -1048,7 +1046,7 @@ export default function Portfolio() {
           background: #000000; color: #F7F8FA;
           font-family: Inter, -apple-system, sans-serif; overflow: hidden;
         }
-        .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 28px 24px 0; }
+        .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 24px 22px 0; }
         .acct-capsule {
           display: flex; align-items: center; gap: 9px; height: 56px;
           padding: 0 14px 0 12px; background: rgba(255, 255, 255, 0.05); border: none; border-radius: 28px;
@@ -1071,17 +1069,17 @@ export default function Portfolio() {
         }
         .safe-area { flex: 1; overflow-y: auto; padding: 0 0 8px; }
         .safe-area::-webkit-scrollbar { display: none; }
-        .tt-row { display: flex; align-items: center; justify-content: space-between; margin: 28px 30px 0; }
-        .tt-title { font-size: 28px; font-weight: 700; color: #F7F8FA; margin: 0; letter-spacing: 0; }
+        .tt-row { display: flex; align-items: center; justify-content: space-between; margin: 24px 22px 0; }
+        .tt-title { font-size: 24px; font-weight: 600; color: #F7F8FA; margin: 0; letter-spacing: 0; }
         .tt-filter { color: #8C99AF; }
         .tx-tabs {
-          display: flex; gap: 10px; overflow-x: auto; padding: 18px 24px 0;
+          display: flex; gap: 10px; overflow-x: auto; padding: 16px 22px 0;
           scrollbar-width: none; -ms-overflow-style: none;
         }
         .tx-tabs::-webkit-scrollbar { display: none; }
         .tx-tab {
-          flex-shrink: 0; height: 48px; padding: 0 28px; border-radius: 26px; border: none;
-          font-family: inherit; font-size: 16px; letter-spacing: 0; white-space: nowrap; cursor: pointer;
+          flex-shrink: 0; height: 40px; padding: 0 20px; border-radius: 20px; border: none;
+          font-family: inherit; font-size: 14px; letter-spacing: 0; white-space: nowrap; cursor: pointer;
         }
         .tx-tab.active { background: #FFFFFF; color: #111111; font-weight: 700; }
         .tx-tab:not(.active) { background: #1C1C1C; color: #8996AE; font-weight: 500; }
@@ -1172,7 +1170,7 @@ export default function Portfolio() {
         .order-total { font-size: 15px; font-weight: 600; color: #F7F8FA; }
         .pf-money-cards {
           display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-          padding: 20px 24px 0;
+          padding: 16px 22px 0;
         }
         .pf-money-card {
           display: flex; align-items: center; gap: 12px;
@@ -1196,9 +1194,6 @@ export default function Portfolio() {
         .pf-money-txt strong { font-size: 15.5px; font-weight: 800; letter-spacing: 0; }
         .pf-money-card.deposit .pf-money-txt strong { color: #00130a; }
         .pf-money-card.withdraw .pf-money-txt strong { color: #F7F8FA; }
-        .pf-money-txt small { font-size: 11px; font-weight: 600; letter-spacing: 0; }
-        .pf-money-card.deposit .pf-money-txt small { color: #0A3D26; }
-        .pf-money-card.withdraw .pf-money-txt small { color: #8C99AF; }
 
         .acc-chip {
           display: flex; align-items: center; gap: 8px;
@@ -1208,7 +1203,7 @@ export default function Portfolio() {
         }
         .pf-accbar {
           display: flex; align-items: center; gap: 10px;
-          overflow-x: auto; padding: 18px 24px 0;
+          overflow-x: auto; padding: 16px 22px 0;
           scrollbar-width: none; -ms-overflow-style: none;
         }
         .pf-accbar::-webkit-scrollbar { display: none; }

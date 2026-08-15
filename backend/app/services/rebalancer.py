@@ -164,6 +164,8 @@ def rebalance_portfolio(db: Session, plan: PremiumPlan, force: bool = False) -> 
         return result
 
     account = managed_account(db, plan)
+    if account is None:
+        return result
     # La gestion automatique est réservée aux portefeuilles virtuels (démo)
     if account.type == "real":
         result["skipped"].append("real account not managed")

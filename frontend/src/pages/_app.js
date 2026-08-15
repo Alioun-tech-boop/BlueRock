@@ -37,11 +37,15 @@ const PAGE_TITLES = {
   '/calendar': 'Calendrier',
   '/brokers': 'Courtiers',
   '/chart': 'Graphique',
+  '/404': 'Page introuvable',
 }
 
 export default function App({ Component, pageProps }) {
   const router = useRouter()
-  const pageTitle = PAGE_TITLES[router.pathname] || null
+  let pageTitle = PAGE_TITLES[router.pathname] || null
+  const q = router.query || {}
+  if (pageTitle && router.pathname === '/quote' && q.symbol) pageTitle = `Cotation · ${q.symbol}`
+  if (pageTitle && router.pathname === '/chart' && q.symbol) pageTitle = `Graphique · ${q.symbol}`
 
   return (
     <>

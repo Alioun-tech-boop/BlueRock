@@ -279,6 +279,8 @@ def coverage_of(db: Session, plan: PremiumPlan) -> dict:
     from ..services.rebalancer import adaptive_targets, managed_account
     prices = _latest_prices(db)
     account = managed_account(db, plan)
+    if account is None:
+        return {"coverage_pct": 0.0, "lines": []}
     positions = {p.symbol: p.qty for p in db.query(Position).filter(
         Position.user_id == plan.user_id, Position.portfolio_id == account.id
     ).all()}
