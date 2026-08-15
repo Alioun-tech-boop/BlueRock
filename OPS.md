@@ -107,5 +107,11 @@ réplicas — le code est déjà stateless.
 ## 8. Coût actuel
 
 0 €/mois : Render free, Supabase free, Upstash Redis free, Brevo free,
-NGN Market API free. (Le domaine `bluerock.ai` et Cloudflare restent à
-confirmer par le propriétaire.)
+NGN Market API free.
+
+Note domaine : `bluerock.ai` **n'est pas un domaine du projet** (enregistré par
+un tiers chez GoDaddy, titulaire masqué). Le frontend tourne sur **Netlify**
+(CDN + HTTPS + cache gratuits), l'API sur Render. Les mentions résiduelles de
+`bluerock.ai` dans `ALLOWED_HOSTS`/CORS/CSP sont inertes (aucun trafic) et
+peuvent être nettoyées sans impact. Un Cloudflare/CDN dédié ne serait
+envisageable qu'après achat d'un domaine en propre.
