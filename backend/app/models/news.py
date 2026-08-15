@@ -17,6 +17,6 @@ class NewsItem(Base):
     source = Column(String(100))
     category = Column(String(50))
     image = Column(String(600), default="")
-    symbol = Column(String(20))
+    symbol = Column(String(20), index=True)
     published_at = Column(DateTime(timezone=True), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

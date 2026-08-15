@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     DATABASE_URL: str = "postgresql://bluerock:bluerock123@localhost:5432/bluerock"
+    # Pool SQLAlchemy : borné pour rester sous les limites du pooler Supabase
+    # (max_overflow inclus). pre_ping + recycle évitent les connexions mortes
+    # après idle timeout du pooler.
+    SQL_POOL_SIZE: int = 5
+    SQL_MAX_OVERFLOW: int = 10
+    SQL_POOL_RECYCLE: int = 300
     SECRET_KEY: str = secrets.token_hex(32)
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
