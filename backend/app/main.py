@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from .config import settings
 from .core.http_cache import ResponseCacheMiddleware
 from .core.shared_store import store
+from .core.request_log import RequestLoggingMiddleware
+from .core import metrics
 from .database import engine, Base
 from .models.news import NewsItem
 from .models.broker_connect import BrokerClientAccount, BrokerSession, BrokerLoginEvent
@@ -156,6 +158,11 @@ if settings.DEBUG:
 else:
     allowed_hosts = [h.strip() for h in settings.ALLOWED_HOSTS.split(",") if h.strip()] or ["*"]
 app.add_middleware(AllowedHostsMiddleware, allowed_hosts=allowed_hosts)
+
+# Dernier middleware ajouté = le plus externe : mesure la durée totale de la
+# chaîne (cache, en-têtes de sécurité, validation Host compris) et journalise
+# chaque requête en JSON (event=http_request) avec un X-Request-Id.
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(companies.router)
 app.include_router(analysis.router)
@@ -924,6 +931,34 @@ def on_startup():
     except Exception as e:
         logger.warning(f"Could not start scheduler: {e}")
 
+    if settings.HEARTBEAT_URL:
+        try:
+            import httpx as _httpx
+            from sqlalchemy import text as _text
+
+            def _heartbeat_loop():
+                """Ping périodique (dead man's switch) : succès sur l'URL,
+                échec sur URL + /fail quand la DB ou Redis sont KO."""
+                import time as _time
+                while True:
+                    try:
+                        with engine.connect() as conn:
+                            conn.execute(_text("SELECT 1"))
+                        ok = store.connected
+                    except Exception:
+                        ok = False
+                    url = settings.HEARTBEAT_URL.rstrip("/")
+                    try:
+                        _httpx.get(url if ok else url + "/fail", timeout=10)
+                    except Exception as e:
+                        logger.warning("Heartbeat ping échoué: %s", e)
+                    _time.sleep(max(30, settings.HEARTBEAT_INTERVAL))
+
+            threading.Thread(target=_heartbeat_loop, daemon=True).start()
+            logger.info("Heartbeat démarré (intervalle %ds)", settings.HEARTBEAT_INTERVAL)
+        except Exception as e:
+            logger.warning(f"Could not start heartbeat: {e}")
+
 @app.on_event("shutdown")
 def on_shutdown():
     if scheduler.running:
@@ -942,6 +977,7 @@ def health_check():
             conn.execute(text("SELECT 1"))
     except Exception:
         db_ok = False
+    info = metrics.summary()
     return {
         "status": "healthy" if db_ok else "degraded",
         "version": settings.VERSION,
@@ -949,7 +985,15 @@ def health_check():
         "debug": settings.DEBUG,
         "database": "ok" if db_ok else "unreachable",
         "redis": "connected" if store.connected else "memory_fallback",
+        "uptime_seconds": info.pop("uptime_seconds"),
+        "metrics": info,
     }
+
+
+@app.get("/api/metrics")
+def metrics_endpoint():
+    """Métriques au format Prometheus text (scrape de l'instance)."""
+    return Response(metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 if __name__ == "__main__":
     import uvicorn

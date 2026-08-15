@@ -145,6 +145,12 @@ class Settings(BaseSettings):
     BREVO_API_KEY: Optional[str] = None
     BREVO_API_URL: str = "https://api.brevo.com/v3"
 
+    # Observabilité
+    # URL de ping type healthchecks.io (dead man's switch) : pinguée toutes les
+    # HEARTBEAT_INTERVAL secondes ; suffixe /fail quand la DB ou Redis est KO.
+    HEARTBEAT_URL: Optional[str] = None
+    HEARTBEAT_INTERVAL: int = 600
+
     class Config:
         env_file = Path(__file__).resolve().parent.parent / ".env"
 

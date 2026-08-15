@@ -12,7 +12,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from ..core import job_queue
+from ..core import job_queue, metrics
 from ..database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ def _handle_email(db: Session, job):
 
     if not ok:
         raise RuntimeError(f"Envoi email {template} échoué -> {to}")
+    metrics.email_sent()
 
 
 def _handle_kyc_process(db: Session, job):
@@ -115,9 +116,11 @@ def drain_once() -> int:
             try:
                 _process(db, job)
                 job_queue.complete(db, job)
+                metrics.job_succeeded()
             except Exception as e:
                 db.rollback()
                 job_queue.fail(db, job, repr(e))
+                metrics.job_failed()
             processed_count += 1
         finally:
             db.close()

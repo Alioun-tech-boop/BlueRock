@@ -36,6 +36,8 @@ NO_CACHE_PREFIXES = (
     "/api/ingestion/fetch",
     "/api/market/refresh",
     "/api/analysis/ask",
+    "/api/health",
+    "/api/metrics",
 )
 MAX_ENTRIES = 512
 MAX_BODY = 2_000_000
