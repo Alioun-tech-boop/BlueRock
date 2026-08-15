@@ -3,10 +3,6 @@ from sqlalchemy.orm import Session
 from ..models.financial import FinancialStatement, FinancialLineItem, StatementType
 from ..models.market import MarketData
 from ..models.company import Company
-import numpy as np
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-import pickle
 import os
 
 class PredictionService:
@@ -77,6 +73,9 @@ class PredictionService:
         return list(reversed(revenues))
     
     def predict_next_eps(self, company_id: int) -> Optional[Dict[str, Any]]:
+        import numpy as np
+        from sklearn.linear_model import LinearRegression
+
         eps_history = self._get_historical_eps(company_id)
         if len(eps_history) < 3:
             return None
@@ -102,6 +101,9 @@ class PredictionService:
         }
     
     def predict_next_revenue(self, company_id: int) -> Optional[Dict[str, Any]]:
+        import numpy as np
+        from sklearn.linear_model import LinearRegression
+
         rev_history = self._get_historical_revenue(company_id)
         if len(rev_history) < 3:
             return None
