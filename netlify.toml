@@ -19,7 +19,7 @@
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(self \"https://verify.didit.me\"), microphone=(self \"https://verify.didit.me\"), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://ui-avatars.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://bluerock-api.onrender.com https://nvdvaanstzqzapfgbael.supabase.co wss://nvdvaanstzqzapfgbael.supabase.co https://verification.didit.me; frame-src 'self' https://verify.didit.me https://verification.didit.me; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://bluerock-api.onrender.com https://nvdvaanstzqzapfgbael.supabase.co wss://nvdvaanstzqzapfgbael.supabase.co https://verification.didit.me; frame-src 'self' https://verify.didit.me https://verification.didit.me; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 # Jamais mettre en cache les pages HTML (données de marché en temps réel)
 [[headers]]

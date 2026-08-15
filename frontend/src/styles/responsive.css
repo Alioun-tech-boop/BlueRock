@@ -11,26 +11,27 @@
      Le zoom sur <html> redimensionne le layout viewport : les unités
      vw/vh et les éléments position:fixed restent parfaitement calés. */
   html {
-    zoom: 0.87;
+    zoom: 0.95;
     background: #000000;
   }
   body {
     background: #000000 !important;
+    font-weight: 500;
   }
   /* Unités dvh : hauteur réelle visible (barre d'adresse mobile masquée).
-     Le zoom 0.87 du <html> réduit le rendu de toute hauteur CSS de 13% :
-     on divise par 0.87 pour que le mobile-root couvre bien 100% de l'écran
+     Le zoom 0.95 du <html> réduit le rendu de toute hauteur CSS de 5% :
+     on divise par 0.95 pour que le mobile-root couvre bien 100% de l'écran
      et qu'aucun vide noir n'apparaisse entre le contenu et la nav fixe. */
   .mobile-root {
-    height: calc(100vh / 0.87) !important;
-    height: calc(100dvh / 0.87) !important;
+    height: calc(100vh / 0.95) !important;
+    height: calc(100dvh / 0.95) !important;
     width: 100% !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
   }
   .chat-area {
-    height: calc((100vh - 36px - 16px) / 0.87) !important;
-    height: calc((100dvh - 36px - 16px) / 0.87) !important;
+    height: calc((100vh - 36px - 16px) / 0.95) !important;
+    height: calc((100dvh - 36px - 16px) / 0.95) !important;
   }
   .bottom-nav {
     position: fixed !important;
