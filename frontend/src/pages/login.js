@@ -69,6 +69,19 @@ function CodeInput({ value, onChange, onComplete, length = 6, autoFocus }) {
           onPaste={handlePaste}
         />
       ))}
+      <style jsx>{`
+        .code-row { display: flex; gap: 10px; justify-content: center; width: 100%; margin: 6px 0; }
+        .code-cell {
+          width: 46px; height: 56px; border-radius: 14px;
+          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #fff;
+          text-align: center; font-size: 21px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .code-cell:focus {
+          border-color: #18C27C;
+          box-shadow: 0 0 0 4px rgba(24,194,124,0.13);
+        }
+      `}</style>
     </div>
   )
 }
@@ -396,6 +409,9 @@ export default function AuthPage() {
         setVerifyType('email')
         setInfo(t(lang, 'authEmailSent'))
         setStep(STEPS.verifyEmail)
+        // Compte non vérifié → envoie directement le code à 6 chiffres
+        // (l'email Supabase de confirmation ne sert pas ici).
+        sendOtpEmail(email.trim(), 'verify').catch(() => {})
       } else {
         setError(msg || t(lang, 'authInvalid'))
       }
@@ -426,6 +442,9 @@ export default function AuthPage() {
       setVerifyType('signup')
       setInfo(t(lang, 'authEmailSent'))
       setStep(STEPS.verifyEmail)
+      // Envoie immédiatement le code à 6 chiffres : le mail Supabase de
+      // confirmation ne contient qu'un lien (sans code) — inutilisable ici.
+      sendOtpEmail(email.trim(), 'verify').catch(() => {})
     } catch (err) {
       setError(err?.message || t(lang, 'authError'))
     } finally { setBusy(false) }
@@ -959,17 +978,6 @@ export default function AuthPage() {
           font-size: 12.5px; color: #18C27C; background: rgba(24,194,124,0.08);
           border: 1px solid rgba(24,194,124,0.25); padding: 6px 14px; border-radius: 14px;
           font-weight: 600; word-break: break-all; text-align: center;
-        }
-        .code-row { display: flex; gap: 10px; justify-content: center; width: 100%; margin: 6px 0; }
-        .code-cell {
-          width: 46px; height: 56px; border-radius: 14px;
-          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #fff;
-          text-align: center; font-size: 21px; font-weight: 700; font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
-          outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .code-cell:focus {
-          border-color: #18C27C;
-          box-shadow: 0 0 0 4px rgba(24,194,124,0.13);
         }
         .otp-hint { font-size: 11.5px; color: #647087; text-align: center; line-height: 1.45; margin-top: 2px; }
         .spin { animation: spin 1s linear infinite; }
