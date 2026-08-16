@@ -6,7 +6,7 @@ import { getCompanies, getMarketOverview, getMarketSparklines, getMarketNews, ge
 import { t, detectLang, fmtPriceCur } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import TriLoader from '../components/TriLoader'
-import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Compass, Lock } from 'lucide-react'
+import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Compass, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const sectorInfo = {
@@ -44,6 +44,57 @@ function Sparkline({ series, up }) {
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
       <path d={d} fill="none" stroke={up ? '#18C27C' : '#F04438'} strokeWidth={2} />
       <path d={area} fill={up ? 'rgba(24,194,124,0.15)' : 'rgba(240,68,56,0.15)'} />
+    </svg>
+  )
+}
+
+function AiArt() {
+  const nodes = [
+    { x: 138, y: 80, c: 'blue' },
+    { x: 109, y: 29.8, c: 'teal' },
+    { x: 51, y: 29.8, c: 'blue' },
+    { x: 22, y: 80, c: 'teal' },
+    { x: 51, y: 130.2, c: 'blue' },
+    { x: 109, y: 130.2, c: 'teal' },
+  ]
+  return (
+    <svg className="ai-art" viewBox="0 0 160 160" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="aiBlue" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#4DA3FF" />
+          <stop offset="1" stopColor="#0052FC" />
+        </linearGradient>
+        <linearGradient id="aiTeal" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#34D399" />
+          <stop offset="1" stopColor="#06B6D4" />
+        </linearGradient>
+        <radialGradient id="aiCore" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.92" />
+          <stop offset="1" stopColor="#0052FC" />
+        </radialGradient>
+      </defs>
+      <circle cx="80" cy="80" r="58" stroke="url(#aiBlue)" strokeOpacity="0.30" strokeWidth="1.2" strokeDasharray="2 6" />
+      <circle cx="80" cy="80" r="58" stroke="url(#aiTeal)" strokeOpacity="0.10" strokeWidth="1" transform="rotate(12 80 80)" />
+      <circle cx="80" cy="80" r="78" stroke="url(#aiTeal)" strokeOpacity="0.10" strokeWidth="1" strokeDasharray="1 9" />
+      {nodes.map((n, i) => (
+        <line key={`c${i}`} x1="80" y1="80" x2={n.x} y2={n.y} stroke="url(#aiBlue)" strokeOpacity="0.35" strokeWidth="1" />
+      ))}
+      {nodes.map((n, i) => {
+        const b = nodes[(i + 1) % nodes.length]
+        return <line key={`r${i}`} x1={n.x} y1={n.y} x2={b.x} y2={b.y} stroke="url(#aiTeal)" strokeOpacity="0.22" strokeWidth="1" />
+      })}
+      <circle cx="80" cy="80" r="20" fill="url(#aiBlue)" fillOpacity="0.18" stroke="url(#aiBlue)" strokeWidth="1.4" />
+      <circle cx="80" cy="80" r="8.5" fill="url(#aiCore)" />
+      {nodes.map((n, i) => (
+        <g key={`n${i}`}>
+          <circle cx={n.x} cy={n.y} r="7" fill={n.c === 'blue' ? 'url(#aiBlue)' : 'url(#aiTeal)'} fillOpacity="0.20" />
+          <circle cx={n.x} cy={n.y} r="3.2" fill={n.c === 'blue' ? '#7FB5FF' : '#3EE6A8'} />
+        </g>
+      ))}
+      <path d="M14 132 L44 116 L66 124 L92 104 L122 112 L146 90" stroke="url(#aiTeal)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 132 L44 116 L66 124 L92 104 L122 112 L146 90 L146 150 L14 150 Z" fill="url(#aiTeal)" opacity="0.14" />
+      <path d="M150 18 l3 6 6 3 -6 3 -3 6 -3 -6 -6 -3 6 -3 z" fill="#FFD77A" opacity="0.9" />
+      <path d="M22 14 l2.4 4.8 4.8 2.4 -4.8 2.4 -2.4 4.8 -2.4 -4.8 -4.8 -2.4 4.8 -2.4 z" fill="#7FB5FF" opacity="0.85" />
     </svg>
   )
 }
@@ -373,6 +424,20 @@ return {
             </button>
           ))}
         </div>
+
+        <button className="ai-card" onClick={() => router.push('/analyst')} aria-label={t('aiStudioTitle')}>
+          <span className="ai-card-orb" />
+          <span className="ai-card-shine" />
+          <span className="ai-card-body">
+            <span className="ai-card-copy">
+              <span className="ai-card-badge"><Sparkles size={12} strokeWidth={2.4} /> {t('aiStudioBadge')}</span>
+              <span className="ai-card-title">{t('aiStudioTitle')}</span>
+              <span className="ai-card-sub">{t('aiStudioSub')}</span>
+              <span className="ai-card-cta">{t('aiStudioCta')} <ArrowRight size={14} strokeWidth={2.6} /></span>
+            </span>
+            <span className="ai-card-art"><AiArt /></span>
+          </span>
+        </button>
 
         {activeTab === 'overview' && (
           <>
@@ -723,6 +788,140 @@ return {
         .tab-btn.active {
           background: #262626;
           color: #fff;
+        }
+        .ai-card {
+          position: relative;
+          width: 100%;
+          display: block;
+          margin-bottom: 20px;
+          padding: 0;
+          border: 1px solid rgba(0, 82, 252, 0.4);
+          border-radius: 24px;
+          overflow: hidden;
+          cursor: pointer;
+          text-align: left;
+          font-family: inherit;
+          color: #fff;
+          background:
+            radial-gradient(120% 140% at 88% -10%, rgba(139, 92, 246, 0.35), transparent 52%),
+            radial-gradient(120% 150% at -10% 110%, rgba(6, 182, 212, 0.28), transparent 55%),
+            linear-gradient(135deg, rgba(0, 82, 252, 0.30), rgba(23, 37, 84, 0.55));
+          -webkit-tap-highlight-color: transparent;
+        }
+        .ai-card::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: 24px;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+          pointer-events: none;
+        }
+        .ai-card-orb {
+          position: absolute;
+          top: -30px;
+          right: -24px;
+          width: 160px;
+          height: 160px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(0, 82, 252, 0.55), rgba(139, 92, 246, 0.28) 55%, transparent 72%);
+          filter: blur(20px);
+          animation: aiOrb 6s ease-in-out infinite;
+          pointer-events: none;
+        }
+        .ai-card-shine {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.08) 45%, transparent 60%);
+          transform: translateX(-130%);
+          animation: aiShine 7s ease-in-out infinite;
+          pointer-events: none;
+        }
+        .ai-card-body {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 20px 18px 20px 20px;
+        }
+        .ai-card-copy {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .ai-card-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          margin-bottom: 9px;
+          padding: 4px 10px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: #FFD77A;
+          background: rgba(255, 215, 122, 0.1);
+          border: 1px solid rgba(255, 215, 122, 0.32);
+        }
+        .ai-card-title {
+          font-size: 21px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          color: #fff;
+          line-height: 1.15;
+        }
+        .ai-card-sub {
+          margin-top: 5px;
+          font-size: 12px;
+          line-height: 1.45;
+          color: rgba(226, 232, 240, 0.72);
+        }
+        .ai-card-cta {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 13px;
+          padding: 8px 15px;
+          border-radius: 12px;
+          font-size: 12.5px;
+          font-weight: 700;
+          color: #fff;
+          background: linear-gradient(120deg, #0052FC, #7C3AED);
+          box-shadow: 0 8px 20px rgba(0, 82, 252, 0.35);
+        }
+        .ai-card-art {
+          flex: 0 0 auto;
+          width: 118px;
+          height: 118px;
+          position: relative;
+        }
+        .ai-art {
+          width: 100%;
+          height: 100%;
+          display: block;
+          filter: drop-shadow(0 10px 26px rgba(0, 82, 252, 0.35));
+        }
+        .ai-card:active { transform: scale(0.985); }
+        @keyframes aiOrb {
+          0%, 100% { transform: scale(1); opacity: 0.75; }
+          50% { transform: scale(1.22); opacity: 1; }
+        }
+        @keyframes aiShine {
+          0%, 55% { transform: translateX(-130%); }
+          85%, 100% { transform: translateX(130%); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .ai-card-orb, .ai-card-shine { animation: none; }
+        }
+        @media (min-width: 768px) {
+          .ai-card:hover {
+            border-color: rgba(0, 82, 252, 0.65);
+            box-shadow: 0 12px 40px rgba(0, 82, 252, 0.28);
+          }
+          .ai-card-art { width: 150px; height: 150px; }
         }
         .indices-strip {
           display: flex;
