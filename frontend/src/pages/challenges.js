@@ -66,8 +66,38 @@ function GlassCard({ children, className = '', style }) {
 
 function SkeletonScreen({ lang }) {
   return (
-    <div className="ch-loading" aria-busy="true" aria-label={t(lang, 'loading')}>
-      <TriLoader label={t(lang, 'loading')} />
+    <div className="sk-screen" aria-busy="true" aria-label={t(lang, 'loading')}>
+      <div className="sk-nav">
+        {[0, 1, 2, 3].map(i => <div key={i} className="sk sk-nav-pill" />)}
+      </div>
+      <div className="sk-hero">
+        <div className="sk-top">
+          <div className="sk sk-badge" style={{ width: 128 }} />
+          <div className="sk sk-ico" />
+        </div>
+        <div className="sk sk-l" style={{ width: '70%' }} />
+        <div className="sk sk-m" style={{ width: '92%' }} />
+        <div className="sk sk-m" style={{ width: '82%' }} />
+        <div className="sk-stats">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="sk-stat">
+              <div className="sk sk-s" style={{ width: 46 }} />
+              <div className="sk sk-l" style={{ width: 56 }} />
+            </div>
+          ))}
+        </div>
+        <div className="sk sk-btn" />
+      </div>
+      <div className="sk-card">
+        <div className="sk-row"><div className="sk sk-box" /><div className="sk sk-m" style={{ width: '42%' }} /></div>
+        <div className="sk sk-m" style={{ width: '88%' }} />
+        <div className="sk sk-m" style={{ width: '72%' }} />
+      </div>
+      <div className="sk-card">
+        <div className="sk-row"><div className="sk sk-box" /><div className="sk sk-m" style={{ width: '38%' }} /></div>
+        <div className="sk sk-m" style={{ width: '85%' }} />
+        <div className="sk sk-m" style={{ width: '64%' }} />
+      </div>
     </div>
   )
 }
@@ -1316,6 +1346,12 @@ export default function Challenges() {
           background: linear-gradient(150deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
         .sk-row { display: flex; align-items: center; gap: 12px; }
         .sk-box { width: 28px; height: 28px; border-radius: 10px; flex-shrink: 0; }
+        .sk-screen {
+          flex: 1; display: flex; flex-direction: column; gap: 16px;
+          padding: 18px 2px 44px; animation: fadeIn 0.25s ease both;
+        }
+        .sk-nav { display: flex; gap: 10px; }
+        .sk-nav-pill { height: 36px; border-radius: 999px; flex: 1; }
 
         .ch-loading { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
           gap: 13px; color: #8b96a6; font-size: 13.5px; font-weight: 500; padding: 60px 0; }

@@ -56,14 +56,16 @@ function FinanceBackground() {
     const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     let w = 0, h = 0, raf = 0, last = 0
-    let candles = []
-    let parts = []
-    let chips = []
-    let lastClose = 100
-    let spawnAcc = 0
-    let chipAcc = 0
+    let particles = []
     const rand = (a, b) => a + Math.random() * (b - a)
-    const ease = p => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2
+    const TAU = Math.PI * 2
+
+    const blobs = [
+      { rgba: '76,141,255', size: 0.66, nx: 0.18, ny: -0.22, ax: 0.00011, ay: 0.00013, ph: 0 },
+      { rgba: '139,92,246', size: 0.52, nx: 0.84, ny: 0.18, ax: 0.00009, ay: 0.00010, ph: 2.1 },
+      { rgba: '24,194,124', size: 0.48, nx: 0.12, ny: 0.76, ax: 0.00012, ay: 0.00009, ph: 4.2 },
+      { rgba: '56,143,255', size: 0.60, nx: 0.92, ny: 0.92, ax: 0.00010, ay: 0.00011, ph: 1.3 },
+    ]
 
     const resize = () => {
       w = window.innerWidth
@@ -77,77 +79,65 @@ function FinanceBackground() {
     resize()
     window.addEventListener('resize', resize)
 
-    const ambient = () => {
-      const g = ctx.createRadialGradient(w / 2, h * 0.1, 0, w / 2, h * 0.1, Math.max(w, h) * 0.85)
-      g.addColorStop(0, 'rgba(24,194,124,0.17)')
-      g.addColorStop(0.45, 'rgba(24,194,124,0.06)')
-      g.addColorStop(1, 'rgba(0,0,0,0)')
+    const base = () => {
+      const g = ctx.createLinearGradient(0, 0, 0, h)
+      g.addColorStop(0, 'rgba(14,18,30,1)')
+      g.addColorStop(0.55, 'rgba(7,9,16,1)')
+      g.addColorStop(1, 'rgba(3,5,9,1)')
       ctx.fillStyle = g
       ctx.fillRect(0, 0, w, h)
     }
 
-    const grid = () => {
-      ctx.lineWidth = 1
+    const aurora = t => {
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      for (const b of blobs) {
+        const bx = b.nx * w + Math.sin(t * b.ax + b.ph) * w * 0.07
+        const by = b.ny * h + Math.cos(t * b.ay + b.ph) * h * 0.06
+        const r = b.size * Math.max(w, h)
+        const g = ctx.createRadialGradient(bx, by, 0, bx, by, r)
+        g.addColorStop(0, `rgba(${b.rgba},0.30)`)
+        g.addColorStop(0.55, `rgba(${b.rgba},0.10)`)
+        g.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, w, h)
+      }
+      ctx.restore()
+    }
+
+    const grid = t => {
+      const vx = w / 2
+      const vy = h * 0.16
       ctx.strokeStyle = 'rgba(255,255,255,0.05)'
-      ctx.beginPath()
-      for (let x = 0; x < w; x += 42) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, h) }
-      for (let y = 0; y < h; y += 42) { ctx.moveTo(0, y + 0.5); ctx.lineTo(w, y + 0.5) }
-      ctx.stroke()
+      ctx.lineWidth = 1
+      for (let i = 0; i < 15; i++) {
+        const a = (i / 15) * TAU
+        ctx.beginPath()
+        ctx.moveTo(vx, vy)
+        ctx.lineTo(vx + Math.cos(a) * w * 1.5, vy + Math.sin(a) * h * 1.5)
+        ctx.stroke()
+      }
+      const spacing = 0.085
+      const depth = (t * 0.00013) % spacing
+      for (let d = depth; d < 1.06; d += spacing) {
+        const y = vy + d * d * h * 1.18
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(w, y)
+        ctx.stroke()
+      }
     }
 
-    const trendLine = yOf => {
-      if (candles.length < 2) return
-      ctx.beginPath()
-      candles.forEach((c, i) => {
-        const yv = yOf(c.close)
-        if (i === 0) ctx.moveTo(c.x, yv)
-        else ctx.lineTo(c.x, yv)
-      })
-      ctx.strokeStyle = 'rgba(42,203,138,0.8)'
-      ctx.lineWidth = 1.8
-      ctx.shadowColor = 'rgba(24,194,124,0.65)'
-      ctx.shadowBlur = 14
-      ctx.stroke()
-      ctx.shadowBlur = 0
-    }
-
-    const spawnCandle = () => {
-      const drift = rand(-0.005, 0.009)
-      const open = lastClose
-      const close = Math.max(20, open * (1 + drift))
-      const vol = Math.abs(open - close) * rand(1.6, 3.2)
-      const up = close >= open
-      candles.push({
-        x: w + 24,
-        t0: performance.now(),
-        dur: rand(1050, 1600),
-        open, close, vol, up,
-        born: performance.now(),
-      })
-      lastClose = close
-    }
-
-    const spawnChip = () => {
-      const up = Math.random() > 0.38
-      const pct = (up ? 1 : -1) * rand(0.08, 2.2)
-      chips.push({
-        x: rand(w * 0.15, w * 0.85),
-        y: rand(h * 0.12, h * 0.58),
-        txt: (up ? '+' : '') + pct.toFixed(2) + '%',
-        up,
-        born: performance.now(),
-        dur: 2000,
-      })
-    }
-
-    const spawnPart = () => {
-      parts.push({
+    const spawn = () => {
+      particles.push({
         x: rand(0, w),
-        y: h + rand(10, 60),
-        r: rand(1.2, 3.2),
-        vy: rand(10, 30),
-        vx: rand(-4, 4),
-        green: Math.random() > 0.4,
+        y: h + rand(10, 40),
+        r: rand(0.8, 2.2),
+        vy: rand(8, 24),
+        vx: rand(-6, 6),
+        tw: rand(0.002, 0.005),
+        ph: rand(0, TAU),
+        green: Math.random() < 0.3,
         born: performance.now(),
       })
     }
@@ -157,131 +147,44 @@ function FinanceBackground() {
       if (document.hidden) return
       const dt = Math.min((t - last) / 1000, 0.05) || 0.016
       last = t
-      ctx.clearRect(0, 0, w, h)
-      ambient()
-      grid()
-
-      spawnAcc += dt
-      if (spawnAcc > 0.3 && candles.length < 26) { spawnAcc = 0; spawnCandle() }
-      chipAcc += dt
-      if (chipAcc > 1.9 && chips.length < 6) { chipAcc = 0; spawnChip() }
-      if (parts.length < 34 && Math.random() < dt * 2.6) spawnPart()
-
-      const total = Math.max(40, Math.min(...candles.map(c => c.open), ...candles.map(c => c.close)))
-      const peak = Math.max(-40, Math.max(...candles.map(c => c.close), ...candles.map(c => c.open)))
-      const scale = (h * 0.4) / (peak - total || 1)
-      const yOf = v => h * 0.46 + (peak - v) * scale
-
-      for (const c of candles) c.x -= dt * 24
-      candles = candles.filter(c => c.x > -90)
-
-      trendLine(yOf)
-
-      for (const c of candles) {
-        const age = (t - c.born) / c.dur
-        const p = ease(Math.min(age, 1))
-        const cur = c.open + (c.close - c.open) * p
-        const wickTop = (Math.max(c.open, c.close) + c.vol * (1 - p)) - cur
-        const wickBot = cur - (Math.min(c.open, c.close) - c.vol * (1 - p))
-        const cx = c.x
-        const bodyW = Math.max(6, Math.min(18, w * 0.032))
-        const alpha = Math.min(1, (t - c.born) / 240) * Math.max(0, Math.min(1, (c.x + 60) / 90))
-        if (alpha <= 0) continue
-        ctx.globalAlpha = alpha
-        ctx.strokeStyle = c.up ? '#2ACB8A' : '#9AA3B2'
-        ctx.fillStyle = c.up ? 'rgba(42,203,138,0.95)' : 'rgba(148,158,170,0.85)'
-        ctx.lineWidth = 1.4
-        ctx.shadowColor = c.up ? 'rgba(24,194,124,0.5)' : 'rgba(160,170,185,0.4)'
-        ctx.shadowBlur = 10
-        ctx.beginPath()
-        ctx.moveTo(cx, yOf(cur + wickTop))
-        ctx.lineTo(cx, yOf(cur - wickBot))
-        ctx.stroke()
-        const topY = yOf(Math.max(cur, c.open))
-        const botY = yOf(Math.min(cur, c.open))
-        ctx.beginPath()
-        ctx.rect(cx - bodyW / 2, topY, bodyW, Math.max(2, botY - topY))
-        ctx.fill()
-        ctx.shadowBlur = 0
-        ctx.globalAlpha = 1
-      }
-
-      ctx.font = '700 13px Inter, monospace'
-      ctx.shadowColor = 'rgba(24,194,124,0.35)'
-      ctx.shadowBlur = 8
-      for (const ch of chips) {
-        const p = (t - ch.born) / ch.dur
-        if (p > 1) continue
-        const a = Math.sin(Math.PI * p)
-        ctx.globalAlpha = a * 0.95
-        ctx.fillStyle = ch.up ? '#2ACB8A' : '#C8D0DC'
-        ctx.fillText(ch.txt, ch.x - p * 34, ch.y - p * 30)
-      }
-      ctx.shadowBlur = 0
-      ctx.globalAlpha = 1
-      chips = chips.filter(ch => (t - ch.born) / ch.dur <= 1)
-
-      for (const pt of parts) {
-        const age = (t - pt.born) / 1000
-        pt.y -= pt.vy * dt
-        pt.x += pt.vx * dt
-        const a = Math.max(0, 1 - age / 7) * 0.7
+      base()
+      aurora(t)
+      grid(t)
+      if (particles.length < 50 && Math.random() < dt * 3) spawn()
+      for (const p of particles) {
+        p.y -= p.vy * dt
+        p.x += p.vx * dt
+        const age = (t - p.born) / 1000
+        const twinkle = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * p.tw + p.ph))
+        const a = Math.max(0, 1 - age / 9) * 0.6 * twinkle
         if (a <= 0) continue
         ctx.globalAlpha = a
-        ctx.fillStyle = pt.green ? 'rgba(42,203,138,1)' : 'rgba(255,255,255,0.9)'
-        if (pt.green) {
-          ctx.shadowColor = 'rgba(24,194,124,0.6)'
+        ctx.fillStyle = p.green ? 'rgba(42,203,138,1)' : 'rgba(224,233,255,0.9)'
+        if (p.green) {
+          ctx.shadowColor = 'rgba(24,194,124,0.7)'
           ctx.shadowBlur = 8
         }
         ctx.beginPath()
-        ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2)
+        ctx.arc(p.x, p.y, p.r, 0, TAU)
         ctx.fill()
         ctx.shadowBlur = 0
       }
       ctx.globalAlpha = 1
-      parts = parts.filter(pt => (t - pt.born) / 1000 <= 7 && pt.y > -30)
+      particles = particles.filter(p => p.y > -30 && (t - p.born) / 1000 <= 9)
     }
 
     if (reduced) {
-      const n = Math.max(8, Math.floor(w / 88))
-      const vals = []
-      let v = 100
-      for (let i = 0; i < n; i++) {
-        v = Math.max(20, v * (1 + rand(-0.004, 0.007)))
-        vals.push({ v, vol: rand(1.5, 5) })
-      }
-      const lo = Math.min(...vals.map(x => x.v))
-      const hi = Math.max(...vals.map(x => x.v))
-      const scale = (h * 0.4) / (hi - lo || 1)
-      const yOf2 = val => h * 0.46 + (hi - val) * scale
-      ctx.clearRect(0, 0, w, h)
-      ambient()
-      grid()
-      ctx.beginPath()
-      vals.forEach((x, i) => {
-        const xp = w - (n - i) * 88 + 12
-        if (i === 0) ctx.moveTo(xp, yOf2(x.v))
-        else ctx.lineTo(xp, yOf2(x.v))
-      })
-      ctx.strokeStyle = 'rgba(42,203,138,0.8)'
-      ctx.lineWidth = 1.8
-      ctx.stroke()
-      for (let i = 0; i < n; i++) {
-        const open = i === 0 ? vals[0].v : vals[i - 1].v
-        const close = vals[i].v
-        const up = close >= open
-        const x = w - (n - i) * 88 + 12
-        ctx.strokeStyle = up ? '#2ACB8A' : '#9AA3B2'
-        ctx.fillStyle = up ? 'rgba(42,203,138,0.95)' : 'rgba(148,158,170,0.85)'
-        ctx.lineWidth = 1.4
+      base()
+      aurora(0)
+      grid(0)
+      for (let i = 0; i < 36; i++) {
+        ctx.globalAlpha = rand(0.15, 0.6)
+        ctx.fillStyle = Math.random() < 0.3 ? 'rgba(42,203,138,1)' : 'rgba(224,233,255,0.9)'
         ctx.beginPath()
-        ctx.moveTo(x, yOf2(close + vals[i].vol / 2))
-        ctx.lineTo(x, yOf2(close - vals[i].vol / 2))
-        ctx.stroke()
-        const topY = yOf2(Math.max(open, close))
-        const botY = yOf2(Math.min(open, close))
-        ctx.fillRect(x - 6, topY, 12, Math.max(2, botY - topY))
+        ctx.arc(rand(0, w), rand(0, h), rand(0.8, 2), 0, TAU)
+        ctx.fill()
       }
+      ctx.globalAlpha = 1
       return () => window.removeEventListener('resize', resize)
     }
 
