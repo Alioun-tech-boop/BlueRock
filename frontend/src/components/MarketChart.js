@@ -7,6 +7,7 @@ import { fmtPrice, fmtPriceCur, fmtCompact } from '../lib/i18n'
 import {
   MousePointer2, TrendingUp, Minus, GitBranch, Square, Type, Eraser,
   Plus, RotateCcw, Scan, Hand, Maximize, Minimize, SlidersHorizontal,
+  Trash2, Pencil,
 } from 'lucide-react'
 
 const C = {
@@ -48,6 +49,10 @@ const DRAW_TOOLS = [
   { id: 'text', icon: Type, title: 'Label' },
   { id: 'erase', icon: Eraser, title: 'Erase' },
 ]
+
+const PALETTE = ['#4EA8FF', '#35D07F', '#F6465D', '#FACC15', '#A855F7', '#FF9800', '#06B6D4', '#E2E8F0']
+
+const BRAND_BLUE = '#0052FC'
 
 const TT = (lang, k) => ({
   candle: lang === 'en' ? 'Candlesticks' : 'Bougies',
@@ -202,6 +207,15 @@ function fmtShort(n) {
   return n.toFixed(0)
 }
 
+function fmtTime(t) {
+  if (t == null || typeof t === 'string') return t
+  if (typeof t === 'object' && t.year != null) {
+    const p = n => String(n).padStart(2, '0')
+    return `${String(t.year).padStart(4, '0')}-${p(t.month)}-${p(t.day)}`
+  }
+  return t
+}
+
 function distToSegment(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay
   const len2 = dx * dx + dy * dy
@@ -236,7 +250,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   const dragRef = useRef(null)
   const legRefs = useRef({})
   const indRefs = useRef({})
-  const [emasOn, setEmasOn] = useState({ 20: true, 50: true, 200: true })
+  const [emasOn, setEmasOn] = useState({ 20: false, 50: false, 200: false })
   const [inds, setInds] = useState({ boll: false, vwap: false, rsi: false, macd: false })
   const hoveringRef = useRef(false)
   const [tool, setTool] = useState('cursor')
@@ -246,6 +260,8 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   const [localTools, setLocalTools] = useState(false)
   const [drawings, setDrawingsState] = useState([])
   const [textDraft, setTextDraft] = useState('')
+  const [sel, setSel] = useState(null)
+  const selPosRef = useRef(null)
 
   const toolsVisible = onToolsOpenChange ? !!toolsOpen : localTools
 
@@ -300,6 +316,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         textColor: C.text,
         fontFamily: 'Inter, -apple-system, sans-serif',
         fontSize: 11,
+        attributionLogo: false,
       },
       grid: {
         vertLines: { color: 'rgba(148,163,184,0.10)', style: LineStyle.Solid },
@@ -784,7 +801,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     st.markersPlugin.setMarkers(chartType === 'candle' ? (markers || []) : [])
   }, [markers, chartType])
 
-  useEffect(() => { redraw() }, [drawings, tool, inds])
+  useEffect(() => { redraw() }, [drawings, tool, inds, sel])
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -883,7 +900,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
   const pointToData = (p) => {
     const st = stateRef.current
     if (!st) return { time: null, price: null }
-    const time = st.chart.timeScale().coordinateToTime(p.x)
+    const time = fmtTime(st.chart.timeScale().coordinateToTime(p.x))
     const price = st.main().coordinateToPrice(p.y)
     return { time, price: price == null ? null : Math.round(price * 100) / 100 }
   }
@@ -911,7 +928,10 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           Math.hypot(p.x - xl, p.y - yb), Math.hypot(p.x - xr, p.y - yb),
         )
       } else if (d.tool === 'text' && x1 != null && y1 != null) {
-        dd = Math.hypot(p.x - x1, p.y - y1)
+        const w = Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)
+        const xl = x1 - 3, yt = y1 - 14
+        if (p.x >= xl && p.x <= xl + w && p.y >= yt && p.y <= yt + 18) dd = 0
+        else dd = Math.hypot(p.x - x1, p.y - y1)
       } else if (d.tool === 'fibo' && x1 != null && x2 != null && y1 != null && y2 != null) {
         dd = distToSegment(p.x, p.y, x1, y1, x2, y2)
         for (const lv of FIBO_LEVELS) {
@@ -933,7 +953,10 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     const main = st.main()
     if (tool === 'erase') {
       const i = pickDrawing(p)
-      if (i >= 0) setDrawings(drawingsRef.current.filter((_, k) => k !== i))
+      if (i >= 0) {
+        if (sel === i) setSel(null)
+        setDrawings(drawingsRef.current.filter((_, k) => k !== i))
+      }
       return
     }
     if (tool === 'cursor') {
@@ -983,7 +1006,45 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
             return
           }
         }
+        setSel(i)
+        e.stopPropagation()
+        const mStart = { x: p.x, y: p.y }
+        const move = (ev) => {
+          const pt = getPoint(ev)
+          const dx = pt.x - mStart.x
+          const dy = pt.y - mStart.y
+          let nt1 = null, np1 = null, nt2 = null, np2 = null
+          if (x1 != null) nt1 = fmtTime(st.chart.timeScale().coordinateToTime(x1 + dx))
+          if (y1 != null) np1 = main.coordinateToPrice(y1 + dy)
+          if (x2 != null) nt2 = fmtTime(st.chart.timeScale().coordinateToTime(x2 + dx))
+          if (y2 != null) np2 = main.coordinateToPrice(y2 + dy)
+          if (np1 != null && !Number.isFinite(np1)) np1 = null
+          if (np2 != null && !Number.isFinite(np2)) np2 = null
+          if (!nt1 && np1 == null) return
+          const next = drawingsRef.current.slice()
+          const cur = { ...next[i] }
+          if (cur.t1 != null && nt1) cur.t1 = nt1
+          if (cur.p1 != null && np1 != null) cur.p1 = Math.round(np1 * 100) / 100
+          if (cur.tool !== 'hline' && cur.tool !== 'text') {
+            if (cur.t2 != null && nt2) cur.t2 = nt2
+            if (cur.p2 != null && np2 != null) cur.p2 = Math.round(np2 * 100) / 100
+          }
+          next[i] = cur
+          drawingsRef.current = next
+          setDrawingsState(next)
+        }
+        const up = () => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', up)
+          try {
+            localStorage.setItem(`bluerock_drawings_v1_${symbol || 'global'}`, JSON.stringify(drawingsRef.current))
+          } catch {}
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', up)
+        return
       }
+      setSel(null)
       return
     }
     if (tool === 'scan') {
@@ -1016,7 +1077,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     e.stopPropagation()
     const data = pointToData(p)
     if (data.price == null) return
-    const d = { tool, t1: data.time, p1: data.price, t2: data.time, p2: data.price, text: '' }
+    const d = { tool, t1: data.time, p1: data.price, t2: data.time, p2: data.price, text: '', color: C.draw }
     draftRef.current = d
     redraw()
     const move = (ev) => {
@@ -1063,6 +1124,45 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     window.addEventListener('pointerup', up)
   }
 
+  const setDrawingColor = (i, c) => {
+    const next = drawingsRef.current.slice()
+    next[i] = { ...next[i], color: c }
+    setDrawings(next)
+  }
+
+  const removeDrawing = (i) => {
+    if (sel === i) setSel(null)
+    setDrawings(drawingsRef.current.filter((_, k) => k !== i))
+  }
+
+  const editText = (i) => {
+    const cur = drawingsRef.current[i]
+    if (!cur) return
+    const txt = window.prompt('Label', cur.text || '')
+    if (txt == null) return
+    const next = drawingsRef.current.slice()
+    next[i] = { ...next[i], text: txt.slice(0, 80) }
+    setDrawings(next)
+  }
+
+  const clearAll = () => {
+    if (!drawingsRef.current.length) return
+    const ok = window.confirm(lang === 'en' ? 'Delete all drawings?' : 'Supprimer tous les tracés ?')
+    if (!ok) return
+    setDrawings([])
+    setSel(null)
+  }
+
+  const onSvgDoubleClick = (e) => {
+    if (tool !== 'cursor') return
+    const st = stateRef.current
+    if (!st) return
+    const p = getPoint(e)
+    const i = pickDrawing(p)
+    if (i < 0 || drawingsRef.current[i].tool !== 'text') return
+    editText(i)
+  }
+
   const redraw = () => {
     const st = stateRef.current
     const svg = svgRef.current
@@ -1085,28 +1185,37 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
 
     const paint = (d, dashed) => {
       const { x1, y1, x2, y2 } = toXY(d)
-      const color = dashed ? C.drawDraft : C.draw
+      const color = dashed ? C.drawDraft : (d.color || C.draw)
       if (d.tool === 'hline') {
         if (y1 == null) return
         parts.push(
-          <line key={d.id} x1="0" y1={y1} x2="100%" y2={y1} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} />
+          <line key={d.id} x1="0" y1={y1} x2="100%" y2={y1} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} pointerEvents="auto" />
         )
         parts.push(
-          <text key={`${d.id}l`} x={4} y={y1 - 5} fill="#9DB4D8" fontSize="10" fontWeight="600">{fmtShort(d.p1)}</text>
+          <line key={`${d.id}h`} x1="0" y1={y1} x2="100%" y2={y1} stroke={color} strokeWidth="18" opacity="0" pointerEvents="auto" />
+        )
+        parts.push(
+          <text key={`${d.id}l`} x={4} y={y1 - 5} fill="#9DB4D8" fontSize="10" fontWeight="600" pointerEvents="none">{fmtShort(d.p1)}</text>
         )
       } else if (d.tool === 'fibo') {
         if (x1 == null || x2 == null || y1 == null || y2 == null) return
         parts.push(
-          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '2 3'} />
+          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '2 3'} pointerEvents="auto" />
+        )
+        parts.push(
+          <line key={`${d.id}h`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="16" opacity="0" pointerEvents="auto" />
         )
         FIBO_LEVELS.forEach((lv, i) => {
           const yl = y1 + (y2 - y1) * lv
           const xl = x1 + (x2 - x1) * lv
           parts.push(
-            <line key={`${d.id}f${i}`} x1={x1} y1={yl} x2={x2} y2={yl} stroke={C.fibo[i % C.fibo.length]} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '4 4'} opacity="0.85" />
+            <line key={`${d.id}f${i}`} x1={x1} y1={yl} x2={x2} y2={yl} stroke={C.fibo[i % C.fibo.length]} strokeWidth="1" strokeDasharray={dashed ? '6 4' : '4 4'} opacity="0.85" pointerEvents="auto" />
           )
           parts.push(
-            <text key={`${d.id}t${i}`} x={xl + 4} y={yl - 3} fill={C.fibo[i % C.fibo.length]} fontSize="9.5" fontWeight="600">
+            <line key={`${d.id}fh${i}`} x1={x1} y1={yl} x2={x2} y2={yl} stroke={C.fibo[i % C.fibo.length]} strokeWidth="14" opacity="0" pointerEvents="auto" />
+          )
+          parts.push(
+            <text key={`${d.id}t${i}`} x={xl + 4} y={yl - 3} fill={C.fibo[i % C.fibo.length]} fontSize="9.5" fontWeight="600" pointerEvents="none">
               {Math.round(lv * 1000) / 10}% · {fmtShort(d.p1 + (d.p2 - d.p1) * lv)}
             </text>
           )
@@ -1116,20 +1225,23 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         const xl = Math.min(x1, x2), yt = Math.min(y1, y2)
         parts.push(
           <rect key={d.id} x={xl} y={yt} width={Math.abs(x2 - x1)} height={Math.abs(y2 - y1)}
-            fill={dashed ? 'rgba(78,168,255,0.08)' : 'rgba(78,168,255,0.1)'} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} />
+            fill={dashed ? 'rgba(78,168,255,0.08)' : 'rgba(78,168,255,0.1)'} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? '6 4' : undefined} pointerEvents="auto" />
         )
       } else if (d.tool === 'text') {
         if (x1 == null || y1 == null) return
         parts.push(
           <g key={d.id}>
-            <rect x={x1 - 3} y={y1 - 14} width={Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)} height="18" rx="4" fill="#111111" stroke={color} strokeWidth="1" />
-            <text x={x1} y={y1 + 1} fill="#E2E8F0" fontSize="11" fontWeight="600">{d.text || '...'}</text>
+            <rect x={x1 - 3} y={y1 - 14} width={Math.max(d.text ? d.text.length * 6.4 + 8 : 28, 28)} height="18" rx="4" fill="#111111" stroke={color} strokeWidth="1" pointerEvents="auto" />
+            <text x={x1} y={y1 + 1} fill="#E2E8F0" fontSize="11" fontWeight="600" pointerEvents="none">{d.text || '...'}</text>
           </g>
         )
       } else {
         if (x1 == null || y1 == null || x2 == null || y2 == null) return
         parts.push(
-          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.4" strokeDasharray={dashed ? '6 4' : undefined} />
+          <line key={d.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="1.4" strokeDasharray={dashed ? '6 4' : undefined} pointerEvents="auto" />
+        )
+        parts.push(
+          <line key={`${d.id}h`} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth="16" opacity="0" pointerEvents="auto" />
         )
       }
     }
@@ -1216,6 +1328,24 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
     append(parts, svg)
     append(grips, svg)
     append(timeLabels, svg)
+
+    if (sel != null && sel >= 0 && sel < drawingsRef.current.length) {
+      const d = drawingsRef.current[sel]
+      const { x1, y1, x2, y2 } = toXY(d)
+      let px = null, py = null
+      if (d.tool === 'hline') { if (y1 != null) { px = x1 ?? 80; py = y1 } }
+      else if (x1 != null && y1 != null) { px = x1; py = y1 }
+      if (px != null && py != null) {
+        selPosRef.current = {
+          x: Math.max(168, Math.min(px, svgRect.width - 168)),
+          y: Math.max(44, Math.min(py, svgRect.height - 44)),
+        }
+      } else {
+        selPosRef.current = null
+      }
+    } else {
+      selPosRef.current = null
+    }
   }
 
   redrawRef.current = redraw
@@ -1234,6 +1364,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           className="mc-overlay"
           style={{ pointerEvents: svgPointerEvents }}
           onPointerDown={onSvgPointerDown}
+          onDoubleClick={onSvgDoubleClick}
         />
         <div className="mc-quick">
           <button className={`mc-qbtn ${chartType === 'candle' ? 'active' : ''}`} title={TT(lang, 'candle')} onClick={() => setChartType('candle')}><CandleSvg /></button>
@@ -1285,6 +1416,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
               </span>
               <span className="mc-dgroup right">
                 <button className={`mc-dbtn ${tool === 'scan' ? 'active' : ''}`} title="Zoom box" onClick={() => setTool(tool === 'scan' ? 'cursor' : 'scan')}><Scan size={15} /></button>
+                <button className="mc-dbtn" title={lang === 'en' ? 'Delete all' : 'Tout effacer'} onClick={clearAll}><Trash2 size={15} /></button>
               </span>
               {tool !== 'cursor' && (
                 <span className="mc-dhint"><Hand size={11} /> {tool === 'erase' ? TT(lang, 'eraseHint') : TT(lang, 'drawHint')}</span>
@@ -1317,8 +1449,36 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         <div ref={lineRef} className="mc-pline" />
         <div ref={tagRef} className="mc-ptag" />
         <div ref={tipRef} className="mc-tip" />
-        <div className="mc-tv" aria-hidden>
-          <span>TradingView</span>
+        {sel != null && tool === 'cursor' && drawings[sel] && selPosRef.current && (
+          <div className="mc-sel" style={{ left: selPosRef.current.x, top: selPosRef.current.y }}>
+            <span className="mc-sel-title">{drawings[sel].tool}</span>
+            <span className="mc-sel-colors">
+              {PALETTE.map(c => {
+                const active = (drawings[sel].color || C.draw) === c
+                return (
+                  <button
+                    key={c}
+                    className={`mc-swatch${active ? ' on' : ''}`}
+                    style={{ background: c }}
+                    onClick={() => setDrawingColor(sel, c)}
+                    title={c}
+                  />
+                )
+              })}
+            </span>
+            {drawings[sel].tool === 'text' && (
+              <button className="mc-sel-edit" onClick={() => editText(sel)}>
+                <Pencil size={12} /> {lang === 'en' ? 'Edit' : 'Éditer'}
+              </button>
+            )}
+            <button className="mc-sel-del" onClick={() => removeDrawing(sel)} title={lang === 'en' ? 'Delete' : 'Supprimer'}>
+              <Trash2 size={12} />
+            </button>
+          </div>
+        )}
+        <div className="mc-brand" aria-hidden>
+          <span className="mc-brand-dot" />
+          <span className="mc-brand-name">BLUEROCK</span>
         </div>
         {!rows.length && (
           <div className="mc-empty">—</div>
@@ -1430,6 +1590,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           color: rgba(255,255,255,0.028); font-variant-numeric: tabular-nums;
         }
         .mc-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; touch-action: none; }
+        .mc-overlay line, .mc-overlay rect, .mc-overlay circle, .mc-overlay g { touch-action: none; }
         .mc-legend {
           position: absolute; top: 10px; left: 10px; z-index: 5;
           background: rgba(0,0,0,0.88); border: 1px solid #262626;
@@ -1471,18 +1632,56 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
           transition: top 150ms ease-out, opacity 120ms ease-out;
           pointer-events: none;
         }
-        .mc-tv {
+        .mc-brand {
           position: absolute; left: 8px; bottom: 8px; z-index: 5;
-          width: 40px; height: 40px; border-radius: 50%;
-          background: #000000;
-          display: flex; align-items: center; justify-content: center;
-          opacity: 0.6; pointer-events: none;
+          display: flex; align-items: center; gap: 5px;
+          padding: 3px 8px; border-radius: 8px;
+          background: rgba(13,13,13,0.85); border: 1px solid rgba(0,82,252,0.35);
+          opacity: 0.85; pointer-events: none; user-select: none;
+          backdrop-filter: blur(6px);
         }
-        .mc-tv span {
-          color: #fff; font-size: 8px; font-weight: 700;
-          letter-spacing: 0; font-family: Inter, sans-serif;
+        .mc-brand-dot {
+          width: 7px; height: 7px; border-radius: 50%;
+          background: ${BRAND_BLUE};
+          box-shadow: 0 0 8px ${BRAND_BLUE};
+        }
+        .mc-brand-name {
+          color: #E8EEF7; font-size: 9px; font-weight: 700;
+          letter-spacing: 0.14em; font-family: Inter, sans-serif;
           white-space: nowrap;
         }
+        .mc-sel {
+          position: absolute; z-index: 8;
+          transform: translate(-50%, calc(100% + 8px));
+          display: flex; align-items: center; gap: 4px;
+          padding: 4px 6px; border-radius: 9px;
+          background: rgba(13,13,13,0.95); border: 1px solid #2A3A5C;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+          backdrop-filter: blur(8px);
+          max-width: calc(100% - 16px);
+        }
+        .mc-sel-title {
+          font-size: 9px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.05em; color: #6B7280; padding: 0 2px;
+        }
+        .mc-sel-colors { display: flex; align-items: center; gap: 3px; }
+        .mc-swatch {
+          width: 16px; height: 16px; border-radius: 50%;
+          border: 1px solid rgba(255,255,255,0.18);
+          cursor: pointer; padding: 0; flex: none;
+          transition: transform 90ms ease-out, box-shadow 90ms ease-out;
+        }
+        .mc-swatch:hover { transform: scale(1.18); }
+        .mc-swatch.on { box-shadow: 0 0 0 2px #0F0F0F, 0 0 0 3.5px #fff; }
+        .mc-sel-edit, .mc-sel-del {
+          display: flex; align-items: center; gap: 3px;
+          height: 22px; padding: 0 7px; border-radius: 6px;
+          border: 1px solid #262626; background: #0F0F0F;
+          color: #8E95A3; font-size: 10px; font-weight: 600;
+          cursor: pointer; white-space: nowrap;
+        }
+        .mc-sel-edit:hover { color: #E2E8F0; border-color: #2A3A5C; }
+        .mc-sel-del:hover { color: #F6465D; border-color: rgba(246,70,93,0.5); }
         .mc-tip {
           position: absolute; z-index: 6; width: 150px;
           background: ${C.tipBg}; border: 1px solid ${C.tipBorder};
