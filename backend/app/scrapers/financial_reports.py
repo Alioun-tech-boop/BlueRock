@@ -185,6 +185,39 @@ def _download_pdf(url: str) -> Optional[bytes]:
     return None
 
 
+def _suspect_statement(data: Dict) -> bool:
+    """Vrai si un état contient des valeurs typiques d'une mauvaise colonne
+    (références de notes 1/3/5/8 ou années 2024 stockées comme montants)."""
+    if not data:
+        return False
+    vals = [v for v in data.values() if isinstance(v, (int, float))]
+    if not vals:
+        return True
+    return min(abs(v) for v in vals) <= 10 or max(abs(v) for v in vals) < 1e4
+
+
+def _needs_ocr(extracted: Optional[Dict]) -> bool:
+    if not extracted:
+        return True
+    return any(_suspect_statement(extracted.get(k)) for k in
+               ("income_statement", "balance_sheet", "cash_flow"))
+
+
+def _ocr_extract(pdf_path: str) -> Optional[Dict]:
+    """Extraction via Tesseract (couche texte corrompue ou PDF scanné).
+    Repli COBAC pour les rapports réglementaires BCEAO/COBAC des banques."""
+    try:
+        from .brvm_ocr_extractor import BRVMOcrExtractor
+        res = BRVMOcrExtractor().extract(pdf_path)
+        if res is not None:
+            return res
+        from .cobac_extractor import extract_cobac
+        return extract_cobac(pdf_path)
+    except Exception as e:  # Tesseract absent, erreur de résolution...
+        _log.warning("Extraction OCR indisponible: %s", e)
+        return None
+
+
 def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2, on_company=None) -> Dict:
     """Télécharge et ingère les états financiers réels des sociétés. Retourne un bilan.
     on_company : callback optionnel appelé après chaque société (progression)."""
@@ -233,10 +266,27 @@ def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2,
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "uploads", f"sync_{company.symbol}_{key}_{int(time.time()*1000)}.pdf",
                 )
+                ocr_used = False
                 try:
                     with open(tmp_path, "wb") as f:
                         f.write(pdf)
-                    extracted = extractor.extract_financial_statements(tmp_path)
+                    extracted = None
+                    try:
+                        extracted = extractor.extract_financial_statements(tmp_path)
+                    except ValueError as e:
+                        _log.warning("[%s] %s extraction texte impossible, repli OCR: %s",
+                                     company.symbol, key, e)
+                    if _needs_ocr(extracted):
+                        ocr_res = _ocr_extract(tmp_path)
+                        if ocr_res:
+                            extracted = {
+                                k: dict(extracted.get(k) or {}, **ocr_res.get(k) or {})
+                                for k in ("income_statement", "balance_sheet", "cash_flow")
+                            } if extracted else ocr_res
+                            ocr_used = True
+                            _log.info("[%s] %s états réparés par OCR", company.symbol, key)
+                        elif extracted is None:
+                            raise ValueError("aucune donnée extraite (texte ni OCR)")
                 except ValueError as e:
                     company_result["skipped"].append(f"{key}: {e}")
                     continue
@@ -283,6 +333,7 @@ def sync_financials(db, symbols: Optional[List[str]] = None, max_years: int = 2,
                     "title": rep["title"][:80],
                     "statements": sum(1 for s in (stmt_income, stmt_balance, stmt_cf) if s),
                     "line_items": n_items,
+                    "ocr_repaired": ocr_used,
                     "ratios_recomputed": bool(stats and stats.get("ratios")),
                     "stats_recomputed": stats or None,
                 })

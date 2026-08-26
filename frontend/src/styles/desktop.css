@@ -2,11 +2,14 @@
    Mobile et tablette : inchangés (colonne centrée + BottomNav). */
 
 @media (min-width: 1024px) {
-  /* Nav bas de page conservée sur PC (centrée, colonne app classique) */
+  /* Nav bas de page : masquée sur PC (le dock flottant du haut suffit) */
   .bottom-nav {
-    max-width: 580px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    display: none !important;
+  }
+
+  /* Section Communauté : dock masqué (sidebar + onglets suffisent) */
+  body.community-body .bottom-nav {
+    display: none !important;
   }
 
   /* Toutes les pages occupent tout l'espace disponible */
@@ -23,10 +26,13 @@
   .wl-root .safe-area {
     max-width: none !important;
     padding-top: 80px !important;
+    padding-bottom: 28px !important;
   }
 
-  /* Chat analyste : hauteur pleine écran */
+  /* Chat analyste : hauteur pleine écran, plus de dock en bas */
   .chat-container {
     height: 100vh !important;
+    padding-bottom: 28px !important;
+    box-sizing: border-box !important;
   }
 }

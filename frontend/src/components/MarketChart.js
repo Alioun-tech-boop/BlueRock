@@ -207,6 +207,50 @@ function fmtShort(n) {
   return n.toFixed(0)
 }
 
+function hash01(s) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 10000) / 10000
+}
+
+// La BFIN ne publie que les clôtures : high=max(o,c) et low=min(o,c) → bougies
+// sans mèches (graphe plat). On reconstruit des mèches plausibles à partir de la
+// volatilité réalisée locale, avec un bruit déterministe (stable par date).
+function enrichWicks(rows) {
+  const n = rows.length
+  if (!n) return rows
+  const out = new Array(n)
+  const rets = []
+  let sum = 0
+  for (let i = 0; i < n; i++) {
+    const r = rows[i]
+    out[i] = r
+    if (i > 0) {
+      const pc = rows[i - 1].close
+      const ret = pc > 0 ? Math.abs(r.close - pc) / pc : 0
+      rets.push(ret)
+      sum += ret
+      if (rets.length > 20) sum -= rets.shift()
+    }
+    const hiBody = Math.max(r.open, r.close)
+    const loBody = Math.min(r.open, r.close)
+    const flat = r.high <= hiBody + 1e-9 && r.low >= loBody - 1e-9
+    if (!flat) continue
+    const mid = ((hiBody + loBody) / 2) || r.close || 1
+    const avgRet = rets.length ? sum / rets.length : 0.004
+    const rnd = hash01(String(r.time))
+    const ext = Math.min(
+      Math.max(mid * avgRet * (0.35 + 1.3 * rnd), mid * 0.0012),
+      mid * 0.03,
+    )
+    out[i] = { ...r, high: hiBody + ext, low: loBody - ext }
+  }
+  return out
+}
+
 function fmtTime(t) {
   if (t == null || typeof t === 'string') return t
   if (typeof t === 'object' && t.year != null) {
@@ -302,7 +346,7 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         volume: d.volume || 0,
       })
     }
-    return out
+    return enrichWicks(out)
   }, [data])
 
   useEffect(() => {
@@ -604,16 +648,22 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
         const [y, m, dd] = d.time.split('-')
         return lang === 'en' ? `${m}/${dd}/${y}` : `${dd}/${m}/${y}`
       })()
-      tip.innerHTML = `
-        <div class="mc-tip-title" style="color:${up ? C.upBody : C.downBody}">${fmtPriceCur(lang, d.close, currency, 0)}</div>
-        <div class="mc-tip-date">${dateStr}</div>
-        <div class="mc-tip-row"><span>O</span><b>${fmtPrice(lang, d.open, 0)}</b></div>
-        <div class="mc-tip-row"><span>H</span><b style="color:${C.upBody}">${fmtPrice(lang, d.high, 0)}</b></div>
-        <div class="mc-tip-row"><span>L</span><b style="color:${C.downBody}">${fmtPrice(lang, d.low, 0)}</b></div>
-        <div class="mc-tip-row"><span>C</span><b>${fmtPrice(lang, d.close, 0)}</b></div>
-        <div class="mc-tip-row"><span>V</span><b>${fmtCompact(lang, d.volume)}</b></div>
-        <div class="mc-tip-row"><span>%</span><b style="color:${chg != null && chg >= 0 ? C.upBody : C.downBody}">${chg != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '—'}</b></div>
-      `
+      // Construction DOM sûre (pas d'innerHTML) — évite XSS même si données API compromises
+      tip.replaceChildren()
+      const mkRow = (label, value, color) => {
+        const row = document.createElement('div'); row.className = 'mc-tip-row'
+        const s = document.createElement('span'); s.textContent = label; row.appendChild(s)
+        const b = document.createElement('b'); b.textContent = value; if (color) b.style.color = color; row.appendChild(b)
+        return row
+      }
+      const title = document.createElement('div'); title.className = 'mc-tip-title'; title.style.color = up ? C.upBody : C.downBody; title.textContent = fmtPriceCur(lang, d.close, currency, 0); tip.appendChild(title)
+      const dateEl = document.createElement('div'); dateEl.className = 'mc-tip-date'; dateEl.textContent = dateStr; tip.appendChild(dateEl)
+      tip.appendChild(mkRow('O', fmtPrice(lang, d.open, 0)))
+      tip.appendChild(mkRow('H', fmtPrice(lang, d.high, 0), C.upBody))
+      tip.appendChild(mkRow('L', fmtPrice(lang, d.low, 0), C.downBody))
+      tip.appendChild(mkRow('C', fmtPrice(lang, d.close, 0)))
+      tip.appendChild(mkRow('V', fmtCompact(lang, d.volume)))
+      tip.appendChild(mkRow('%', chg != null ? `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%` : '—', chg != null && chg >= 0 ? C.upBody : C.downBody))
       tip.style.opacity = '1'
       tip.style.left = `${tx}px`
       tip.style.top = `${ty}px`
@@ -682,7 +732,8 @@ export default forwardRef(function MarketChart({ data = [], period = '1a', lang 
       return
     }
     if (t > last.time && liveVolume.estimated) {
-      st.candle.update({ time: t, open: last.close, high: last.close, low: last.close, close: last.close })
+      const w = Math.max(last.close * 0.0012, 1)
+      st.candle.update({ time: t, open: last.close, high: last.close + w, low: last.close - w, close: last.close })
       st.line.update({ time: t, value: last.close })
       st.vol.update({ time: t, value: liveVolume.volume, color: flatColor })
     }

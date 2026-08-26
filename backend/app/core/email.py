@@ -92,7 +92,9 @@ def send_email(to: str, subject: str, html: str, text: str | None = None) -> boo
             if settings.SMTP_STARTTLS:
                 smtp.starttls()
                 smtp.ehlo()
-            smtp.login(settings.SMTP_USER, settings.SMTP_PASS)
+            # Gmail App Passwords sont souvent notés avec espaces pour lisibilité
+            pwd = (settings.SMTP_PASS or "").replace(" ", "")
+            smtp.login(settings.SMTP_USER, pwd)
             smtp.send_message(msg)
         logger.info("Email envoyé -> %s | %s", to, subject)
         return True
@@ -127,6 +129,18 @@ def send_notification_email(to: str, title: str, body: str) -> bool:
                 f"style=\"color:#00C853;text-decoration:none;font-weight:700\">Ouvrir mon plan &rarr;</a>"
     html = _layout(title, html_body, "BlueRock — Suivi quotidien de votre plan patrimonial")
     return send_email(to, f"BlueRock — {title}", html, body)
+
+
+def send_ai_alert_email(to: str, title: str, body: str, link: str | None = None) -> bool:
+    """Alerte Bluerock AI (décision forte ou limite de risque franchie)."""
+    href = settings.FRONTEND_URL + (link or "/ai-studio")
+    html_body = (
+        f"{body}<br/><br/>"
+        f"<a href=\"{href}\" style=\"color:#00C853;text-decoration:none;font-weight:700\">"
+        f"Ouvrir AI Studio &rarr;</a>"
+    )
+    html = _layout(title, html_body, "BlueRock AI — Environnement SIMULATION (aucune promesse de performance)")
+    return send_email(to, f"BlueRock AI — {title}", html, body)
 
 
 def send_verify_email(to: str, code: str, ttl_minutes: int) -> bool:

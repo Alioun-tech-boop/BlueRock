@@ -9,14 +9,39 @@ Convention : col1 = année la plus récente (2025), col2 = année précédente.
 """
 import os
 import re
+import shutil
 import unicodedata
+from typing import Optional
 
 import pdfplumber
 from PIL import Image, ImageOps
 import pytesseract
 
-TESS_CMD = os.environ.get("TESSERACT_CMD") or "tesseract"
+def _resolve_tesseract() -> str:
+    for cand in (os.environ.get("TESSERACT_CMD") or "",
+                 shutil.which("tesseract") or "",
+                 r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                 r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                 os.path.expanduser("~\\AppData\\Local\\Tesseract-OCR\\tesseract.exe")):
+        if cand and os.path.exists(cand):
+            return cand
+    return os.environ.get("TESSERACT_CMD") or "tesseract"
+
+
+def _resolve_tessdata() -> Optional[str]:
+    for p in (os.environ.get("TESSDATA_PREFIX"),
+              r"C:\Program Files\Tesseract-OCR\tessdata",
+              os.path.join(os.path.dirname(os.path.abspath(__file__)), "tessdata")):
+        if p and os.path.exists(os.path.join(p, "fra.traineddata")):
+            return p
+    return None
+
+
+TESS_CMD = _resolve_tesseract()
 pytesseract.pytesseract.tesseract_cmd = TESS_CMD
+_TESSDATA = _resolve_tessdata()
+if _TESSDATA:
+    os.environ.setdefault("TESSDATA_PREFIX", _TESSDATA)
 
 D = 800
 
@@ -178,6 +203,14 @@ def render(page, res=D):
     img = page.to_image(resolution=res).original.convert("L")
     img = ImageOps.autocontrast(img)
     return img, res / 72.0
+
+
+def _binarize(img, cutoff: int = 150):
+    """Niveaux de gris -> noir/blanc (les scans BCEAO ont souvent des chiffres
+    très pâles que Tesseract ignore en niveau de gris)."""
+    if img.mode != "L":
+        img = img.convert("L")
+    return img.point(lambda p: 255 if p > cutoff else 0)
 
 
 def tsv_tokens(page, res=400):
@@ -426,7 +459,10 @@ def report_anchors(page):
     if dtype is None:
         dtype = max(set(c[:3] for c in found),
                     key=lambda d: sum(1 for c in found if c.startswith(d)))
-    prefix, dtype = dtype, {"RBA": "A", "RBP": "P", "RCR": "R"}[dtype]
+    if dtype in ("RBA", "RBP", "RCR"):
+        prefix, dtype = dtype, {"RBA": "A", "RBP": "P", "RCR": "R"}[dtype]
+    else:
+        prefix = {"A": "RBA", "P": "RBP", "R": "RCR"}[dtype]
     anchors = [(c, y) for c, y in sorted(found.items(), key=lambda kv: kv[1])
                if c.startswith(prefix)]
     if len(anchors) < 5:
@@ -461,7 +497,7 @@ def extract_report_page(page):
         if bx1 <= bx0 or by1 <= by0:
             return []
         crop = img.crop((bx0, by0, bx1, by1))
-        d = pytesseract.image_to_data(crop, lang="fra",
+        d = pytesseract.image_to_data(_binarize(crop), lang="fra",
                                       config="--psm 6 -c tessedit_char_whitelist=0123456789",
                                       output_type=pytesseract.Output.DICT)
         out = []
@@ -512,13 +548,17 @@ def extract_report_page(page):
             if v1 is not None or v2 is not None:
                 found[code] = [v1, v2]
     else:
+        # Compte de résultat 'Reporting annuel' : libellés pâles illisibles, mais
+        # codes + chiffres lisibles. Valeurs = 2 colonnes (N-1 ~x490, N ~x583) à
+        # droite du code (x~390-412) ; on OCRise une bande fixe par ancrage.
+        prior_x, recent_x = 440.0, 665.0
+        split_x = 535.0
         for code, y in anchors:
             ry = y
-            bx0, by0 = max(0, int((lmax + 6) * sc)), max(0, int((ry - 9) * sc))
-            bx1, by1 = min(w, int(min(split + 110, page.width - 8) * sc)), \
-                min(h, int((ry + 11) * sc))
+            bx0, by0 = max(0, int(prior_x * sc)), max(0, int((ry - 9) * sc))
+            bx1, by1 = min(w, int(recent_x * sc)), min(h, int((ry + 11) * sc))
             crop = img.crop((bx0, by0, bx1, by1))
-            d = pytesseract.image_to_data(crop,
+            d = pytesseract.image_to_data(_binarize(crop),
                 config="--psm 6 -c tessedit_char_whitelist=0123456789",
                 output_type=pytesseract.Output.DICT)
             ts = []
@@ -530,22 +570,19 @@ def extract_report_page(page):
                     conf = int(c)
                 except (TypeError, ValueError):
                     continue
-                if conf < 30:
+                if conf < 20:
                     continue
                 yc = ry - 9 + (top + 8) / sc
                 if abs(yc - ry) <= 8:
-                    ts.append((x + bx0 + w_ / 2) / sc, t)
+                    ts.append(((x + bx0 + w_ / 2) / sc, t))
             if not ts:
                 continue
-            v1 = v2 = None
             s1 = "".join("".join(ch for ch in t if ch.isdigit())
-                         for xc, t in ts if xc < split)
+                         for xc, t in ts if xc < split_x)
             s2 = "".join("".join(ch for ch in t if ch.isdigit())
-                         for xc, t in ts if xc >= split)
-            if len(s1) >= 2:
-                v1 = int(s1)
-            if len(s2) >= 2:
-                v2 = int(s2)
+                         for xc, t in ts if xc >= split_x)
+            v1 = int(s1) if len(s1) >= 2 else None
+            v2 = int(s2) if len(s2) >= 2 else None
             if v1 is not None or v2 is not None:
                 found[code] = [v1, v2]
     if not found:
@@ -692,31 +729,33 @@ def extract_cobac(pdf_path, max_pages=6, min_codes=8):
     if not income_pages and not balance_pages:
         return None
 
-    flags = [rl for _, rl in income_pages + balance_pages + passif_pages]
-    recent_last = bool(flags) and any(flags)
-
-    def recent(pg, code):
+    def recent(pg, code, recent_last=False):
         return pg[0].get(code, [0, 0])[1 if recent_last else 0]
+
+    income_recent_last = bool(income_pages) and any(rl for _, rl in income_pages)
+    balance_recent_last = bool(balance_pages + passif_pages) and any(
+        rl for _, rl in balance_pages + passif_pages)
 
     inc = {}
     for pg in income_pages:
         for code, label in INCOME_MAP.items():
-            v = recent(pg, code)
+            v = recent(pg, code, income_recent_last)
             if v:
                 inc[label] = v
-        c4, c5 = recent(pg, "RCR_0040"), recent(pg, "RCR_0050")
+        c4, c5 = recent(pg, "RCR_0040", income_recent_last), \
+            recent(pg, "RCR_0050", income_recent_last)
         if c4:
             inc["Commissions nettes"] = c4 - c5
     if "Résultat net" not in inc:
         for pg in passif_pages:
-            v = recent(pg, "RBP_0160")
+            v = recent(pg, "RBP_0160", balance_recent_last)
             if v:
                 inc["Résultat net"] = v
                 break
     bal = {}
     for pg in balance_pages + passif_pages:
         for code, label in BALANCE_MAP.items():
-            v = recent(pg, code)
+            v = recent(pg, code, balance_recent_last)
             if v:
                 bal[label] = v
     if not inc and not bal:

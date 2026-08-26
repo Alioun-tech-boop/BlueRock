@@ -14,9 +14,11 @@ from sqlalchemy.orm import Session
 from ..models.community import (
     CommunityUser,
     CommunityPost,
+    CommunityShare,
     CommunityFollow,
     CommunityReaction,
     CommunityComment,
+    CommunityProfessional,
 )
 from ..models.market import MarketData
 from ..models.company import Company
@@ -159,8 +161,11 @@ def _deterministic(s: str, lo: int, hi: int) -> int:
 
 
 def seed_community(db: Session) -> dict:
-    if db.query(CommunityUser).filter(CommunityUser.handle == "iamkingmh").first():
-        return {"status": "skipped", "message": "Communauté déjà initialisée"}
+    # Ne reseede pas si la communauté a déjà été nettoyée (on garde seulement les vrais membres)
+    # On vérifie s'il existe déjà des posts ou des membres réels : si oui, on ne recrée pas les fictifs
+    if db.query(CommunityUser).count() > 0:
+        # Si Bluerock existe, c'est que la communauté a été initialisée et nettoyée
+        return {"status": "skipped", "message": "Communauté déjà initialisée (nettoyée)"}
 
     users: dict[str, CommunityUser] = {}
     for handle, display_name, bio, verified in PROFILES:
@@ -206,6 +211,28 @@ def seed_community(db: Session) -> dict:
         posts[(handle, symbol)] = post
     db.flush()
 
+    # Professionnels démo (Phase 2) : 2 vérifiés + 1 en attente
+    for handle, category, title, company, approved in [
+        ("iamkingmh", "analyst", "Analyste marché & chartiste", "Indépendant", True),
+        ("DiarraInvest", "fund_manager", "Gestionnaire de portefeuille", "Diarra Gestion", True),
+        ("Koffi_Value", "advisor", "Conseiller en investissement", "KVA Conseil", False),
+    ]:
+        cu = users.get(handle)
+        if cu:
+            db.add(
+                CommunityProfessional(
+                    user_id=cu.id,
+                    category=category,
+                    title=title,
+                    company=company,
+                    status="approved" if approved else "pending",
+                    reviewed_at=datetime.utcnow() if approved else None,
+                    bio_pro=cu.bio or "",
+                )
+            )
+            cu.is_pro = approved
+    db.flush()
+
     # Follows : chaque profil suit les 3 précédents (effet réseau)
     handles = list(users.keys())
     for i, handle in enumerate(handles):
@@ -239,6 +266,17 @@ def seed_community(db: Session) -> dict:
                     author_id=author.id,
                     content=comment_texts[k % len(comment_texts)],
                     created_at=(p.created_at + timedelta(hours=2 + k)) if p.created_at else None,
+                )
+            )
+    # Partages (Phase 3) : chaque post repartagé par 1 à 3 autres profils
+    for i, p in enumerate(all_posts):
+        for k in range(_deterministic(f"shares-{p.id}", 1, 4)):
+            user = users[handles[(i + k + 1) % len(handles)]]
+            db.add(
+                CommunityShare(
+                    post_id=p.id,
+                    user_id=user.id,
+                    created_at=(p.created_at + timedelta(hours=5 + k)) if p.created_at else None,
                 )
             )
 

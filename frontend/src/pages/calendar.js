@@ -4,6 +4,7 @@ import BottomNav from '../components/BottomNav'
 import TriLoader from '../components/TriLoader'
 import { getMarketCalendar } from '../services/api'
 import { t, detectLang } from '../lib/i18n'
+import DataErrorState from '../components/DataErrorState'
 import { ArrowLeft, ChevronDown, ChevronRight, BarChart3, TrendingUp, Newspaper, Briefcase } from 'lucide-react'
 
 const TYPE_KEYS = [
@@ -81,6 +82,7 @@ export default function Calendar() {
   const [periodIdx, setPeriodIdx] = useState(0)
   const [impIdx, setImpIdx] = useState(0)
   const [now, setNow] = useState(new Date())
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     const mounted = { ok: true }
@@ -90,7 +92,7 @@ export default function Calendar() {
       .finally(() => { if (mounted.ok) setLoading(false) })
     const clock = setInterval(() => setNow(new Date()), 60000)
     return () => { mounted.ok = false; clearInterval(clock) }
-  }, [])
+  }, [reload])
 
   const filtered = useMemo(() => {
     const period = PERIODS[periodIdx]
@@ -153,7 +155,7 @@ export default function Calendar() {
         </div>
 
         {error ? (
-          <div className="state-box">{t('loadError')}</div>
+          <DataErrorState lang={lang} size={150} message={t('loadError')} retry={() => setReload(x => x + 1)} />
         ) : loading ? (
           <div className="state-box"><TriLoader compact label={t('calLoading')} /></div>
         ) : groups.length === 0 ? (

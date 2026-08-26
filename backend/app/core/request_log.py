@@ -21,11 +21,26 @@ logger = logging.getLogger(__name__)
 
 def _client_ip(request):
     ip = request.client.host if request.client else "unknown"
+    cf_ip = request.headers.get("cf-connecting-ip")
+    x_real = request.headers.get("x-real-ip")
+    xff = request.headers.get("x-forwarded-for")
+    if settings.TRUST_PROXY_IPS == "*":
+        if cf_ip:
+            return cf_ip.strip()
+        if xff:
+            return xff.split(",")[0].strip() or ip
+        if x_real:
+            return x_real.strip()
+        return ip
     if settings.TRUST_PROXY_IPS:
         trusted = {p.strip() for p in settings.TRUST_PROXY_IPS.split(",") if p.strip()}
-        xff = request.headers.get("x-forwarded-for")
-        if xff and ip in trusted:
-            return xff.split(",")[0].strip() or ip
+        if ip in trusted:
+            if cf_ip:
+                return cf_ip.strip()
+            if xff:
+                return xff.split(",")[0].strip() or ip
+            if x_real:
+                return x_real.strip()
     return ip
 
 

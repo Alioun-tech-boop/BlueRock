@@ -1,0 +1,96 @@
+# =====================================================================
+# BlueRock — orchestration infra (dev / staging)
+# Prod : Postgres géré (Supabase) + Redis managé (Upstash/Elasticache)
+#        + CDN (CloudFront/Cloudflare). Voir deploy/INFRA.md.
+#
+# Démarrer :  docker compose up -d --scale api=3
+# =====================================================================
+version: "3.9"
+
+services:
+  # ---- Redis : cache partagé entre les instances API (fil, rate-limit) ----
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - allkeys-lru          # éviction LRU si pic de cache
+      - --save
+      - ""                    # pas de persistance disque (cache pur)
+      - --appendonly
+      - "no"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    networks: [bluerock]
+
+  # ---- Postgres primaire (dev). En prod = Supabase (DATABASE_URL). ----
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: bluerock
+      POSTGRES_PASSWORD: bluerock123
+      POSTGRES_DB: bluerock
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bluerock -d bluerock"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks: [bluerock]
+
+  # ---- API (horizontale). Plusieurs replicas derrière nginx. ----
+  api:
+    build: ./backend
+    environment:
+      # Local (compose). En prod, remplacer par l'URL Supabase + pooler.
+      DATABASE_URL: "postgresql://bluerock:bluerock123@db:5432/bluerock?options=-c%20statement_timeout=8000"
+      # Réplica lecture : en prod, pointer sur le read-pooler Supabase
+      # (ex. ...:6543/bluerock?options=...). Vide = tout sur DATABASE_URL.
+      DATABASE_READER_URL: ""
+      REDIS_URL: "redis://redis:6379/0"
+      CDN_BASE_URL: ""
+      SECRET_KEY: "${SECRET_KEY:?definir SECRET_KEY}"
+      FRONTEND_URL: "http://localhost:3000"
+      API_BASE_URL: "http://localhost:8000"
+      FINANCIAL_SYNC_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    expose:
+      - "8000"
+    networks: [bluerock]
+
+  # ---- nginx : TLS, gzip, proxy_cache du fil, load-balancing API ----
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks: [bluerock]
+
+volumes:
+  redis-data:
+  pg-data:
+
+networks:
+  bluerock:
+    driver: bridge

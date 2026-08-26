@@ -76,6 +76,66 @@ def persist_prices(db, prices: dict, source: str = "BRVM_LIVE", day: date = None
     return count
 
 
+def persist_history(db, bars_by_symbol: dict, source: str = "NGX_LIVE") -> int:
+    """Upsert des séries OHLC historiques {symbol: [bars]} dans MarketData.
+
+    `bars` : liste de dict {date, open?, high?, low?, close, volume?, market_cap?,
+    change_percent?}. Idempotent par (company_id, date). Ne écrase jamais une
+    séance réelle BFIN. Ignore les week-ends et les prix nuls/négatifs.
+    """
+    from ..models.company import Company
+    from ..models.market import MarketData
+
+    sym2id = {co.symbol: co.id for co in db.query(Company).all()}
+    count = 0
+    for symbol, bars in bars_by_symbol.items():
+        cid = sym2id.get(symbol)
+        if not cid or not bars:
+            continue
+        for b in bars:
+            d = b.get("date")
+            if d is None or not is_trading_day(d):
+                continue
+            close = b.get("close")
+            if close is None or close <= 0:
+                continue
+            existing = db.query(MarketData).filter(
+                MarketData.company_id == cid, MarketData.date == d
+            ).first()
+            if existing and existing.source == "BFIN":
+                continue
+            if existing:
+                if b.get("open") is not None:
+                    existing.open_price = b["open"]
+                if b.get("high") is not None:
+                    existing.high_price = b["high"]
+                if b.get("low") is not None:
+                    existing.low_price = b["low"]
+                existing.close_price = close
+                if b.get("volume") is not None:
+                    existing.volume = b["volume"]
+                if b.get("market_cap") is not None:
+                    existing.market_cap = b["market_cap"]
+                existing.change_percent = b.get("change_percent")
+                existing.source = source
+            else:
+                db.add(MarketData(
+                    company_id=cid,
+                    date=d,
+                    open_price=b.get("open"),
+                    high_price=b.get("high"),
+                    low_price=b.get("low"),
+                    close_price=close,
+                    volume=b.get("volume"),
+                    market_cap=b.get("market_cap"),
+                    change_percent=b.get("change_percent"),
+                    source=source,
+                ))
+            count += 1
+    db.commit()
+    return count
+
+
 def latest_real_session(db) -> date:
     """Dernière séance réelle connue (toute source non synthétique)."""
     from ..models.market import MarketData

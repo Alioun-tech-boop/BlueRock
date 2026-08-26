@@ -10,19 +10,37 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     DATABASE_URL: str = "postgresql://bluerock:bluerock123@localhost:5432/bluerock"
+    # Réplica lecture (optionnel). Quand il est défini, les requêtes GET
+    # chaudes (fil, post, profil) sont routées dessus pour décharger le
+    # primaire en écriture — indispensable à grande échelle. Laissé vide =
+    # tout sur DATABASE_URL (mono-instance). Le réplica doit être en
+    # streaming replication (lag sub-second) pour éviter des incohérences
+    # visibles sur les profils fraîchement créés.
+    DATABASE_READER_URL: Optional[str] = None
     # Pool SQLAlchemy : borné pour rester sous les limites du pooler Supabase
     # (max_overflow inclus). pre_ping + recycle évitent les connexions mortes
     # après idle timeout du pooler.
     SQL_POOL_SIZE: int = 5
     SQL_MAX_OVERFLOW: int = 10
     SQL_POOL_RECYCLE: int = 300
-    SECRET_KEY: str = secrets.token_hex(32)
+    # SECRET_KEY doit être injecté via .env / variable d'environnement.
+    # Aucune valeur par défaut générée à l'import (évite secret différent par worker).
+    # En DEBUG sans .env, un secret éphémère est généré avec warning (dev uniquement).
+    SECRET_KEY: str = ""
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-flash-latest"
     BRVM_BASE_URL: str = "https://www.brvm.org"
     API_BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:3000"
+    # CDN (optionnel). Quand défini, les assets statiques (builds Next.js
+    # servis par nginx) et les médias publics y sont diffusés. Le backend
+    # n'y écrit pas : c'est une préoccupation edge (nginx / CloudFront /
+    # Cloudflare) qui met en cache les réponses cachables (fil anonyme avec
+    # Cache-Control public). Laissé vide = diffusion directe nginx.
+    CDN_BASE_URL: Optional[str] = None
+    # Durée de cache (s) des assets statiques (_next/static, images) au bord.
+    STATIC_CACHE_MAX_AGE: int = 86400
     FINANCIAL_SYNC_ENABLED: bool = True  # False en dev → pas d'ingestion PDF au démarrage
 
     # Supabase (auth JWT, storage, admin API)
@@ -69,6 +87,23 @@ class Settings(BaseSettings):
     NGX_DEMO_BALANCE: float = 50_000_000
     NGX_DEMO_INVEST_LIMIT: float = 25_000_000
 
+    # Source ALTERNATIVE d'historique OHLC NGX (contourne la limite du plan Free
+    # NGN Market qui ne sert que le live). Le backfill bascule dessus
+    # automatiquement quand NGN Market renvoie PLAN_REQUIRED.
+    #  - "stooq"      : https://stooq.com CSV (sans clé) — SEULE source gratuite
+    #    qui couvre réellement la NGX (suffixe .lg). Souvent derrière un mur
+    #    anti-bot Cloudflare selon l'IP d'appel : à exécuter depuis un réseau
+    #    non filtré (ex. la machine locale de l'utilisateur).
+    #  - "twelvedata" : https://twelvedata.com API gratuite (clé requise). NOTE :
+    #    ne couvre PAS la NGX (symbol_search vide) — inutilisable pour NGX.
+    #  - "ngnmarket"  : historique natif NGN Market (nécessite un plan hobby+).
+    NGX_HISTORY_PROVIDER: str = "stooq"
+    TWELVEDATA_API_KEY: Optional[str] = None
+    # Proxy/VPN de sortie pour Stooq quand l'IP du serveur est bloquee par le
+    # mur anti-bot Cloudflare (ex. serveurs cloud). Vide = requetes directes.
+    # Format : http://user:pass@host:port ou http://host:port
+    STOOQ_PROXY_URL: Optional[str] = None
+
     # Sécurité
     ADMIN_TOKEN: Optional[str] = None
     ALLOWED_HOSTS: str = "localhost,127.0.0.1,.bluerock.ai"
@@ -92,6 +127,8 @@ class Settings(BaseSettings):
     # Abonnement Pro : prix mensuel (XOF) facturé par Stripe (mode subscription).
     SUBSCR_PRO_PRICE: float = 4900
     SUBSCR_CURRENCY: str = "XOF"
+    # Essai gratuit Pro : durée (jours) et caractère unique par compte.
+    TRIAL_DAYS: int = 30
     # URL de retour après le checkout d'abonnement (webhook confirme le passage Pro).
     SUBSCR_RETURN_URL: str = "http://localhost:3000/premium?subscribe=return"
 
@@ -148,6 +185,11 @@ class Settings(BaseSettings):
     BREVO_API_KEY: Optional[str] = None
     BREVO_API_URL: str = "https://api.brevo.com/v3"
 
+    # Alertes Bluerock AI (décisions fortes, franchissements de limites).
+    # AI_ALERT_EMAILS : destinataires séparés par des virgules (vide = in-app only).
+    AI_ALERTS_ENABLED: bool = True
+    AI_ALERT_EMAILS: str = ""
+
     # Observabilité
     # URL de ping type healthchecks.io (dead man's switch) : pinguée toutes les
     # HEARTBEAT_INTERVAL secondes ; suffixe /fail quand la DB ou Redis est KO.
@@ -160,11 +202,26 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# Secret éphémère en DEBUG si non configuré (évite crash dev, mais warning explicite)
+if not settings.SECRET_KEY:
+    if settings.DEBUG:
+        import logging as _lg
+        settings.SECRET_KEY = secrets.token_hex(32)
+        _lg.getLogger(__name__).warning(
+            "SECRET_KEY non défini — génération d'un secret éphémère (DEBUG uniquement). "
+            "Définissez SECRET_KEY dans .env pour la production/multi-worker."
+        )
+    else:
+        import logging as _lg2
+        _lg2.getLogger(__name__).critical(
+            "SECRET_KEY absent dans l'environnement de production."
+        )
+        raise RuntimeError("SECRET_KEY doit être défini (>= 32 caractères) hors mode DEBUG")
 
-if not settings.DEBUG and not (settings.SECRET_KEY and len(settings.SECRET_KEY) >= 32):
+if not settings.DEBUG and len(settings.SECRET_KEY) < 32:
     import logging
     logging.getLogger(__name__).critical(
-        "SECRET_KEY absent ou trop court dans l'environnement de production : "
+        "SECRET_KEY trop court dans l'environnement de production : "
         "les codes OTP et protections seraient invalidés à chaque redémarrage."
     )
     raise RuntimeError("SECRET_KEY doit être défini (>= 32 caractères) hors mode DEBUG")

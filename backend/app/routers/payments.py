@@ -89,13 +89,31 @@ def apply_payment_status(db: Session, order: DepositOrder,
     if not mapped:
         return
     if mapped == "accepted":
-        if not order.credited:
-            pf = db.query(Portfolio).filter(Portfolio.id == order.portfolio_id).first()
-            if pf is not None:
-                pf.balance = (pf.balance or 0) + order.amount
-                order.credited = True
-                logger.info("Paiement crédité : order=%s user=%s amount=%s",
-                            order.id, order.user_id, order.amount)
+        # Crédit UNIQUEMENT pour un dépôt réel (purpose='deposit') : les frais
+        # de défi (challenge_fee) sont gérés par l'Edge Function (inscription
+        # 'paid' + portefeuille virtuel) et ne doivent JAMAIS créditer le
+        # portefeuille de l'utilisateur.
+        if order.purpose == "deposit":
+            # Recharge l'état réel de la ligne : l'Edge (webhook ou
+            # re-vérification) a pu créditer entre-temps (credited=true).
+            db.refresh(order)
+            # Crédit atomique : une seule requête gagne le flag credited.
+            claimed = db.query(DepositOrder).filter(
+                DepositOrder.id == order.id,
+                DepositOrder.credited.is_(False),
+            ).update({"credited": True}, synchronize_session=False)
+            if claimed:
+                pf = db.query(Portfolio).filter(
+                    Portfolio.id == order.portfolio_id
+                ).with_for_update().first()
+                if pf is not None:
+                    from ..services.ledger import journal_deposit
+                    # Journalisation double entrée (idempotente) AVANT le crédit.
+                    journal_deposit(db, order.user_id, pf.id, order.amount,
+                                    order.id, currency=order.currency or "XOF")
+                    pf.balance = (pf.balance or 0) + order.amount
+                    logger.info("Paiement crédité : order=%s user=%s amount=%s",
+                                order.id, order.user_id, order.amount)
         order.status = "accepted"
         order.confirmed_at = order.confirmed_at or datetime.utcnow()
     elif order.status != "accepted":
@@ -189,14 +207,22 @@ def create_deposit(req: DepositRequest, request: Request,
         raise
     db.commit()
     db.refresh(order)
+    from ..services.audit import audit
+    audit(db, "deposit_requested", "deposit_order", resource_id=order.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None,
+          meta={"amount": req.amount, "currency": pf.currency})
     return {"mode": "payment",
             "payment_url": data["url"], "order": _order_payload(order)}
 
 
 @router.post("/orders/{order_id}/verify")
-def verify_deposit(order_id: int, user: User = Depends(get_current_user),
+def verify_deposit(order_id: int, request: Request,
+                   user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     """Re-vérifie un ordre auprès de Stripe (appelé au retour du checkout)."""
+    check_rate_limit(request, limit=10, window_seconds=60)
     order = db.query(DepositOrder).filter(
         DepositOrder.id == order_id, DepositOrder.user_id == user.id
     ).first()
@@ -212,6 +238,13 @@ def verify_deposit(order_id: int, user: User = Depends(get_current_user),
     apply_payment_status(db, order,
                          "ACCEPTED" if paid else "PENDING",
                          meta=info)
+    from ..services.audit import audit
+    audit(db, "deposit_confirmed" if paid else "deposit_checked",
+          "deposit_order", resource_id=order.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None,
+          meta={"paid": paid, "amount": order.amount})
     db.commit()
     db.refresh(order)
     pf = db.query(Portfolio).filter(Portfolio.id == order.portfolio_id).first()

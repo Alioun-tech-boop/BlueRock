@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -8,9 +9,12 @@ from ..core.rate_limit import check_rate_limit
 from ..database import get_db
 from ..models.user import User, Position, Order, Portfolio, UserPortfolio
 from ..models.company import Company
-from ..models.market import MarketData
+from ..models.market import MarketData, Dividend
+from ..models.dividend import DividendPayment
+from ..services.dividend_engine import run_dividend_engine
 from ..models.planning import PremiumPlan
 from ..services.broker_sync import broker_ref_for, sync_broker_account
+from ..scrapers.live_feed import live_feed
 from .auth import get_current_user
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
@@ -45,19 +49,32 @@ def _portfolio_query(db: Session, user_id: int):
     return db.query(Portfolio).filter(Portfolio.id.in_(ids))
 
 
-def demo_capacity_used(db: Session, user_id: int, currency: str = "XOF") -> float:
+def demo_capacity_used(db: Session, user_id: int, currency: str = "XOF", for_update: bool = False) -> float:
     """Montant investi = valeur d'achat des positions + ordres d'achat en attente,
-    limité aux comptes de la devise donnée."""
-    pf_currency = {p.id: p.currency for p in
-                   db.query(Portfolio).filter(Portfolio.currency == currency).all()}
-    pos_total = db.query(Position).filter(Position.user_id == user_id).all()
-    invested = sum((p.qty or 0) * (p.avg_price or 0)
-                   for p in pos_total if p.qty > 0 and pf_currency.get(p.portfolio_id) == currency)
-    pending_buys = db.query(Order).filter(
-        Order.user_id == user_id, Order.side == "buy", Order.status == "pending"
-    ).all()
-    invested += sum((o.qty or 0) * (o.limit_price or o.price or 0)
-                    for o in pending_buys if pf_currency.get(o.portfolio_id) == currency)
+    limité aux comptes de la devise donnée. for_update=True verrouille les lignes pour TOCTOU."""
+    # Ne charge que les portfolios de l'utilisateur (pas tous ceux de la devise — fuite + perf)
+    user_pids = set(_user_portfolio_ids(db, user_id))
+    if not user_pids:
+        return 0.0
+    pf_query = db.query(Portfolio).filter(Portfolio.id.in_(user_pids), Portfolio.currency == currency)
+    pf_currency = {p.id: p.currency for p in pf_query.all()}
+    # Filtre portfolios de la devise
+    valid_pids = {pid for pid, cur in pf_currency.items() if cur == currency}
+    if not valid_pids:
+        return 0.0
+    pos_q = db.query(Position).filter(Position.user_id == user_id, Position.portfolio_id.in_(valid_pids))
+    if for_update:
+        pos_q = pos_q.with_for_update()
+    pos_total = pos_q.all()
+    invested = sum((p.qty or 0) * (p.avg_price or 0) for p in pos_total if p.qty > 0)
+    ord_q = db.query(Order).filter(
+        Order.user_id == user_id, Order.portfolio_id.in_(valid_pids),
+        Order.side == "buy", Order.status == "pending"
+    )
+    if for_update:
+        ord_q = ord_q.with_for_update()
+    pending_buys = ord_q.all()
+    invested += sum((o.qty or 0) * (o.limit_price or o.price or 0) for o in pending_buys)
     return invested
 
 
@@ -151,26 +168,27 @@ def _portfolio_out(db: Session, pf: Portfolio) -> dict:
 
 
 class OrderRequest(BaseModel):
-    symbol: str = Field(min_length=1, max_length=12)
-    side: str  # buy | sell
-    qty: float = Field(gt=0)
-    price: float = Field(gt=0)
-    order_type: str = "market"  # market | limit
-    limit_price: float | None = None
-    take_profit: float | None = None
-    stop_loss: float | None = None
+    symbol: str = Field(min_length=1, max_length=12, pattern=r"^[A-Za-z0-9._\-]+$")
+    side: str = Field(pattern=r"^(buy|sell)$")
+    qty: float = Field(gt=0, le=1_000_000)
+    price: float = Field(gt=0, le=1_000_000_000)
+    order_type: str = Field(default="market", pattern=r"^(market|limit)$")
+    limit_price: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    take_profit: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    stop_loss: float | None = Field(default=None, gt=0, le=1_000_000_000)
+    valid_until: datetime | None = None
     account_id: int | None = None
 
 
 class AccountRequest(BaseModel):
-    name: str | None = None
-    type: str = "demo"  # demo | real
-    broker_name: str | None = None
-    currency: str | None = None  # XOF (BRVM) | NGN (NGX)
+    name: str | None = Field(default=None, max_length=60)
+    type: str = Field(default="demo", pattern=r"^(demo|real)$")
+    broker_name: str | None = Field(default=None, max_length=80)
+    currency: str | None = Field(default=None, max_length=8)
 
 
 class AmountRequest(BaseModel):
-    amount: float = Field(gt=0)
+    amount: float = Field(gt=0, le=1_000_000_000)
 
 
 class NameRequest(BaseModel):
@@ -204,6 +222,7 @@ def _order_out(o: Order):
         "broker_ref": o.broker_ref,
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "executed_at": o.executed_at.isoformat() if o.executed_at else None,
+        "valid_until": o.valid_until.isoformat() if o.valid_until else None,
     }
 
 
@@ -275,6 +294,10 @@ def _execute(db: Session, user_id: int, portfolio_id: int | None, symbol: str, s
             pos.qty = remaining
             pos_out = _position_out(pos)
         if portfolio:
+            from ..services.ledger import journal_investment
+            journal_investment(db, user_id, portfolio.id, symbol, "sell",
+                               qty, px, order.id if order else 0,
+                               currency=portfolio.currency or "XOF")
             portfolio.balance = (portfolio.balance or 0) + qty * px
     else:
         if portfolio and (portfolio.balance or 0) < qty * px - 1e-9:
@@ -289,6 +312,10 @@ def _execute(db: Session, user_id: int, portfolio_id: int | None, symbol: str, s
         pos.qty = total_qty
         pos_out = _position_out(pos)
         if portfolio:
+            from ..services.ledger import journal_investment
+            journal_investment(db, user_id, portfolio.id, symbol, "buy",
+                               qty, px, order.id if order else 0,
+                               currency=portfolio.currency or "XOF")
             portfolio.balance = (portfolio.balance or 0) - qty * px
 
     db.flush()
@@ -354,6 +381,34 @@ def list_accounts(user: User = Depends(get_current_user), db: Session = Depends(
     return {"accounts": [_portfolio_out(db, a) for a in portfolios]}
 
 
+@router.get("/dividends")
+def list_dividends(account_id: int | None = None, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Versements de dividendes RÉELS crédités sur ce portefeuille."""
+    portfolio = _portfolio_by_id(db, user.id, account_id)
+    pays = db.query(DividendPayment).filter(
+        DividendPayment.user_id == user.id,
+        DividendPayment.portfolio_id == portfolio.id
+    ).order_by(DividendPayment.payment_date.desc()).all()
+
+    return {
+        "dividends": [{
+            "symbol": p.symbol,
+            "name": p.company.name if p.company else p.symbol,
+            "fiscal_year": p.fiscal_year,
+            "dividend_per_share": p.dividend_per_share,
+            "shares": p.shares,
+            "amount": p.amount,
+            "currency": p.currency,
+            "ex_date": None,
+            "payment_date": p.payment_date.isoformat() if p.payment_date else None,
+            "credited_at": p.credited_at.isoformat() if p.credited_at else None,
+        } for p in pays],
+        "total": round(sum(p.amount for p in pays), 2),
+        "currency": portfolio.currency or "XOF"
+    }
+
+
 @router.post("/accounts")
 def create_account(req: AccountRequest, user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
@@ -374,6 +429,15 @@ def create_account(req: AccountRequest, user: User = Depends(get_current_user),
                             detail=f"Nombre maximum de comptes atteint ({MAX_ACCOUNTS})")
     if acc_type == "real" and not req.broker_name:
         raise HTTPException(status_code=422, detail="Un courtier est requis pour un compte réel")
+    if acc_type == "real":
+        from ..config import settings
+        from ..services.kyc_flow import kyc_verified
+        if settings.FEATURE_KYC_ENABLED and not kyc_verified(db, user.id):
+            raise HTTPException(
+                status_code=403,
+                detail="Votre identité n'est pas encore vérifiée. Terminez la vérification KYC "
+                       "(page Vérification) avant de créer un compte réel.",
+            )
     name = (req.name or "").strip()
     if not name:
         name = req.broker_name or ("Compte réel" if acc_type == "real" else
@@ -408,11 +472,19 @@ def rename_account(account_id: int, req: NameRequest, user: User = Depends(get_c
 
 
 @router.post("/accounts/{account_id}/deposit")
-def deposit_account(account_id: int, req: AmountRequest, user: User = Depends(get_current_user),
+def deposit_account(account_id: int, req: AmountRequest, request: Request,
+                    user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
     pf = _portfolio_by_id(db, user.id, account_id)
+    pf = db.query(Portfolio).filter(Portfolio.id == pf.id).with_for_update().first()
     if req.amount < 0:
         raise HTTPException(status_code=422, detail="Le montant doit être positif")
+    if pf.type == "real":
+        raise HTTPException(
+            status_code=403,
+            detail="Les comptes réels sont approvisionnés uniquement via un dépôt sécurisé "
+                   "(page Paiement) — dépôt direct refusé.",
+        )
     limit = _invest_limit_for(pf.currency or "XOF")
     if pf.type == "demo" and (pf.balance or 0) + req.amount > limit + 1e-9:
         raise HTTPException(
@@ -421,6 +493,16 @@ def deposit_account(account_id: int, req: AmountRequest, user: User = Depends(ge
                    f"{limit:,.0f} {_currency_label(pf.currency)} (solde actuel "
                    f"{(pf.balance or 0):,.0f} {_currency_label(pf.currency)})",
         )
+    from ..services.ledger import journal_deposit
+    journal_deposit(db, user.id, pf.id, req.amount,
+                    f"demo:{pf.id}:{int(time.time()*1000)}",
+                    currency=pf.currency or "XOF")
+    from ..services.audit import audit
+    audit(db, "demo_deposit", "portfolio", resource_id=pf.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None,
+          meta={"amount": req.amount, "currency": pf.currency})
     pf.balance = (pf.balance or 0) + req.amount
     db.commit()
     db.refresh(pf)
@@ -428,13 +510,25 @@ def deposit_account(account_id: int, req: AmountRequest, user: User = Depends(ge
 
 
 @router.post("/accounts/{account_id}/withdraw")
-def withdraw_account(account_id: int, req: AmountRequest, user: User = Depends(get_current_user),
+def withdraw_account(account_id: int, req: AmountRequest, request: Request,
+                     user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     pf = _portfolio_by_id(db, user.id, account_id)
+    pf = db.query(Portfolio).filter(Portfolio.id == pf.id).with_for_update().first()
     if req.amount > (pf.balance or 0) + 1e-9:
         raise HTTPException(status_code=422,
                             detail=f"Retrait supérieur au solde disponible "
                                    f"({(pf.balance or 0):,.0f} {_currency_label(pf.currency)})")
+    from ..services.ledger import journal_withdraw
+    journal_withdraw(db, user.id, pf.id, req.amount,
+                     f"demo:{pf.id}:{int(time.time()*1000)}",
+                     currency=pf.currency or "XOF")
+    from ..services.audit import audit
+    audit(db, "withdraw", "portfolio", resource_id=pf.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None,
+          meta={"amount": req.amount, "currency": pf.currency})
     pf.balance = (pf.balance or 0) - req.amount
     db.commit()
     db.refresh(pf)
@@ -526,6 +620,9 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
         raise HTTPException(status_code=422, detail="order_type doit être market ou limit")
 
     portfolio = _portfolio_by_id(db, user.id, req.account_id)
+    # Verrou pessimiste : deux achats concurrents ne peuvent pas dépasser
+    # simultanément la capacité ou le solde du compte.
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio.id).with_for_update().first()
 
     # Garde-fou devise : un compte XOF ne peut pas acheter/vendre des titres
     # NGX (₦) et inversement.
@@ -566,7 +663,8 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
                 detail="Votre identité n'est pas encore vérifiée. Terminez la vérification KYC "
                        "(page Vérification) avant d'acheter des titres."
             )
-        used = demo_capacity_used(db, user.id, pf_currency)
+        # TOCTOU: capacité vérifiée DANS la transaction verrouillée (FOR UPDATE sur positions/orders)
+        used = demo_capacity_used(db, user.id, pf_currency, for_update=True)
         total = used + req.qty * exec_px
         if total > _invest_limit_for(pf_currency) + 1e-9:
             remaining = max(_invest_limit_for(pf_currency) - used, 0)
@@ -584,6 +682,22 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
                        f"Déposez des fonds pour continuer."
             )
 
+    market_open = live_feed.in_market_hours()
+    place_pending = (order_type == "limit") or (not market_open)
+
+    # Ordre enregistré en "pending" : exécution automatique à l'ouverture
+    # (ou au croisement du cours pour un ordre à cours limité). On valide tout
+    # de même qu'une vente est réalisable pour ne pas créer d'ordre impossible.
+    if place_pending and side == "sell":
+        pos = db.query(Position).filter(
+            Position.user_id == user.id, Position.portfolio_id == portfolio.id,
+            Position.symbol == symbol
+        ).with_for_update().first()
+        if not pos or pos.qty <= 0:
+            raise HTTPException(status_code=409, detail="Vente refusée : vous ne détenez pas cette action")
+        if req.qty > pos.qty + 1e-9:
+            raise HTTPException(status_code=409, detail="Quantité insuffisante en portefeuille")
+
     order = Order(
         user_id=user.id,
         portfolio_id=portfolio.id,
@@ -593,18 +707,22 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
         price=exec_px,
         order_type=order_type,
         limit_price=req.limit_price if order_type == "limit" else None,
-        status="pending" if order_type == "limit" else "executed",
+        valid_until=req.valid_until,
+        status="pending" if place_pending else "executed",
         take_profit=req.take_profit,
         stop_loss=req.stop_loss,
         broker_ref=broker_ref_for(portfolio) if portfolio.broker_client_id else None,
     )
     db.add(order)
+    # Flush pour obtenir order.id avant journal_investment / audit (autoflush=False).
+    db.flush()
 
-    if order_type == "limit":
+    if place_pending:
         sync_broker_account(db, portfolio)
         db.commit()
         return {"ok": True, "status": "pending", "side": side, "symbol": symbol, "qty": req.qty,
-                "price": exec_px, "order_id": order.id, "position": None}
+                "price": exec_px, "order_id": order.id, "position": None,
+                "executes_at_open": not market_open}
 
     pos = db.query(Position).filter(
         Position.user_id == user.id, Position.portfolio_id == portfolio.id,
@@ -644,6 +762,13 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
             pos.stop_loss = req.stop_loss or pos.stop_loss
 
     sync_broker_account(db, portfolio)
+    from ..services.audit import audit
+    audit(db, "order_placed", "order", resource_id=order.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None,
+          meta={"symbol": symbol, "side": side, "qty": req.qty, "price": exec_px,
+                "order_type": order_type, "portfolio_id": portfolio.id})
     db.commit()
     pos = db.query(Position).filter(
         Position.user_id == user.id, Position.portfolio_id == portfolio.id,

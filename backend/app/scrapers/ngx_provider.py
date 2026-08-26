@@ -73,6 +73,10 @@ def normalize_company(raw: dict) -> dict:
     }
 
 
+class PlanRequired(Exception):
+    """Le plan actuel (Free) ne permet pas l'historique ; un plan hobby+ est requis."""
+
+
 class NGNMarketClient:
     """Client HTTP de l'API NGN Market (résilient, jamais bloquant)."""
 
@@ -151,6 +155,124 @@ class NGNMarketClient:
 
         logger.info(f"NGN Market API : {len(out)} sociétés reçues ({page} page(s))")
         return out
+
+    # ----- historique (plan hobby+) -----
+
+    def fetch_history(self, symbol: str, period: str = "1Y", interval: str = "1d") -> list[dict]:
+        """Série de prix historiques OHLC d'une société NGX.
+
+        Nécessite un plan hobby+ (le plan Free renvoie 403 PLAN_REQUIRED).
+        Retourne [] si aucune donnée exploitable, et lève PlanRequired si le
+        plan courant ne donne pas accès à l'historique.
+        """
+        if not self.configured:
+            logger.warning("NGN Market API : clé absente — historique NGX indisponible")
+            return []
+
+        try:
+            resp = httpx.get(
+                f"{self.base_url}/companies/{symbol}",
+                headers=self._headers(),
+                params={"period": period, "interval": interval},
+                timeout=30.0, follow_redirects=True,
+            )
+        except Exception as e:
+            logger.warning(f"NGN Market API : fetch history {symbol} failed ({e})")
+            return []
+
+        if resp.status_code == 401:
+            logger.warning("NGN Market API : clé invalide ou révoquée (401)")
+            return []
+        if resp.status_code == 403:
+            code = ""
+            try:
+                code = (resp.json().get("error") or {}).get("code", "")
+            except Exception:
+                pass
+            if code == "PLAN_REQUIRED":
+                raise PlanRequired(f"plan Free insuffisant pour l'historique NGX ({symbol})")
+            logger.warning(f"NGN Market API : 403 sur historique {symbol} ({code})")
+            return []
+        if resp.status_code >= 400:
+            logger.warning(f"NGN Market API : {resp.status_code} sur historique {symbol}")
+            return []
+
+        try:
+            payload = resp.json()
+        except Exception:
+            return []
+        return _extract_bars(payload, symbol)
+
+
+def _extract_bars(payload, symbol: str) -> list[dict]:
+    """Trouve une liste de bougies OHLC dans une réponse de forme inconnue
+    (l'enveloppe et le nom du champ historique varient selon l'API NGN Market).
+    Scan récursif : on récupère toutes les listes de l'objet et on garde la
+    première dont les éléments sont des bougies (date + close)."""
+    lists: list = []
+
+    def walk(o):
+        if isinstance(o, list):
+            lists.append(o)
+            for it in o:
+                walk(it)
+        elif isinstance(o, dict):
+            for v in o.values():
+                walk(v)
+
+    walk(payload)
+    for arr in lists:
+        if not arr or not isinstance(arr[0], dict):
+            continue
+        bars = [normalize_history_item(it) for it in arr if isinstance(it, dict)]
+        bars = [b for b in bars if b.get("date") and b.get("close") is not None]
+        if bars:
+            # deduplique par date (au cas ou plusieurs listes se recoupent)
+            seen = set()
+            uniq = []
+            for b in bars:
+                if b["date"] in seen:
+                    continue
+                seen.add(b["date"])
+                uniq.append(b)
+            logger.info(f"NGN Market API : {len(uniq)} bougies historiques pour {symbol}")
+            return uniq
+    return []
+
+
+def normalize_history_item(raw: dict) -> dict:
+    """Normalise une bougie historique (date + open/high/low/close + volume)."""
+    date_val = _pick(raw, "date", "trading_date", "timestamp", "time", "datetime", "day")
+    parsed = None
+    if date_val:
+        s = str(date_val)
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ", "%d/%m/%Y"):
+            try:
+                from datetime import datetime
+                parsed = datetime.strptime(s[:len(fmt) + 2] if fmt.endswith("Z") else s[:19], fmt.split("T")[0] if "T" not in fmt else fmt).date()
+                break
+            except Exception:
+                continue
+    if parsed is None:
+        try:
+            from datetime import datetime
+            parsed = datetime.fromtimestamp(float(date_val)).date() if isinstance(date_val, (int, float)) else None
+        except Exception:
+            parsed = None
+
+    def _px(*ks):
+        return _to_float(_pick(raw, *ks))
+
+    return {
+        "date": parsed,
+        "open": _px("open", "open_price", "o"),
+        "high": _px("high", "high_price", "h"),
+        "low": _px("low", "low_price", "l"),
+        "close": _px("close", "close_price", "last_price", "price", "c"),
+        "volume": _px("volume", "traded_volume", "vol"),
+        "market_cap": _px("market_cap", "market_capitalization"),
+        "change_percent": _px("change_percent", "change_pct", "change", "pct_change"),
+    }
 
 
 def make_client() -> NGNMarketClient:

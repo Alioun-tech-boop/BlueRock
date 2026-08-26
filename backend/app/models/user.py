@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, func, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, func, Text, Numeric, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from ..database import Base
@@ -25,6 +25,7 @@ class User(Base):
     # Vérification email
     # Abonnement : tier (basic | pro) + tokens IA (allocation mensuelle).
     tier = Column(String, default="basic", nullable=False)  # basic | pro
+    trial_ends_at = Column(DateTime, nullable=True)  # fin d'essai gratuit Pro (une seule fois par compte)
     ai_tokens_remaining = Column(Integer, default=50, nullable=False)
     ai_tokens_reset_at = Column(DateTime, nullable=True)
     stripe_customer_id = Column(String, nullable=True)
@@ -35,6 +36,17 @@ class User(Base):
     email_verify_expires = Column(DateTime, nullable=True)
     email_verify_attempts = Column(Integer, default=0, nullable=False)
     email_verify_sent_at = Column(DateTime, nullable=True)
+
+    # RBAC : user | analyst | support | compliance | security | admin | super_admin
+    role = Column(String, default="user", nullable=False, index=True)
+    # Bannissement plateforme (admin) : si renseigné, toutes les API
+    # nécessitant un token actif sont refusées à l'utilisateur.
+    banned_at = Column(DateTime(timezone=True), nullable=True)
+    banned_reason = Column(String(255), nullable=True)
+    # Invalidation de session : tout JWT émis AVANT cette borne est rejeté.
+    # Mis à jour au logout (global) et aux changements sensibles du compte.
+    session_valid_from = Column(DateTime(timezone=True),
+                                server_default=func.now(), nullable=False)
 
     # 2FA TOTP
     totp_secret = Column(String, nullable=True)
@@ -74,9 +86,13 @@ class Portfolio(Base):
     broker_name = Column(String, nullable=True)
     broker_client_id = Column(Integer, ForeignKey("broker_client_accounts.id"),
                               nullable=True, index=True)  # compte courtier lié
-    balance = Column(Float, default=0, nullable=False)  # liquidités FCFA
+    balance = Column(Numeric(18, 2), default=0, nullable=False)  # liquidités FCFA — Numeric évite erreurs d'arrondi
     is_default = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("balance >= 0", name="ck_portfolio_balance_non_negative"),
+    )
 
     user_portfolios = relationship("UserPortfolio", back_populates="portfolio",
                                    cascade="all, delete-orphan")
@@ -130,10 +146,15 @@ class Position(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=True, index=True)
     symbol = Column(String, nullable=False, index=True)
-    qty = Column(Float, default=0)
-    avg_price = Column(Float, default=0)
-    take_profit = Column(Float, nullable=True)
-    stop_loss = Column(Float, nullable=True)
+    qty = Column(Numeric(18, 4), default=0)  # quantité — 4 décimales pour fractionnel
+    avg_price = Column(Numeric(18, 2), default=0)
+    take_profit = Column(Numeric(18, 2), nullable=True)
+    stop_loss = Column(Numeric(18, 2), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("qty >= 0", name="ck_position_qty_non_negative"),
+        CheckConstraint("avg_price >= 0", name="ck_position_avgprice_non_negative"),
+    )
 
     user = relationship("User", back_populates="positions")
 
@@ -146,16 +167,17 @@ class Order(Base):
     portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=True, index=True)
     symbol = Column(String, nullable=False, index=True)
     side = Column(String, nullable=False)  # buy | sell
-    qty = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
+    qty = Column(Numeric(18, 4), nullable=False)
+    price = Column(Numeric(18, 2), nullable=False)
     order_type = Column(String, nullable=False, default="market")  # market | limit | take_profit | stop_loss
-    limit_price = Column(Float, nullable=True)
+    limit_price = Column(Numeric(18, 2), nullable=True)
     status = Column(String, nullable=False, default="executed")  # executed | pending | cancelled
-    take_profit = Column(Float, nullable=True)
-    stop_loss = Column(Float, nullable=True)
+    take_profit = Column(Numeric(18, 2), nullable=True)
+    stop_loss = Column(Numeric(18, 2), nullable=True)
     plan_id = Column(Integer, ForeignKey("premium_plans.id"), nullable=True, index=True)
     broker_ref = Column(String, nullable=True, index=True)  # référence d'ordre côté courtier
     executed_at = Column(DateTime, nullable=True)
+    valid_until = Column(DateTime, nullable=True)  # expiration des ordres à cours limité
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="orders")

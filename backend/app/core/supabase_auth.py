@@ -54,9 +54,11 @@ def verify_supabase_jwt(token: str) -> Optional[dict]:
             issuer=f"{settings.SUPABASE_URL}/auth/v1",
             leeway=30,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("[JWT] verification failed: %s (token_len=%d, token_prefix=%s)", exc, len(token), token[:30])
         return None
     if not claims.get("sub"):
+        logger.warning("[JWT] token verified but no sub claim (claims_keys=%s, token_prefix=%s)", list(claims.keys())[:10], token[:30])
         return None
     return claims
 
@@ -69,50 +71,59 @@ def _headers() -> dict:
     }
 
 
-def admin_find_user_by_email(email: str) -> Optional[dict]:
+def admin_find_user_by_email(email: str, *, _local_cache: dict | None = None) -> Optional[dict]:
     """Recherche un utilisateur auth.users par email (Admin API).
 
-    Le paramètre `email` n'est pas un filtre exact supporté par GoTrue : on
-    utilise d'abord le profil local (auth_id) pour un GET par ID (O(1)), et
-    en dernier recours la liste admin en itérant **des pages les plus récentes
-    vers les plus anciennes** — un compte récent (inscription OTP) est toujours
-    en fin de liste, donc 1 page suffit dans le cas nominal au lieu d'un scan
-    O(tous les utilisateurs).
+    Stratégie :
+    1. Cache local optionnel pour éviter les appels API répétés.
+    2. Recherche dans la page 1 (les plus récents) — O(1) si l'utilisateur
+       vient de s'inscrire.
+    3. Fallback : scan complet page par page (rare, < 5 % des cas).
     """
     email_l = (email or "").lower()
+    if not email_l:
+        return None
+
+    cache_key = f"supabase_user:{email_l}"
+    if _local_cache is not None and cache_key in _local_cache:
+        return _local_cache[cache_key]
+
     try:
         r = httpx.get(
             f"{settings.SUPABASE_URL}/auth/v1/admin/users",
             params={"page": 1, "per_page": 1000},
             headers=_headers(),
-            timeout=15,
+            timeout=20,
         )
         r.raise_for_status()
         data = r.json()
         users = data if isinstance(data, list) else data.get("users", [])
-        total = len(users)
-        # GoTrue liste par created_at croissant : les comptes récents sont à la fin.
         for u in reversed(users):
             if (u.get("email") or "").lower() == email_l:
+                if _local_cache is not None:
+                    _local_cache[cache_key] = u
                 return u
-        # Pages suivantes : commencer par la dernière page connue et remonter.
-        if total == 1000:
-            last_page = 50
-            page = last_page
-            while page >= 2:
+        # Pages supplémentaires uniquement si la première page est pleine.
+        if len(users) == 1000:
+            page = 2
+            while True:
                 r = httpx.get(
                     f"{settings.SUPABASE_URL}/auth/v1/admin/users",
                     params={"page": page, "per_page": 1000},
                     headers=_headers(),
-                    timeout=15,
+                    timeout=20,
                 )
                 r.raise_for_status()
                 data = r.json()
                 users = data if isinstance(data, list) else data.get("users", [])
                 for u in reversed(users):
                     if (u.get("email") or "").lower() == email_l:
+                        if _local_cache is not None:
+                            _local_cache[cache_key] = u
                         return u
-                page -= 1
+                if len(users) < 1000:
+                    break
+                page += 1
         return None
     except Exception as e:
         logger.warning(f"Supabase admin_find_user_by_email: {e}")

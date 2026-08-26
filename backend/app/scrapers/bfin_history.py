@@ -207,10 +207,12 @@ def _process_chunk(session_maker, companies: Dict[str, int], chunk: List[str],
 
 def sync_history(db, delay: float = 0.7, start_date: Optional[str] = None,
                  on_progress=None, existing_dates: Optional[set] = None,
-                 workers: int = 1) -> Dict:
+                 workers: int = 1, refresh_last: int = 0) -> Dict:
     """Importe l'historique complet dans market_data (source BFIN).
     workers > 1 : téléchargement en parallèle (1 session DB + 1 client HTTP par worker).
-    Retourne {fetched, inserted, updated, skipped, errors}."""
+    refresh_last : toujours re-traiter les N dernières séances, même déjà
+    importées (les volumes BFIN sont publiés en fin de journée et peuvent
+    être rafraîchis). Retourne {fetched, inserted, updated, skipped, errors}."""
     from ..models.company import Company
     from ..models.market import MarketData
     from ..database import SessionLocal
@@ -231,11 +233,20 @@ def sync_history(db, delay: float = 0.7, start_date: Optional[str] = None,
         dates = [d for d in dates if d >= start_date]
 
     if existing_dates is None:
+        # Une séance n'est « déjà importée » que si au moins une ACTION y a
+        # été enregistrée (source BFIN). Une journée ne contenant que des
+        # obligations ne doit pas bloquer le re-traitement des actions.
         existing_dates = {
             d.isoformat().replace("-", "")
-            for (d,) in db.query(MarketData.date).filter(MarketData.source == "BFIN").distinct()
+            for (d,) in db.query(MarketData.date)
+            .join(Company, MarketData.company_id == Company.id)
+            .filter(Company.instrument_type == "equity",
+                    MarketData.source == "BFIN")
+            .distinct()
         }
     todo = [d for d in dates if d not in existing_dates]
+    if refresh_last > 0:
+        todo = sorted(set(todo) | set(dates[-refresh_last:]))
 
     stats = {"fetched": 0, "inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
     start = time.time()

@@ -66,19 +66,33 @@ def _parse_winners(c: Challenge) -> list:
         return []
 
 
-def _community_handles(db: Session, user_ids: list[int]) -> dict[int, tuple[str, str]]:
-    """Handle + couleur par user_id, en 2 requêtes max (bulk)."""
+def _community_handles(db: Session, user_ids: list[int]) -> dict[int, tuple[str, str, str | None]]:
+    """Handle + couleur + photo (avatar data:image) par user_id, en 3 requêtes max (bulk)."""
     if not user_ids:
         return {}
-    handles: dict[int, tuple[str, str]] = {}
-    for cu in db.query(CommunityUser).filter(CommunityUser.user_id.in_(user_ids)).all():
-        handles[cu.user_id] = (cu.handle, cu.avatar_color)
+    handles: dict[int, tuple[str, str, str | None]] = {}
+    cu_rows = db.query(CommunityUser).filter(CommunityUser.user_id.in_(user_ids)).all()
+    cu_ids = [cu.user_id for cu in cu_rows]
+    photos: dict[int, str | None] = {}
+    if cu_ids:
+        for u in db.query(User).filter(User.id.in_(cu_ids)).all():
+            photos[u.id] = u.avatar if u.avatar and u.avatar.startswith("data:image/") else None
+    for cu in cu_rows:
+        handles[cu.user_id] = (cu.handle, cu.avatar_color, photos.get(cu.user_id))
     missing = [uid for uid in user_ids if uid not in handles]
     if missing:
         for u in db.query(User).filter(User.id.in_(missing)).all():
-            name = (u.name or u.email.split("@")[0]) if u else f"user{u.id}"
-            handles[u.id] = (name, "#7266D9")
+            name = u.name or (u.email or "").split("@")[0] or f"user{u.id}"
+            photo = u.avatar if u.avatar and u.avatar.startswith("data:image/") else None
+            handles[u.id] = (name, "#7266D9", photo)
     return handles
+
+
+def _avatar_for(handle: str, color: str, photo: str | None) -> str:
+    """Photo uploadée si disponible, sinon avatar généré par défaut."""
+    if photo:
+        return photo
+    return AVATAR_URL.format(handle=handle.replace(" ", "_"), color=(color or "#7266D9").lstrip("#"))
 
 
 def _cash_account(db: Session, user_id: int) -> Portfolio | None:
@@ -328,9 +342,9 @@ def _sparkline(db: Session, entry: ChallengeEntry, prices: dict[str, float], lim
 
 
 class ChallengeOrderRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=20)
+    symbol: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9._\-]+$")
     side: str = Field(..., pattern="^(buy|sell)$")
-    qty: float = Field(..., gt=0)
+    qty: float = Field(..., gt=0, le=1_000_000)
 
 
 def _challenge_out(db: Session, c: Challenge, current: User | None = None, now: datetime | None = None) -> dict:
@@ -429,11 +443,11 @@ def leaderboard(
     rows = []
     for entry in entries:
         perf = perfs[entry.id]
-        handle, color = handles.get(entry.user_id, (f"user{entry.user_id}", "#7266D9"))
+        handle, color, photo = handles.get(entry.user_id, (f"user{entry.user_id}", "#7266D9", None))
         rows.append({
             "user_id": entry.user_id,
             "handle": handle,
-            "avatar": AVATAR_URL.format(handle=handle.replace(" ", "_"), color=color.lstrip("#")),
+            "avatar": _avatar_for(handle, color, photo),
             "perf": perf["perf"],
             "value": perf["value"],
             "cash": perf["cash"],
@@ -759,7 +773,7 @@ def challenge_user_profile(
     if not entry:
         raise HTTPException(status_code=404, detail="Ce participant n'est pas inscrit au défi")
     prices = _latest_prices(db)
-    handle, color = _community_handles(db, [target_user_id])[target_user_id]
+    handle, color, photo = _community_handles(db, [target_user_id])[target_user_id]
     perf = _entry_perf(db, entry, prices)
     _record_snapshot(db, entry, perf["value"])
     db.commit()
@@ -779,7 +793,7 @@ def challenge_user_profile(
     return {
         "user_id": target_user_id,
         "handle": handle,
-        "avatar": AVATAR_URL.format(handle=handle.replace(" ", "_"), color=color.lstrip("#")),
+        "avatar": _avatar_for(handle, color, photo),
         "joined_at": entry.joined_at.isoformat() if entry.joined_at else None,
         "rank": rank,
         "is_me": bool(user and user.id == target_user_id),
