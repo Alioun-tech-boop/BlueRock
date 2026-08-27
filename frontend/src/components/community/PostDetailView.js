@@ -499,12 +499,9 @@ export default function PostDetailView({ p, lang, me, onDeleted, embedded = fals
         /* --- Composer collé au-dessus du dock (comme ça reste accessible) --- */
         .co-pv-composer {
           display: flex; gap: 9px; align-items: center; margin-top: 2px;
-          position: sticky; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); z-index: 40;
-          padding: 8px; border-radius: 18px;
-          background: rgba(12, 12, 15, .82); backdrop-filter: blur(22px) saturate(1.4);
-          -webkit-backdrop-filter: blur(22px) saturate(1.4);
-          border: 1px solid rgba(255, 255, 255, .1);
-          box-shadow: 0 16px 44px -18px rgba(0, 0, 0, .85);
+          padding: 8px 12px; border-radius: 18px;
+          background: rgba(12, 12, 15, .82); border: 1px solid rgba(255, 255, 255, .1);
+          box-shadow: 0 8px 28px -10px rgba(0, 0, 0, .65);
         }
         .co-pv-input {
           flex: 1; background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .12);

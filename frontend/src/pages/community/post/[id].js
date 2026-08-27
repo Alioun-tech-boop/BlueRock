@@ -114,7 +114,7 @@ export default function CommunityPostPage() {
           padding: 18px max(16px, env(safe-area-inset-left)) calc(96px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-right));
         }
         @media (max-width: 767px) {
-          .co-doc { height: calc(100vh / 0.95); height: calc(100dvh / 0.95); }
+          .co-doc { height: 100vh; height: 100dvh; }
         }
         @media (min-width: 1024px) {
           .co-doc-bar { padding: 14px calc(50% - 340px + 14px); }
