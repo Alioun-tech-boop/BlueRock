@@ -301,10 +301,6 @@ export default function Company() {
   const openTrade = (side) => {
     if (!full) return
     setMcNote(marketOpen ? '' : t(lang, 'marketClosedPending'))
-    if (!user) {
-      router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
-      return
-    }
     setTrade(side)
     setTradeQty(1)
     setTradePrice(price?.current != null ? String(price.current) : '')
@@ -318,9 +314,17 @@ export default function Company() {
     setTradeErr('')
     setSending(false)
     setOwned(0)
-    getPosition(full.company.symbol, getActiveAccountId(user))
-      .then(r => setOwned(r.data?.qty || 0))
-      .catch(() => {})
+    if (user) {
+      getPosition(full.company.symbol, getActiveAccountId(user))
+        .then(r => setOwned(r.data?.qty || 0))
+        .catch(() => {})
+    } else {
+      try {
+        const { getGuestPositions } = require('../lib/guestPortfolio')
+        const gp = getGuestPositions()[full.company.symbol]
+        setOwned(gp?.qty || 0)
+      } catch {}
+    }
   }
 
   const closeTrade = () => setTrade(null)
@@ -342,6 +346,25 @@ export default function Company() {
       : null
     setSending(true)
     setTradeErr('')
+    if (!user) {
+      // invité : exécution locale
+      import('../lib/guestPortfolio').then(({ guestPlaceOrder, getGuestPositions }) => {
+        try {
+          const res = guestPlaceOrder({ symbol: full.company.symbol, side: trade, qty, price: execPx, order_type: tradeType, limit_price: tradeType==='limit'?execPx:null, take_profit: tpV, stop_loss: slV, valid_until: validUntil })
+          setSending(false)
+          const pending = res.status === 'pending'
+          setTradeMsg(t(lang, pending ? 'orderExecutesOpen' : 'tradePlaced'))
+          if (!pending) {
+            const gp = getGuestPositions()[full.company.symbol]
+            setOwned(gp?.qty || 0)
+          }
+        } catch (err) {
+          setSending(false)
+          setTradeErr(err.message || t(lang, 'tradeFailed'))
+        }
+      })
+      return
+    }
     placeOrder({
       symbol: full.company.symbol,
       side: trade,

@@ -859,6 +859,35 @@ def on_startup():
 
             scheduler.add_job(_live_job, "interval", seconds=30, id="brvm_live", replace_existing=True)
             logger.info("BRVM live feed scheduled (every 30s during market hours)")
+            # Flush ordres en attente exactement à l'ouverture (09:00 UTC) — garantit exécution auto
+            try:
+                from apscheduler.triggers.cron import CronTrigger
+                def _market_open_flush():
+                    token = _job_guard("market_open_flush", 120)
+                    if token is None:
+                        return
+                    try:
+                        # s'assurer que le flux a un prix frais
+                        try: live_feed.refresh(force=True)
+                        except Exception: pass
+                        from .database import SessionLocal
+                        from .services.order_engine import run_order_engine
+                        db = SessionLocal()
+                        try:
+                            res = run_order_engine(db)
+                            if res["limit"] or res["tp_sl"] or res["cancelled"]:
+                                logger.info("Market open flush: %d exécutés, %d TP/SL, %d annulés", res["limit"], res["tp_sl"], res["cancelled"])
+                        finally:
+                            db.close()
+                    except Exception as e:
+                        logger.warning(f"Market open flush error: {e}")
+                    finally:
+                        store.release_lock("job:market_open_flush", token)
+                scheduler.add_job(_market_open_flush, CronTrigger(hour=9, minute=0, second=5), id="market_open_flush", replace_existing=True)
+                scheduler.add_job(_market_open_flush, CronTrigger(day_of_week="mon-fri", hour=9, minute=0, second=10), id="market_open_flush_wd", replace_existing=True)
+                logger.info("Market open flush scheduled (09:00 UTC daily)")
+            except Exception as e:
+                logger.warning(f"Could not schedule market open flush: {e}")
         except Exception as e:
             logger.warning(f"Could not start live feed scheduler: {e}")
 

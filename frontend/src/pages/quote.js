@@ -256,10 +256,7 @@ export default function Quote() {
 
   const openOrder = (side) => {
     setMarketNote(liveInfo && liveInfo.market_open === false ? t(lang, 'marketClosedPending') : '')
-    if (side === 'buy' && !user) {
-      router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
-      return
-    }
+    // Invité autorisé : ordre local, sinon redirection login supprimée pour conserver portefeuille hors connexion
     setOrderQty(side === 'sell' ? String(position?.qty ?? 1) : '100')
     setOrderUnlimited(true)
     setOrderValidUntil('')
@@ -269,10 +266,6 @@ export default function Quote() {
 
   const executeOrder = async () => {
     if (orderModal !== 'buy' && orderModal !== 'sell') return
-    if (!user) {
-      router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
-      return
-    }
     const qty = parseFloat(orderQty)
     if (!qty || qty <= 0 || !company || !price) return
     const execPx = orderType === 'limit' ? parseFloat(orderLimit) : price
@@ -292,6 +285,22 @@ export default function Quote() {
       ? new Date(orderValidUntil).toISOString()
       : null
     try {
+      if (!user) {
+        const { guestPlaceOrder } = await import('../lib/guestPortfolio')
+        const res = guestPlaceOrder({ symbol, side: orderModal, qty, price: execPx, order_type: orderType, limit_price: orderType==='limit'?execPx:null, take_profit: tpV, stop_loss: slV, valid_until: validUntil })
+        if (res.status==='pending') setMarketNote(t(lang, 'orderExecutesOpen'))
+        // guest position mise à jour localement
+        try {
+          const { getGuestPositions } = await import('../lib/guestPortfolio')
+          const gp = getGuestPositions()[symbol]
+          if (gp) setPosition({ symbol, qty: gp.qty, avg_price: gp.avgPrice })
+        } catch {}
+        // rafraîchir liste ordres invité via getGuestOrders si besoin
+        setOrderModal(null)
+        setOrderQty('100'); setOrderLimit(''); setTp(''); setSl(''); setOrderType('market'); setOrderErr('')
+        setFlash(orderModal === 'buy' ? 'up' : 'down'); setTimeout(()=>setFlash(null),1500)
+        return
+      }
       const res = await placeOrder({
         symbol,
         side: orderModal,

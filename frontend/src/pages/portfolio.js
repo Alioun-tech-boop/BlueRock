@@ -17,6 +17,7 @@ import {
 import { detectLang, t } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import { getActiveAccountId, setActiveAccountId as persistActiveAccountId, clearActiveAccountId, getPortfolioKey, migrateAnonPortfolioToUser } from '../lib/accounts'
+import { getGuestState, saveGuestState, getGuestPositions, getGuestOrders, isMarketOpen, guestTick, guestDeposit, guestWithdraw } from '../lib/guestPortfolio'
 
 const PORT_KEY = 'bluerock_portfolio_v1'
 
@@ -149,8 +150,18 @@ export default function Portfolio() {
   useEffect(() => {
     if (authLoading) return
     if (!user) {
-      setPositions({})
-      setOrders([])
+      // Mode invité : portefeuille 100% local, fonctionne hors connexion
+      try {
+        const g = getGuestState()
+        const pos = {}
+        Object.entries(g.positions || {}).forEach(([sym, p]) => { if (p.qty>0) pos[sym]={ qty:p.qty, avgPrice:p.avgPrice, take_profit:p.take_profit, stop_loss:p.stop_loss } })
+        setPositions(pos)
+        setOrders((g.orders||[]).slice(0,100))
+        const invested = Object.values(pos).reduce((s,p)=>s+p.qty*(p.avgPrice||0),0)
+        const guestAcc = { id: 0, name: 'Compte invité', type: 'demo', currency: 'XOF', balance: g.balance||10000000, invested: Math.round(invested), position_count: Object.keys(pos).length, is_default:true }
+        setAccounts([guestAcc])
+        setAccount(guestAcc)
+      } catch { setPositions({}); setOrders([]) }
       setLoading(false)
       return
     }
@@ -205,6 +216,48 @@ export default function Portfolio() {
     load()
     return () => { cancelled = true }
   }, [user, authLoading, migrated, activeAccountId])
+
+  // Guest : exécution auto des ordres en attente à l'ouverture (BRVM 9h-17h30 UTC)
+  useEffect(() => {
+    if (user || authLoading) return
+    let cancelled = false
+    const tickGuest = async () => {
+      try {
+        let pxMap = {}
+        try {
+          const live = await getCompanies({ instrument_type: 'equity', limit: 300 }).then(r=>r.data.companies||[]).catch(()=>[])
+          // on utilise les prix courants des stocks déjà chargés si live indisponible
+        } catch {}
+        // tenter live feed pour prix temps réel
+        try {
+          const { getMarketLive: gml } = await import('../services/api')
+          const live = await gml().catch(()=>null)
+          const prices = live?.data?.prices || {}
+          Object.entries(prices).forEach(([k,v]) => { if (v && v.price!=null) pxMap[k]=v.price })
+        } catch {}
+        // fallback : prix des stocks courants
+        if (Object.keys(pxMap).length===0 && stocks.length) {
+          stocks.forEach(s => { if (s.current_price!=null) pxMap[s.symbol]=s.current_price })
+        }
+        if (!Object.keys(pxMap).length) return
+        const before = JSON.stringify(getGuestState())
+        const changed = guestTick(pxMap)
+        if (changed && !cancelled) {
+          const g = getGuestState()
+          const pos = {}
+          Object.entries(g.positions||{}).forEach(([sym,p]) => { if(p.qty>0) pos[sym]={ qty:p.qty, avgPrice:p.avgPrice, take_profit:p.take_profit, stop_loss:p.stop_loss } })
+          setPositions(pos)
+          setOrders((g.orders||[]).slice(0,100))
+          const invested = Object.values(pos).reduce((s,p)=>s+p.qty*(p.avgPrice||0),0)
+          const guestAcc = { id:0, name:'Compte invité', type:'demo', currency:'XOF', balance:g.balance||10000000, invested: Math.round(invested), position_count:Object.keys(pos).length, is_default:true }
+          setAccounts([guestAcc]); setAccount(guestAcc)
+        }
+      } catch {}
+    }
+    tickGuest()
+    const id = setInterval(tickGuest, 30000)
+    return () => { cancelled=true; clearInterval(id) }
+  }, [user, authLoading, stocks])
 
   // Retour de paiement Stripe (?pay=return) : on re-vérifie l'ordre le plus
   // récent auprès du backend, qui crédite le solde si le paiement est accepté.
@@ -326,6 +379,21 @@ export default function Portfolio() {
   }, [tab, activeAccountId])
 
   const refreshPortfolio = (accId = activeAccountId) => {
+    if (!user) {
+      // guest : recharger depuis local
+      try {
+        const g = getGuestState()
+        const pos = {}
+        Object.entries(g.positions||{}).forEach(([sym,p])=>{ if(p.qty>0) pos[sym]={ qty:p.qty, avgPrice:p.avgPrice } })
+        setPositions(pos)
+        setOrders((g.orders||[]).slice(0,100))
+        const invested = Object.values(pos).reduce((s,p)=>s+p.qty*(p.avgPrice||0),0)
+        const guestAcc = { id:0, name:'Compte invité', type:'demo', currency:'XOF', balance:g.balance||10000000, invested: Math.round(invested), position_count:Object.keys(pos).length, is_default:true }
+        setAccounts([guestAcc]); setAccount(guestAcc)
+      } catch {}
+      setLoading(false)
+      return
+    }
     setLoading(true)
     getPortfolio(accId).then(res => {
       const pos = {}
@@ -382,6 +450,15 @@ export default function Portfolio() {
     setAccBusy(true)
     setMoneyErr('')
     try {
+      if (!user) {
+        // Invité : dépôt/retrait local immédiat
+        try {
+          if (moneyModal.mode === 'deposit') guestDeposit(amt)
+          else guestWithdraw(amt)
+          setMoneyModal(null); setMoneyAmt(''); refreshPortfolio()
+        } catch (err) { setMoneyErr(err.message) }
+        return
+      }
       // Compte réel relié à une SGI : le dépôt passe par Stripe (checkout).
       if (moneyModal.mode === 'deposit' && moneyModal.account.type === 'real') {
         const accName = moneyModal.account.name
@@ -404,13 +481,17 @@ export default function Portfolio() {
       setMoneyAmt('')
       refreshPortfolio()
     } catch (e) {
-      setMoneyErr(e.response?.data?.detail || t(lang, 'loadError'))
+      setMoneyErr(e.response?.data?.detail || e.message || t(lang, 'loadError'))
     } finally {
       setAccBusy(false)
     }
   }
 
   const submitCreate = async () => {
+    if (!user) {
+      setAccErr(t(lang, 'authRequiredSub') || 'Connectez-vous pour créer plusieurs comptes')
+      return
+    }
     if (accounts.length >= 5) { setAccErr(t(lang, 'accMaxAccounts')); return }
     if (createType === 'real') { setCreateOpen(false); router.push('/compte-titre'); return }
     setAccBusy(true)
@@ -487,6 +568,15 @@ export default function Portfolio() {
       ? new Date(sellValidUntil).toISOString()
       : null
     try {
+      if (!user) {
+        // invité : ordre local avec exécution auto à l'ouverture
+        const { guestPlaceOrder } = await import('../lib/guestPortfolio')
+        const res = guestPlaceOrder({ symbol: sellPos.symbol, side:'sell', qty, price:px, order_type:sellType, limit_price: sellType==='limit'?px:null, take_profit:tpV, stop_loss:slV, valid_until: validUntil })
+        if (res.status==='pending') setSellInfo(t(lang, 'ordPendingOpen'))
+        else setSellPos(null)
+        refreshPortfolio()
+        return
+      }
       const r = await placeOrder({
         symbol: sellPos.symbol,
         side: 'sell',
@@ -507,7 +597,7 @@ export default function Portfolio() {
         refreshPortfolio()
       }
     } catch (e) {
-      setSellErr(e.response?.data?.detail || t(lang, 'loadError'))
+      setSellErr(e.response?.data?.detail || e.message || t(lang, 'loadError'))
     } finally {
       setSellBusy(false)
     }
@@ -588,7 +678,7 @@ export default function Portfolio() {
       )}
 
       <div className="safe-area">
-        {user && (
+        {accounts.length>0 && (
           <div className="pf-accbar">
             {accounts.map(a => (
               <button
@@ -634,7 +724,7 @@ export default function Portfolio() {
           ))}
         </div>
 
-        {user && !loading && (
+        {!loading && (
           <div className="pf-money-cards">
             <button
               className="pf-money-card deposit"
@@ -679,13 +769,6 @@ export default function Portfolio() {
 
         {loading ? (
           <div className="loading-row"><TriLoader compact /></div>
-        ) : !user ? (
-          <EmptyState
-            title={t(lang, 'authRequired')}
-            sub={t(lang, 'authRequiredSub')}
-            btn={t(lang, 'authLogin')}
-            onClick={() => router.push(`/login?next=${encodeURIComponent(router.asPath)}`)}
-          />
         ) : tab === 'positions' ? (
           positionList.length ? (
             !stocksReady ? (
