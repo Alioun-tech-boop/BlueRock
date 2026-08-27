@@ -10,9 +10,21 @@ jamais une image : on ne l'utilise donc jamais directement comme logo.
 """
 import os
 
-LOGO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "logos")
-
 FALLBACK_COLORS = ["0b2545", "16375f", "224b7a", "2e5f95", "3a73b0"]
+
+def _resolve_logo_dir():
+    # Supporte les deux emplacements : backend/static/logos (dev) et backend/app/static/logos (Docker)
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.path.join(base, "static", "logos"),
+        os.path.join(base, "app", "static", "logos"),
+    ]
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    return candidates[0]
+
+LOGO_DIR = _resolve_logo_dir()
 
 _LOGO_BY_SYMBOL = None
 

@@ -1248,7 +1248,17 @@ def on_shutdown():
     if scheduler.running:
         scheduler.shutdown()
 
-static_dir = os.path.join(os.path.dirname(__file__), "static")
+def _resolve_static_dir():
+    cand = [
+        os.path.join(os.path.dirname(__file__), "static"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "static"),
+    ]
+    for p in cand:
+        if os.path.isdir(p):
+            return p
+    return cand[0]
+
+static_dir = _resolve_static_dir()
 if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

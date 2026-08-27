@@ -370,7 +370,7 @@ export default function Quote() {
               <div className="q-pair">
                 <div className="q-logo-fallback">{company.logo_url ? (
                   <img
-                    crossOrigin="anonymous" src={company.logo_url} alt={company.symbol} className="q-logo-img"
+                    src={company.logo_url} alt={company.symbol} className="q-logo-img"
                     onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                     onError={onLogoError}
                   />

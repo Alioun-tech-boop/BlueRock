@@ -12,7 +12,7 @@ export default function CompanyCard({ company }) {
       <div className="card-header">
         {company.logo_url ? (
           <img
-            crossOrigin="anonymous" src={company.logo_url} alt="" className="card-logo"
+            src={company.logo_url} alt="" className="card-logo"
             onLoad={e => applyLogoBackground(e.currentTarget, e.currentTarget)}
             onError={onLogoError}
           />

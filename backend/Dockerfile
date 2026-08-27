@@ -25,6 +25,7 @@ COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.
 COPY --from=deps /usr/local/bin /usr/local/bin
 
 COPY app ./app
+COPY static ./static
 COPY requirements.txt ./
 
 RUN useradd -m -u 10001 appuser \

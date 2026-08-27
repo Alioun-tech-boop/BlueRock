@@ -261,7 +261,7 @@ function AddSheet({ lang, favorites, onToggle, onClose }) {
                         <div className="add-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
                           {s.logo_url ? (
                             <img
-                              crossOrigin="anonymous" src={s.logo_url} alt={s.symbol}
+                              src={s.logo_url} alt={s.symbol}
                               onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                               onError={onLogoError}
                             />
@@ -799,7 +799,7 @@ export default function Watchlist() {
                   <div className="wl-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
                     {s.logo_url ? (
                       <img
-                        crossOrigin="anonymous" src={s.logo_url} alt={s.symbol}
+                        src={s.logo_url} alt={s.symbol}
                         onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                         onError={onLogoError}
                       />

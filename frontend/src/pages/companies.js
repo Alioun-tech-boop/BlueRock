@@ -176,7 +176,7 @@ export default function Companies() {
                 <div className="stock-logo" style={{ background: `hsl(${(s.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
                   {s.logo_url ? (
                     <img
-                      crossOrigin="anonymous" src={s.logo_url} alt={s.symbol} className="stock-logo-img"
+                      src={s.logo_url} alt={s.symbol} className="stock-logo-img"
                       onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                       onError={onLogoError}
                     />

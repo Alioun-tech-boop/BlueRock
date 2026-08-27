@@ -536,7 +536,7 @@ export default function Explorer() {
                 <div className="topflop-header top">Top 5 <span className="tf-badge">BRVM</span></div>
                 {gainers.map((s, i) => (
                   <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                    <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                    <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                     <span className="tf-symbol">{s.symbol}</span>
                     <span className="tf-price">{fmt(s.close_price, lang, 'XOF')}</span>
                     <span className="tf-chg up">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
@@ -547,7 +547,7 @@ export default function Explorer() {
                 <div className="topflop-header flop">Flop 5 <span className="tf-badge">BRVM</span></div>
                 {losers.map((s, i) => (
                   <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                    <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                    <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                     <span className="tf-symbol">{s.symbol}</span>
                     <span className="tf-price">{fmt(s.close_price, lang, 'XOF')}</span>
                     <span className="tf-chg down">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
@@ -564,7 +564,7 @@ export default function Explorer() {
                     <div className="topflop-header top">Top 5 <span className="tf-badge ngx">NGX</span></div>
                     {ngxGainers.map((s, i) => (
                       <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                        <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                        <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                         <span className="tf-symbol">{s.symbol}</span>
                         <span className="tf-price">{fmt(s.close_price, lang, 'NGN')}</span>
                         <span className="tf-chg up">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
@@ -575,7 +575,7 @@ export default function Explorer() {
                     <div className="topflop-header flop">Flop 5 <span className="tf-badge ngx">NGX</span></div>
                     {ngxLosers.map((s, i) => (
                       <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                        <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                        <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                         <span className="tf-symbol">{s.symbol}</span>
                         <span className="tf-price">{fmt(s.close_price, lang, 'NGN')}</span>
                         <span className="tf-chg down">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
@@ -613,7 +613,7 @@ export default function Explorer() {
               <div className="topflop-header top">Top 5</div>
               {gainers.map((s, i) => (
                 <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                  <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                  <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                   <span className="tf-symbol">{s.symbol}</span>
                   <span className="tf-price">{fmt(s.close_price, lang, 'XOF')}</span>
                   <span className="tf-chg up">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>
@@ -624,7 +624,7 @@ export default function Explorer() {
               <div className="topflop-header flop">Flop 5</div>
               {losers.map((s, i) => (
                 <div key={i} className="topflop-row" onClick={() => router.push(`/quote?symbol=${s.symbol}`)}>
-                  <span className="tf-logo">{s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
+                  <span className="tf-logo">{s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}</span>
                   <span className="tf-symbol">{s.symbol}</span>
                   <span className="tf-price">{fmt(s.close_price, lang, 'XOF')}</span>
                   <span className="tf-chg down">{s.change_percent >= 0 ? '+' : ''}{s.change_percent?.toFixed(2)}%</span>

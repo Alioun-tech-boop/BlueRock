@@ -739,7 +739,7 @@ export default function Portfolio() {
                       <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
                         {p.stock?.logo_url ? (
                           <img
-                            crossOrigin="anonymous" src={p.stock.logo_url} alt={p.symbol}
+                            src={p.stock.logo_url} alt={p.symbol}
                             onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                             onError={onLogoError}
                           />

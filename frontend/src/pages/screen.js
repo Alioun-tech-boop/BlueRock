@@ -131,7 +131,7 @@ export default function Screen() {
             <div key={s.company_id || idx} className="result-row" onClick={() => router.push(`/company?id=${s.company_id}`)}>
               <div className="rr-rank">{idx + 1}</div>
               <div className="rr-logo">
-                {s.logo_url ? <img crossOrigin="anonymous" src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}
+                {s.logo_url ? <img src={s.logo_url} alt="" onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)} onError={onLogoError} /> : null}
               </div>
               <div className="rr-symbol">{s.symbol}</div>
               <div className="rr-info">

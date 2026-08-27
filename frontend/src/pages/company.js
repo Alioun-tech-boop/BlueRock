@@ -556,7 +556,7 @@ export default function Company() {
           <div className="hero-logo-wrap">
             {company.logo_url ? (
               <img
-                crossOrigin="anonymous" src={company.logo_url} alt={company.symbol} className="hero-logo"
+                src={company.logo_url} alt={company.symbol} className="hero-logo"
                 onLoad={e => applyLogoBackground(e.currentTarget.parentElement, e.currentTarget)}
                 onError={onLogoError}
               />

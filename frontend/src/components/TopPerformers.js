@@ -12,7 +12,7 @@ export default function TopPerformers({ performers = [] }) {
           <div className="flex items-center gap-2">
             {p.logo_url ? (
               <img
-                crossOrigin="anonymous" src={p.logo_url} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'contain', background: '#ffffff' }}
+                src={p.logo_url} alt="" style={{ width: 20, height: 20, borderRadius: 4, objectFit: 'contain', background: '#ffffff' }}
                 onLoad={e => applyLogoBackground(e.currentTarget, e.currentTarget)}
                 onError={onLogoError}
               />
