@@ -132,6 +132,7 @@ function Pie({ slices, size = 150 }) {
 export default function Company() {
   const router = useRouter()
   const { id } = router.query
+  const { user } = useAuth()
   const [lang, setLang] = useState('fr')
   const [full, setFull] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -260,8 +261,6 @@ export default function Company() {
       setImpErr(e.response?.data?.detail || e.message)
     }
   }
-
-  const { user } = useAuth()
 
   const toggleFavorite = () => {
     if (!full) return
