@@ -7,6 +7,7 @@ import { Search, ArrowLeft, Star, FileText, Lock } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import { useAuth } from '../lib/auth'
+import DataErrorState from '../components/DataErrorState'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -144,10 +145,7 @@ export default function Companies() {
         </div>
 
         {error && (
-          <div className="error-bar">
-            <span>{t(lang, 'loadError')}</span>
-            <button onClick={fetchData}>{t(lang, 'tryAgain')}</button>
-          </div>
+          <DataErrorState lang={lang} size={140} message={t(lang, 'loadError')} retry={fetchData} />
         )}
 
         <div className="stock-list">

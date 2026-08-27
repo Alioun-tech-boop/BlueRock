@@ -1,10 +1,19 @@
 let cached = {}
+const MAX_CACHE = 300
+function cacheSet(k, v) {
+  if (Object.keys(cached).length >= MAX_CACHE) {
+    const first = Object.keys(cached)[0]
+    delete cached[first]
+  }
+  cached[k] = v
+}
 
 export function onLogoError(e) {
   const img = e.currentTarget
   if (img.crossOrigin) {
     img.crossOrigin = null
-    img.src = img.src
+    // Re-tente sans CORS (évite SecurityError canvas)
+    try { img.src = img.src } catch {}
   } else {
     img.style.display = 'none'
   }
@@ -15,7 +24,7 @@ export function applyLogoBackground(container, img) {
   if (!img.complete || !img.naturalWidth) return
   const url = img.src
   if (cached[url]) {
-    if (cached[url] === 'none') img.style.display = 'none'
+    if (cached[url] === 'none') return
     else container.style.background = cached[url]
     return
   }
@@ -24,6 +33,7 @@ export function applyLogoBackground(container, img) {
     c.width = 32
     c.height = 32
     const ctx = c.getContext('2d', { willReadFrequently: true })
+    if (!ctx) throw new Error('no ctx')
     ctx.drawImage(img, 0, 0, 32, 32)
     const d = ctx.getImageData(0, 0, 32, 32).data
     let opaque = 0
@@ -34,8 +44,8 @@ export function applyLogoBackground(container, img) {
       sumL += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
     }
     if (opaque < 8) {
-      cached[url] = 'none'
-      img.style.display = 'none'
+      // Logo quasi-transparent: pas de fond, on garde transparent plutôt que masquer
+      cacheSet(url, 'none')
       return
     }
     const lum = sumL / opaque
@@ -53,9 +63,10 @@ export function applyLogoBackground(container, img) {
       else if (cLum > 170) bg = '#ffffff'
       else bg = lum < 120 ? '#121212' : '#ffffff'
     }
-    cached[url] = bg
+    cacheSet(url, bg)
     container.style.background = bg
   } catch (e) {
-    container.style.background = '#ffffff'
+    // SecurityError (CORS) → fond neutre dark plutôt que blanc illisible
+    container.style.background = 'rgba(255,255,255,0.06)'
   }
 }

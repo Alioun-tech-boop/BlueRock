@@ -8,6 +8,7 @@ import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 import { getUnreadCount } from '../services/api'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import DataErrorState from '../components/DataErrorState'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -475,11 +476,13 @@ export default function Watchlist() {
       // Offre Basic = BRVM seule ; NGX est réservé à l'offre Pro.
       setStocks(isPro ? all : all.filter(s => (s.exchange || 'BRVM') !== 'NGX'))
       setError(false)
-      if (typeof localStorage !== 'undefined' && localStorage.getItem(FAV_KEY) === null) {
+      const favRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(FAV_KEY) : null
+      const hasFav = favRaw !== null && JSON.parse(favRaw || '[]').length > 0
+      if (!hasFav) {
         const top = [...(e.data.companies || [])]
           .filter((s) => s.instrument_type === 'equity')
           .sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0))
-          .slice(0, 10)
+          .slice(0, 15)
           .map((s) => s.symbol)
         if (top.length) {
           setFavorites(top)
@@ -647,10 +650,7 @@ export default function Watchlist() {
         </div>
 
         {error && (
-          <div className="error-bar">
-            <span>{t(lang, 'loadError')}</span>
-            <button onClick={() => fetchData()}>{t(lang, 'tryAgain')}</button>
-          </div>
+          <DataErrorState lang={lang} size={140} message={t(lang, 'loadError')} retry={() => fetchData()} />
         )}
 
         <main className="wl-list">

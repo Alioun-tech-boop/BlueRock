@@ -368,6 +368,7 @@ export default function AuthPage() {
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
 
+  const [privacyOk, setPrivacyOk] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -407,11 +408,17 @@ export default function AuthPage() {
       const msg = err?.message || err?.error_description || err?.code || err?.name || ''
       if (/otp|verif|confirm|unverified/i.test(msg)) {
         setVerifyType('email')
-        setInfo(t(lang, 'authEmailSent'))
         setStep(STEPS.verifyEmail)
-        // Compte non vérifié → envoie directement le code à 6 chiffres
-        // (l'email Supabase de confirmation ne sert pas ici).
-        sendOtpEmail(email.trim(), 'verify').catch((err) => setError(err?.message || err?.error_description || t(lang, 'authError')))
+        try {
+          const otpRes = await sendOtpEmail(email.trim(), 'verify')
+          if (otpRes?.already_confirmed) {
+            setInfo(t(lang, 'authAlreadyConfirmed'))
+          } else {
+            setInfo(t(lang, 'authEmailSent'))
+          }
+        } catch (err) {
+          setError(err?.message || err?.error_description || t(lang, 'authError'))
+        }
       } else {
         setError(msg || t(lang, 'authInvalid'))
       }
@@ -421,6 +428,10 @@ export default function AuthPage() {
   const submitRegister = async (e) => {
     e.preventDefault()
     setError(null); setInfo(null)
+    if (!privacyOk) {
+      setError(lang === 'fr' ? 'Veuillez lire et approuver la politique de confidentialité.' : 'Please read and approve the privacy policy.')
+      return
+    }
     if (password !== confirmPassword) {
       setError(t(lang, 'authPasswordsMismatch'))
       return
@@ -440,24 +451,45 @@ export default function AuthPage() {
         return
       }
       setVerifyType('signup')
-      setInfo(t(lang, 'authEmailSent'))
       setStep(STEPS.verifyEmail)
-      // Envoie immédiatement le code à 6 chiffres : le mail Supabase de
-      // confirmation ne contient qu'un lien (sans code) — inutilisable ici.
-      sendOtpEmail(email.trim(), 'verify').catch((err) => setError(err?.message || err?.error_description || t(lang, 'authError')))
+      // Backend a déjà envoyé le code via Brevo/SMTP (bluerock.africa@gmail.com)
+      if (res?.status === 'pending_verification') {
+        if (res?.cooldown) setInfo(t(lang, 'authCodeSentAgain'))
+        else setInfo(t(lang, 'authEmailSent'))
+      } else {
+        setInfo(t(lang, 'authEmailSent'))
+      }
     } catch (err) {
-      setError(err?.message || t(lang, 'authError'))
+      const detail = err?.response?.data?.detail || err?.message || t(lang, 'authError')
+      if (err?.response?.status === 409) {
+        setError(detail)
+        setTimeout(() => go(STEPS.login), 2000)
+      } else {
+        setError(detail)
+      }
     } finally { setBusy(false) }
   }
 
   const resend = async () => {
     setBusy(true); setError(null); setInfo(null)
     try {
-      await sendOtpEmail(email.trim(), verifyType)
-      setCode('')
-      setInfo(t(lang, 'authCodeSentAgain'))
+      const r = await sendOtpEmail(email.trim(), verifyType)
+      if (r?.data?.already_confirmed) {
+        setInfo(t(lang, 'authAlreadyConfirmed'))
+        setTimeout(() => go(STEPS.login), 1500)
+      } else {
+        setCode('')
+        setInfo(t(lang, 'authCodeSentAgain'))
+      }
     } catch (err) {
-      setError(err?.message || t(lang, 'authError'))
+      const detail = err?.response?.data?.detail || err?.message || t(lang, 'authError')
+      // 409 déjà vérifié → propose de se connecter
+      if (err?.response?.status === 409 && detail.includes('connectez-vous')) {
+        setInfo(detail)
+        setTimeout(() => go(STEPS.login), 1500)
+      } else {
+        setError(detail)
+      }
     } finally { setBusy(false) }
   }
 
@@ -543,7 +575,7 @@ export default function AuthPage() {
   const renderHeader = () => (
     <>
       <div className="auth-logo">
-        <img src="/logo_blue.png" alt="Bluerock" className="auth-logo-img" />
+        <img src="/logo_landscape.png" alt="Bluerock" className="auth-logo-img" />
       </div>
       <div className="auth-logo-name">BLUEROCK</div>
     </>
@@ -551,7 +583,9 @@ export default function AuthPage() {
 
   return (
     <div className="auth-shell">
-      <StockMarketCanvas />
+      <div className="auth-banner-bg">
+        <img src="/banner.png" alt="" className="auth-banner-img" />
+      </div>
       <div className="bg-overlay" />
 
       <div className="auth-scroll">
@@ -650,8 +684,19 @@ export default function AuthPage() {
                 </div>
                 {!password && <div className="pwd-policy">{t(lang, 'authPwdPolicy')}</div>}
 
+                <label className="privacy-check">
+                  <input type="checkbox" checked={privacyOk} onChange={e => setPrivacyOk(e.target.checked)} />
+                  <span>
+                    {lang === 'fr' ? 'J’ai lu et approuvé la ' : 'I have read and approved the '}
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                      {lang === 'fr' ? 'politique de confidentialité' : 'privacy policy'}
+                    </a>
+                    {lang === 'fr' ? ' — traitement conforme RGPD/UEMOA.' : ' — GDPR/UEMOA compliant.'}
+                  </span>
+                </label>
+
                 {error && <div className="auth-error"><AlertTriangle size={14} /> <span>{error}</span></div>}
-                <button className="auth-submit" disabled={busy}>
+                <button className="auth-submit" disabled={busy || !privacyOk}>
                   {busy ? <Spinner /> : <><span>{t(lang, 'authRegister')}</span><ChevronRight size={16} /></>}
                 </button>
               </form>
@@ -786,6 +831,13 @@ export default function AuthPage() {
           padding: 24px 16px;
         }
         :global(.bg-canvas) { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+        .auth-banner-bg {
+          position: absolute; inset: 0; z-index: 0; overflow: hidden;
+        }
+        .auth-banner-img {
+          width: 100%; height: 100%; object-fit: cover; object-position: center;
+          opacity: 0.35; filter: blur(1px);
+        }
         .bg-overlay {
           position: absolute; inset: 0; pointer-events: none;
           background:
@@ -811,7 +863,7 @@ export default function AuthPage() {
         }
         .auth-logo { display: flex; align-items: center; justify-content: center; }
         .auth-logo-img {
-          width: 72px; height: 72px; object-fit: contain;
+          width: 108px; height: 72px; object-fit: contain;
           margin-bottom: 14px;
         }
         .auth-logo-name {
@@ -984,7 +1036,7 @@ export default function AuthPage() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 480px) {
           .auth-card { padding: 32px 24px 28px; border-radius: 24px; }
-          .auth-logo-img { width: 60px; height: 60px; }
+          .auth-logo-img { width: 90px; height: 60px; }
           .auth-logo-name { font-size: 22px; }
         }
       `}</style>

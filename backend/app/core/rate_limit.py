@@ -21,14 +21,33 @@ from .shared_store import store
 
 
 def _ip_key(request) -> str:
+    client_ip = request.client.host if request.client else "unknown"
+    # Cloudflare et proxies modernes: CF-Connecting-IP est la vraie IP même sans XFF
+    cf_ip = request.headers.get("cf-connecting-ip")
+    x_real = request.headers.get("x-real-ip")
+    xff = request.headers.get("x-forwarded-for")
+    # Si TRUST_PROXY_IPS="*" on fait confiance à tout proxy (Render, Railway)
+    if settings.TRUST_PROXY_IPS == "*":
+        if cf_ip:
+            return cf_ip.strip()
+        if xff:
+            return xff.split(",")[0].strip() or client_ip
+        if x_real:
+            return x_real.strip()
+        return client_ip
     if settings.TRUST_PROXY_IPS:
         trusted = {ip.strip() for ip in settings.TRUST_PROXY_IPS.split(",") if ip.strip()}
-        client_ip = request.client.host if request.client else "unknown"
-        xff = request.headers.get("x-forwarded-for")
-        if xff and client_ip in trusted:
-            return xff.split(",")[0].strip() or client_ip
+        if client_ip in trusted:
+            if cf_ip:
+                return cf_ip.strip()
+            if xff:
+                return xff.split(",")[0].strip() or client_ip
+            if x_real:
+                return x_real.strip()
         return client_ip
-    return request.client.host if request.client else "unknown"
+    # Sans proxy de confiance, on ignore XFF (anti-spoof) mais on log un warning si XFF présent en prod
+    # En prod derrière Render sans TRUST_PROXY_IPS, le rate-limit sera partagé → inciter à configurer
+    return client_ip
 
 
 def check_rate_limit(request, limit: int, window_seconds: int = 60) -> None:

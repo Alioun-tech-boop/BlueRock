@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../lib/auth'
 import {
@@ -204,7 +204,7 @@ function BrokerLogin({ broker, user }) {
   useEffect(() => {
     let alive = true
     let tok = null
-    try { tok = localStorage.getItem(SGI_TOKEN_KEY) } catch {}
+    try { tok = sessionStorage.getItem(SGI_TOKEN_KEY) } catch {}
     if (!tok) return
     brokerConnectSession(tok)
       .then(r => {
@@ -213,7 +213,7 @@ function BrokerLogin({ broker, user }) {
         setSgiAccount(r.data?.account || null)
         setSgiBroker(prev => r.data?.account?.broker_name || prev)
       })
-      .catch(() => { try { localStorage.removeItem(SGI_TOKEN_KEY) } catch {} })
+      .catch(() => { try { sessionStorage.removeItem(SGI_TOKEN_KEY) } catch {} })
     return () => { alive = false }
   }, [])
 
@@ -291,7 +291,7 @@ function BrokerLogin({ broker, user }) {
     setSgiBusy(true); setSgiError(null); setSgiInfo(null)
     try {
       const r = await brokerConnectAuth({ broker_name: sgiBroker, account_number: acctNum.trim(), pin })
-      try { localStorage.setItem(SGI_TOKEN_KEY, r.data.broker_token) } catch {}
+      try { sessionStorage.setItem(SGI_TOKEN_KEY, r.data.broker_token) } catch {}
       setSgiToken(r.data.broker_token)
       setSgiAccount(r.data.account || null)
       setSgiBroker(r.data.account?.broker_name || sgiBroker)
@@ -315,7 +315,7 @@ function BrokerLogin({ broker, user }) {
   }
 
   const logoutSgi = () => {
-    try { localStorage.removeItem(SGI_TOKEN_KEY) } catch {}
+    try { sessionStorage.removeItem(SGI_TOKEN_KEY) } catch {}
     setSgiToken(null); setSgiAccount(null); setSgiInfo(null); setSgiError(null)
   }
 

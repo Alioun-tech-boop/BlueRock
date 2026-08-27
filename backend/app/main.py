@@ -10,12 +10,13 @@ from .core.http_cache import ResponseCacheMiddleware
 from .core.shared_store import store
 from .core.request_log import RequestLoggingMiddleware
 from .core.rate_limit import check_rate_limit
+from .core.rate_limit_middleware import GlobalRateLimitMiddleware
 from .core import metrics
 from .database import engine, Base
 from .models.news import NewsItem
 from .models.broker_connect import BrokerClientAccount, BrokerSession, BrokerLoginEvent
 from .models.payment import DepositOrder
-from .routers import companies, analysis, market, seed, ingestion, macro, auth, portfolio, premium, brokers, community, challenges, notifications, broker_connect, kyc, kyc_webhook, admin_kyc, payments, subscription
+from .routers import companies, analysis, market, seed, ingestion, macro, simulation, auth, portfolio, premium, brokers, community, challenges, notifications, broker_connect, kyc, kyc_webhook, admin_kyc, payments, subscription, ai, ai_admin, admin_platform
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
@@ -65,7 +66,7 @@ async def csp_report(report: CSPViolationReport, request: Request):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-docs_enabled = settings.DEBUG
+docs_enabled = settings.DEBUG and os.environ.get("ENV", "").lower() not in ("production", "prod")
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.VERSION,
@@ -79,13 +80,25 @@ app.add_middleware(
     ResponseCacheMiddleware,
 )
 
+# Rate limiting global par IP + préfixes sensibles. Placé AVANT le CORS
+# dans la chaîne pour que celui-ci reste le plus externe : les rejets 429
+# passent par le middleware CORS et obtiennent les en-têtes
+# Access-Control-Allow-Origin (sinon le navigateur masque le 429 en erreur
+# CORS et toutes les fonctionnalités de l'API semblent mortes).
+app.add_middleware(GlobalRateLimitMiddleware)
+
+_cors_regex = r"^https?://(localhost|127\.0\.0\.1|.*\.bluerock\.ai|bluerock\.ai|.*\.netlify\.app|netlify\.app)(:\d+)?$"
+if settings.DEBUG:
+    _cors_regex = r"^https?://(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+|.*\.bluerock\.ai|bluerock\.ai|.*\.netlify\.app|netlify\.app)(:\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.bluerock\.ai|bluerock\.ai|.*\.netlify\.app|netlify\.app)(:\d+)?$",
+    allow_origin_regex=_cors_regex,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -122,11 +135,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
         response.headers["X-CSP-Nonce"] = nonce
-        response.headers["Set-Cookie"] = f"csp_nonce={nonce}; Path=/; Max-Age=3600; SameSite=Lax"
+        # Append sans écraser d'éventuels cookies posés par la route (ex session)
+        existing = response.headers.get("set-cookie")
+        cookie_val = f"csp_nonce={nonce}; Path=/; Max-Age=3600; SameSite=Lax; {'Secure; ' if not settings.DEBUG else ''}HttpOnly"
+        if existing:
+            response.headers.append("Set-Cookie", cookie_val)
+        else:
+            response.headers["Set-Cookie"] = cookie_val
         return response
 
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# CSRFMiddleware (app/core/csrf.py) volontairement non monté : l'API utilise
+# exclusivement des Bearer tokens (Authorization header), pas de cookies
+# de session HttpOnly. Il n'y a donc pas de vecteur CSRF. Si l'auth passe
+# en cookies, monter CSRFMiddleware ici avec app.add_middleware(CSRFMiddleware).
 
 
 class AllowedHostsMiddleware(BaseHTTPMiddleware):
@@ -175,6 +199,7 @@ app.include_router(market.router)
 app.include_router(seed.router)
 app.include_router(ingestion.router)
 app.include_router(macro.router)
+app.include_router(simulation.router)
 app.include_router(auth.router)
 app.include_router(portfolio.router)
 app.include_router(premium.router)
@@ -188,6 +213,10 @@ app.include_router(kyc_webhook.router)
 app.include_router(admin_kyc.router)
 app.include_router(payments.router)
 app.include_router(subscription.router)
+app.include_router(ai.router)
+app.include_router(ai_admin.router)
+app.include_router(admin_platform.router)
+app.include_router(admin_platform.public_router)
 
 app.include_router(csp_router)
 
@@ -293,7 +322,7 @@ def _ensure_schema():
         "financial_statements": ["is_synthetic"],
         "dividends": ["is_synthetic"],
         "positions": ["take_profit", "stop_loss", "portfolio_id"],
-        "orders": ["order_type", "limit_price", "status", "take_profit", "stop_loss", "executed_at", "plan_id", "portfolio_id", "broker_ref"],
+        "orders": ["order_type", "limit_price", "status", "take_profit", "stop_loss", "executed_at", "valid_until", "plan_id", "portfolio_id", "broker_ref"],
         "portfolios": ["broker_client_id"],
         "users": [
             "avatar",
@@ -343,6 +372,9 @@ def _ensure_schema():
             "reviewed_at",
             "account_opened_at",
         ],
+        "community_groups": ["is_paid", "price_xof"],
+        "community_posts": ["group_id"],
+        "community_members": ["order_pending_id"],
         "user_kyc": [
             "first_name",
             "last_name",
@@ -361,7 +393,7 @@ def _ensure_schema():
     }
     ts_cols = {"email_verify_expires", "email_verify_sent_at", "locked_until", "password_reset_expires", "executed_at",
                "issued_at", "matured_at", "cancelled_at", "completed_at", "last_tracked_at", "linked_at",
-               "registration_end", "transmitted_at", "reviewed_at", "account_opened_at", "verified_at"}
+               "registration_end", "transmitted_at", "reviewed_at", "account_opened_at", "verified_at", "valid_until"}
     float_cols = {
         "positions": {"take_profit", "stop_loss"},
         "orders": {"limit_price", "take_profit", "stop_loss"},
@@ -435,6 +467,20 @@ def _ensure_schema():
                 elif col == "email_sent" and table == "notifications":
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"))
+                elif col == "group_id" and table == "community_posts":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_community_posts_group ON {table}({col})"))
+                elif col == "is_paid" and table == "community_groups":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"))
+                elif col == "price_xof" and table == "community_groups":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                elif col == "order_pending_id" and table == "community_members":
+                    logger.info(f"Schema: adding column {table}.{col}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} INTEGER"))
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_community_members_order ON {table}({col})"))
                 elif col == "allocation_snapshot":
                     logger.info(f"Schema: adding column {table}.{col}")
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} TEXT"))
@@ -548,6 +594,64 @@ def _ensure_schema():
                     "UPDATE user_kyc SET status = :new WHERE status = :old"
                 ), {"old": old, "new": new})
 
+        # Indexes critiques manquants (perf + contraintes) — idempotents
+        try:
+            # Community: fil trié par hidden_at + created_at
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_posts_hidden_created ON community_posts (hidden_at, created_at DESC)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_posts_symbol_hidden ON community_posts (symbol, hidden_at) WHERE hidden_at IS NULL"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_posts_created_at ON community_posts (created_at DESC)"))
+            # Market
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_market_data_company_date ON market_data (company_id, date DESC)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_market_data_date ON market_data (date DESC)"))
+            # Positions / Orders
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_portfolio ON positions (portfolio_id, symbol)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_user_pf ON positions (user_id, portfolio_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_portfolio_status ON orders (portfolio_id, status)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_user_status ON orders (user_id, status)"))
+            # Contraintes d'unicité manquantes (sécurité monétaire)
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_position_user_pf_symbol ON positions (user_id, portfolio_id, symbol) WHERE qty > 0"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_portfolio ON user_portfolios (user_id, portfolio_id)"))
+            # Community seen
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_community_seen_user_post ON community_post_seen (user_id, post_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_community_seen_user ON community_post_seen (user_id, post_id)"))
+            # Companies
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_companies_sector ON companies (sector)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_companies_exchange ON companies (exchange)"))
+            # Financial
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_financial_statements_company_fy ON financial_statements (company_id, fiscal_year)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ratios_company_fy ON financial_ratios (company_id, fiscal_year)"))
+            # Ledger
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ledger_entries_portfolio ON ledger_entries (portfolio_id)"))
+            # Dividend
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_dividend_payments_portfolio_date ON dividend_payments (portfolio_id, payment_date)"))
+            # Contraintes monnaie non-négative
+            conn.execute(text("DO $$ BEGIN BEGIN ALTER TABLE portfolios ADD CONSTRAINT ck_portfolio_balance_non_negative CHECK (balance >= 0); EXCEPTION WHEN duplicate_object THEN NULL; END; END $$;"))
+            conn.execute(text("DO $$ BEGIN BEGIN ALTER TABLE positions ADD CONSTRAINT ck_position_qty_non_negative CHECK (qty >= 0); EXCEPTION WHEN duplicate_object THEN NULL; END; END $$;"))
+            conn.execute(text("DO $$ BEGIN BEGIN ALTER TABLE positions ADD CONSTRAINT ck_position_avgprice_non_negative CHECK (avg_price >= 0); EXCEPTION WHEN duplicate_object THEN NULL; END; END $$;"))
+            # Conversion Float -> Numeric (idempotent, ne bloque pas si déjà Numeric)
+            try:
+                conn.execute(text("ALTER TABLE portfolios ALTER COLUMN balance TYPE NUMERIC(18,2) USING balance::numeric"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE positions ALTER COLUMN qty TYPE NUMERIC(18,4) USING qty::numeric"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE positions ALTER COLUMN avg_price TYPE NUMERIC(18,2) USING avg_price::numeric"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE orders ALTER COLUMN qty TYPE NUMERIC(18,4) USING qty::numeric"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text("ALTER TABLE orders ALTER COLUMN price TYPE NUMERIC(18,2) USING price::numeric"))
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"Index creation skipped: {e}")
+
 
 def _jobs_enabled() -> bool:
     """Un seul worker doit exécuter les jobs planifiés (scheduler en mémoire).
@@ -588,6 +692,18 @@ def on_startup():
         logger.warning(f"Schema migration skipped: {e}")
     try:
         from .database import SessionLocal
+        from .services.dividend_engine import run_dividend_engine
+        db = SessionLocal()
+        try:
+            n = run_dividend_engine(db)
+            if n:
+                logger.info(f"Dividend engine startup: {n} dividende(s) crédité(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Dividend engine startup error: {e}")
+    try:
+        from .database import SessionLocal
         from .services.community_seed import seed_community
         db = SessionLocal()
         try:
@@ -621,15 +737,13 @@ def on_startup():
     try:
         from .database import SessionLocal
         from .services.broker_connect_seed import purge_broker_client_accounts
-        db = SessionLocal()
-        try:
-            result = purge_broker_client_accounts(db)
-            logger.info(f"Broker connect purge: {result.get('status')} "
-                        f"({result.get('deleted', 0)} comptes démo supprimés)")
-        finally:
-            db.close()
+        # La purge des comptes courtiers est désormais une opération MANUELLE
+        # (elle détruisait sessions, journal d'audit et détachait les
+        # portefeuilles à CHAQUE démarrage — SEC-11). Elle n'est plus exécutée
+        # automatiquement ; utiliser purge_broker_client_accounts en one-shot.
+        logger.info("Broker connect: purge automatique au boot désactivée (SEC-11)")
     except Exception as e:
-        logger.warning(f"Could not purge broker client accounts: {e}")
+        logger.warning(f"Could not load broker purge module: {e}")
     try:
         from .database import SessionLocal
         from .routers.macro import seed_macro
@@ -799,7 +913,7 @@ def on_startup():
             def _financial_sync_job():
                 """Ingère automatiquement les rapports financiers nouvellement publiés
                 sur brvm.org : extraction PDF → stockage → recalcul ratios/scorecard/valorisation."""
-                token = _job_guard("financial_reports", 1800)
+                token = _job_guard("financial_reports", 14400)
                 if token is None:
                     return
                 try:
@@ -808,9 +922,12 @@ def on_startup():
                     try:
                         result = sync_financials(db, max_years=2)
                         ingested = sum(len(r["ingested"]) for r in result["results"])
+                        skipped = sum(len(r["skipped"]) for r in result["results"])
+                        errors = sum(len(r["errors"]) for r in result["results"])
                         logger.info(
-                            "Financial sync: %d sociétés analysées, %d rapports ingérés",
-                            result["companies"], ingested,
+                            "Financial sync: %d sociétés analysées, %d rapports ingérés, "
+                            "%d non récupérables, %d erreurs",
+                            result["companies"], ingested, skipped, errors,
                         )
                     finally:
                         db.close()
@@ -822,7 +939,7 @@ def on_startup():
             from datetime import datetime, timedelta
             scheduler.add_job(
                 _financial_sync_job, "interval", hours=6, id="financial_reports",
-                replace_existing=True,
+                replace_existing=True, max_instances=1,
                 next_run_time=datetime.now() + timedelta(minutes=2),
             )
             logger.info("Financial reports sync scheduled (every 6h, first run in 2 min)")
@@ -830,6 +947,85 @@ def on_startup():
             logger.warning(f"Could not schedule financial reports sync: {e}")
     else:
         logger.info("Financial reports sync désactivé (FINANCIAL_SYNC_ENABLED=false)")
+
+    if jobs_on:
+        try:
+            from .scrapers.bfin_history import sync_history
+
+            def _bfin_daily_job():
+                """Importe les séances réelles BRVM depuis bfin.brvm.org
+                (prix, volumes journaliers, nb transactions). Les 3 dernières
+                séances sont re-traitées à chaque run : les volumes BFIN sont
+                publiés en fin de journée et peuvent être complétés."""
+                token = _job_guard("bfin_history", 1800)
+                if token is None:
+                    return
+                try:
+                    from .database import SessionLocal
+                    db = SessionLocal()
+                    try:
+                        stats = sync_history(db, refresh_last=3)
+                        logger.info(
+                            "BFIN daily sync: %d séances, %d insertions, %d mises à jour, "
+                            "%d skips, %d erreurs",
+                            stats["fetched"], stats["inserted"], stats["updated"],
+                            stats["skipped"], stats["errors"],
+                        )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"BFIN daily sync error: {e}")
+                finally:
+                    store.release_lock("job:bfin_history", token)
+
+            from apscheduler.triggers.cron import CronTrigger
+            scheduler.add_job(
+                _bfin_daily_job, CronTrigger(hour=20, minute=0), id="bfin_history",
+                replace_existing=True, max_instances=1,
+            )
+            scheduler.add_job(
+                _bfin_daily_job, CronTrigger(hour=8, minute=0), id="bfin_history_morning",
+                replace_existing=True, max_instances=1,
+            )
+            logger.info("BFIN daily volumes sync scheduled (20h + 08h rattrapage)")
+        except Exception as e:
+            logger.warning(f"Could not schedule BFIN daily sync: {e}")
+
+    if jobs_on:
+        try:
+            from .database import SessionLocal
+            from .services.dividend_engine import run_dividend_engine
+            from datetime import datetime, timedelta
+
+            def _dividend_job():
+                """Crédite les dividendes arrivés à échéance sur les portefeuilles
+                (versements réels, idempotents)."""
+                token = _job_guard("dividend_engine", 1800)
+                if token is None:
+                    return
+                try:
+                    db = SessionLocal()
+                    try:
+                        n = run_dividend_engine(db)
+                        if n:
+                            logger.info(
+                                "Dividend engine: %d dividende(s) crédité(s)", n,
+                            )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Dividend engine error: {e}")
+                finally:
+                    store.release_lock("job:dividend_engine", token)
+
+            scheduler.add_job(
+                _dividend_job, "interval", hours=1, id="dividend_engine",
+                replace_existing=True, max_instances=1,
+                next_run_time=datetime.now() + timedelta(minutes=1),
+            )
+            logger.info("Dividend engine scheduled (every 1h, first run in 1 min)")
+        except Exception as e:
+            logger.warning(f"Could not schedule dividend engine: {e}")
 
     if jobs_on:
         try:
@@ -931,6 +1127,58 @@ def on_startup():
         except Exception as e:
             logger.warning(f"Could not start background job drainer: {e}")
 
+    if jobs_on:
+        try:
+            def _ai_pipeline_job():
+                """Pipeline d'observation Bluerock AI : décisions → exécutions →
+                snapshots de performance/risque → santé. Uniquement en SIMULATION."""
+                token = _job_guard("ai_pipeline", 240)
+                if token is None:
+                    return
+                try:
+                    from .ai.studio import run_pipeline
+                    from .database import SessionLocal as _SL
+                    with _SL() as _db:
+                        result = run_pipeline(_db)
+                        logger.info(
+                            "AI pipeline: %d décisions, %d exécutions, valeur=%s",
+                            result.get("decisions", {}).get("created", 0),
+                            result.get("executions", {}).get("executed", 0),
+                            result.get("performance", {}).get("value"),
+                        )
+                except Exception as e:
+                    logger.warning(f"AI pipeline error: {e}")
+                finally:
+                    store.release_lock("job:ai_pipeline", token)
+
+            scheduler.add_job(_ai_pipeline_job, "interval", minutes=30,
+                              id="ai_pipeline", replace_existing=True,
+                              max_instances=1, coalesce=True)
+            logger.info("AI observation pipeline scheduled (every 30 min)")
+
+            def _ai_health_job():
+                token = _job_guard("ai_health", 120)
+                if token is None:
+                    return
+                try:
+                    from .ai.health import run_data_quality, run_health_check
+                    from .database import SessionLocal as _SL
+                    with _SL() as _db:
+                        run_data_quality(_db)
+                        status = run_health_check(_db)
+                        logger.info("AI health: %s", status.get("global_status"))
+                except Exception as e:
+                    logger.warning(f"AI health error: {e}")
+                finally:
+                    store.release_lock("job:ai_health", token)
+
+            scheduler.add_job(_ai_health_job, "interval", hours=3,
+                              id="ai_health", replace_existing=True,
+                              max_instances=1, coalesce=True)
+            logger.info("AI health check scheduled (every 3h)")
+        except Exception as e:
+            logger.warning(f"Could not schedule AI jobs: {e}")
+
     try:
         scheduler.start()
     except Exception as e:
@@ -992,6 +1240,39 @@ def health_check():
         "redis": "connected" if store.connected else "memory_fallback",
         "uptime_seconds": info.pop("uptime_seconds"),
         "metrics": info,
+    }
+
+
+@app.get("/api/health/ready")
+def ready_check():
+    """Readiness : DB + store joignables + migrations appliquées (lazy)."""
+    from sqlalchemy import text
+    ok = False
+    details = {}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        ok = True
+    except Exception as e:
+        details["database"] = str(e)[:200]
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+        from alembic.runtime.migration import MigrationContext
+        with engine.connect() as conn:
+            mc = MigrationContext.configure(conn)
+            current = mc.get_current_revision()
+        cfg = Config("alembic.ini")
+        script = ScriptDirectory.from_config(cfg)
+        head = script.get_current_head()
+        details["migrations"] = {"current": current, "head": head}
+        ok = ok and current == head
+    except Exception as e:
+        details["migrations"] = str(e)[:200]
+    details["store"] = "connected" if store.connected else "memory_fallback"
+    return {
+        "status": "ready" if ok else "not_ready",
+        **details,
     }
 
 

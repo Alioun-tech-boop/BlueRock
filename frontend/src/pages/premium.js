@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../lib/auth'
-import { subscribePro, verifySubscription, cancelSubscription } from '../services/api'
+import { subscribePro, startProTrial, verifySubscription, cancelSubscription } from '../services/api'
 import { FEATURES as FEATURE_FLAGS } from '../lib/features'
-import { ArrowLeft, Check, X, Lock, Sparkles, Crown, Coins, Globe2, Landmark, Star, ShieldCheck, CreditCard, Zap, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Check, X, Lock, Sparkles, Crown, Coins, Globe2, Landmark, Star, ShieldCheck, CreditCard, Zap, ChevronDown, Brain, BarChart3, ShieldAlert, Bell, FileDown, GitBranch } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
 
 const PRO_PRICE = '4 900 FCFA'
@@ -67,6 +67,12 @@ const FEATURES = (lang) => [
   { key: 'ofRowExchanges', b: t(lang, 'ofBasicValExchanges'), p: t(lang, 'ofProValExchanges'), icon: Globe2, pro: true },
   { key: 'ofRowAi', b: t(lang, 'ofBasicValAi'), p: t(lang, 'ofProValAi'), icon: Coins, pro: true },
   { key: 'ofRowAiAccess', b: t(lang, 'ofYes'), p: t(lang, 'ofYes'), icon: Sparkles },
+  { key: 'ofRowAiStudio', b: t(lang, 'ofBasicValAiStudio'), p: t(lang, 'ofProValAiStudio'), icon: Brain, pro: true },
+  { key: 'ofRowBacktest', b: t(lang, 'ofNo'), p: t(lang, 'ofYes'), icon: BarChart3, pro: true },
+  { key: 'ofRowRisk', b: t(lang, 'ofNo'), p: t(lang, 'ofYes'), icon: ShieldAlert, pro: true },
+  { key: 'ofRowAlerts', b: t(lang, 'ofNo'), p: t(lang, 'ofYes'), icon: Bell, pro: true },
+  { key: 'ofRowExports', b: t(lang, 'ofNo'), p: t(lang, 'ofYes'), icon: FileDown, pro: true },
+  { key: 'ofRowExplain', b: t(lang, 'ofNo'), p: t(lang, 'ofYes'), icon: GitBranch, pro: true },
   { key: 'ofRowInvest', b: t(lang, 'ofYes'), p: t(lang, 'ofYes'), icon: Landmark },
   { key: 'ofRowReal', b: t(lang, 'ofYes'), p: t(lang, 'ofYes'), icon: ShieldCheck },
   { key: 'ofRowChallenges', b: t(lang, 'ofYes'), p: t(lang, 'ofYes'), icon: Star },
@@ -84,6 +90,18 @@ export default function Premium() {
   const [error, setError] = useState('')
 
   const isPro = user?.tier === 'pro'
+  const isTrial = !!user?.is_trial
+  const trialUsed = !!user?.trial_ends_at
+
+  const fmtTrialEnd = (iso) => {
+    try {
+      return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    } catch { return iso || '' }
+  }
+  const trialLabel = lang === 'en' ? 'Start your 1-month free trial' : 'Essai gratuit 1 mois'
+  const trialSub = lang === 'en'
+    ? 'Free for 30 days, then 4 900 FCFA/month — cancel anytime'
+    : '1 mois offert, puis 4 900 FCFA/mois — sans engagement'
 
   // Retour du checkout Stripe : re-vérifie l'abonnement côté serveur.
   useEffect(() => {
@@ -105,6 +123,22 @@ export default function Premium() {
       .finally(() => { if (alive) setProcessing(false) })
     return () => { alive = false }
   }, [router.query, isPro, refreshProfile])
+
+  const startTrial = useCallback(async () => {
+    if (!user) { router.push(`/login?next=${encodeURIComponent('/premium')}`); return }
+    if (isPro) return
+    setBusy(true)
+    setError('')
+    try {
+      await startProTrial()
+      await refreshProfile()
+      setAnnounce('success')
+    } catch (e) {
+      setError(e?.response?.data?.detail || t(lang, 'ofError'))
+    } finally {
+      setBusy(false)
+    }
+  }, [user, isPro, router, lang, refreshProfile])
 
   const subscribe = useCallback(async () => {
     if (!user) { router.push(`/login?next=${encodeURIComponent('/premium')}`); return }
@@ -145,6 +179,9 @@ export default function Premium() {
     <div className="of-root">
       <div className="of-aurora" />
       <div className="of-grid-haze" />
+      <div className="of-banner-bg">
+        <img src="/banner-hero.png" alt="" className="of-banner-img" />
+      </div>
 
       <div className="of-top">
         <button className="of-back" onClick={() => router.back()} aria-label="Retour">
@@ -178,8 +215,12 @@ export default function Premium() {
         <section className="of-pro-active">
           <div className="of-pro-active-glow" />
           <span className="of-crown"><Crown size={22} /></span>
-          <h2 className="of-pro-t">{t(lang, 'ofProActive')}</h2>
-          <p className="of-pro-s">{t(lang, 'ofProActiveSub')}</p>
+          <h2 className="of-pro-t">{isTrial ? (lang === 'en' ? 'You are on a free trial' : 'Vous êtes en essai gratuit') : t(lang, 'ofProActive')}</h2>
+          <p className="of-pro-s">
+            {isTrial && user?.trial_ends_at
+              ? `${lang === 'en' ? 'Pro access until' : 'Accès Pro jusqu\'au'} ${fmtTrialEnd(user.trial_ends_at)}`
+              : t(lang, 'ofProActiveSub')}
+          </p>
           <div className="of-pro-meter-wrap">
             <div className="of-pro-meter-head">
               <span><Coins size={14} /> {t(lang, 'ofTokenMeter')}</span>
@@ -228,21 +269,39 @@ export default function Premium() {
             <span className="of-price gold">{PRO_PRICE}</span>
             <span className="of-period">{t(lang, 'ofPlanMonthly')}</span>
           </div>
-          {!FEATURE_FLAGS.subscription && <div className="of-unavail-note">{t(lang, 'ftSubPro')}</div>}
+          {!isPro && !trialUsed && (
+            <div className="of-trial-line">
+              <span className="of-trial-badge"><Zap size={12} /> {lang === 'en' ? '30 days free' : '30 jours offerts'}</span>
+              <span className="of-trial-sub">{trialSub}</span>
+            </div>
+          )}
+          {!FEATURE_FLAGS.subscription && !isPro && trialUsed && <div className="of-unavail-note">{t(lang, 'ftSubPro')}</div>}
           <ul className="of-perks">
             <li><Check size={14} /> {t(lang, 'ofProValExchanges')}</li>
             <li><Check size={14} /> {t(lang, 'ofRowInvest')}</li>
             <li><Check size={14} /> {t(lang, 'ofRowReal')}</li>
             <li><Coins size={14} /> {t(lang, 'ofProValAi')}</li>
+            <li><Brain size={14} /> {t(lang, 'ofProValAiStudio')} — {t(lang, 'ofRowAiStudio')}</li>
+            <li><BarChart3 size={14} /> {t(lang, 'ofRowBacktest')}</li>
+            <li><ShieldAlert size={14} /> {t(lang, 'ofRowRisk')}</li>
+            <li><FileDown size={14} /> {t(lang, 'ofRowExports')}</li>
             <li><Check size={14} /> {t(lang, 'ofRowSupport')}</li>
           </ul>
-<button className="of-cta pro" onClick={subscribe} disabled={busy || processing || !FEATURE_FLAGS.subscription}>
-{!FEATURE_FLAGS.subscription
-              ? <><Lock size={15} /> {t(lang, 'ftUnavailableTitle')}</>
-              : busy || processing
+{!isPro && !trialUsed ? (
+            <button className="of-cta pro trial" onClick={startTrial} disabled={busy || processing}>
+              {busy || processing
                 ? <><Lock size={15} /> {t(lang, 'ofCtaProProcessing')}</>
-                : isPro ? <><Crown size={15} /> {t(lang, 'ofProActive')}</> : <>{t(lang, 'ofCtaPro')} →</>}
-          </button>
+                : <><Sparkles size={15} /> {trialLabel} →</>}
+            </button>
+          ) : (
+            <button className="of-cta pro" onClick={subscribe} disabled={busy || processing || !FEATURE_FLAGS.subscription}>
+              {!FEATURE_FLAGS.subscription
+                ? <><Lock size={15} /> {t(lang, 'ftUnavailableTitle')}</>
+                : busy || processing
+                  ? <><Lock size={15} /> {t(lang, 'ofCtaProProcessing')}</>
+                  : isPro ? <><Crown size={15} /> {t(lang, 'ofProActive')}</> : <>{t(lang, 'ofCtaPro')} →</>}
+            </button>
+          )}
         </article>
       </section>
 
@@ -296,6 +355,81 @@ export default function Premium() {
             <span>{t(lang, 'ofMonthlyRenew')}</span>
           </div>
           <span className="of-ai-badge">50 → 500</span>
+        </div>
+      </section>
+
+      {/* Intelligence artificielle */}
+      <section className="of-section">
+        <h3 className="of-section-t">{t(lang, 'ofSectionAi')}</h3>
+        <div className="of-grid2">
+          <div className="of-feature">
+            <span className="of-feature-ico ai"><Sparkles size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofRowAiAccess')} <span className="of-tag">FREE</span></strong>
+              <p>{t(lang, 'ofAiExplainDesc')}</p>
+            </div>
+            <span className="of-feature-check"><Check size={13} /></span>
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai2"><Brain size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiStudioName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiStudioDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai3"><BarChart3 size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiBacktestName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiBacktestDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai4"><ShieldAlert size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiRiskName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiRiskDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai5"><Bell size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiAlertsName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiAlertsDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai6"><FileDown size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiExportsName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiExportsDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
+          <div className={`of-feature ${isPro ? '' : 'locked'}`} onClick={() => { if (!isPro) router.push('/premium') }}>
+            <span className="of-feature-ico ai7"><GitBranch size={18} /></span>
+            <div>
+              <strong className="of-feature-name">{t(lang, 'ofAiExplainName')} <span className="of-tag gold">{t(lang, 'ofProOnly')}</span></strong>
+              <p>{t(lang, 'ofAiExplainDesc')}</p>
+            </div>
+            {isPro
+              ? <span className="of-feature-check gold"><Check size={13} /></span>
+              : <span className="of-feature-lock"><Lock size={13} /> PRO</span>}
+          </div>
         </div>
       </section>
 
@@ -382,6 +516,13 @@ export default function Premium() {
           background-size: 52px 52px;
           mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 75%);
           -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 30%, transparent 75%);
+        }
+        .of-banner-bg {
+          position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+        }
+        .of-banner-img {
+          width: 100%; height: 100%; object-fit: cover; object-position: center top;
+          opacity: 0.18; filter: blur(2px);
         }
         .of-top {
           position: relative; z-index: 1;
@@ -488,7 +629,24 @@ export default function Premium() {
           box-shadow: 0 14px 34px -12px rgba(255,210,110,0.55);
         }
         .of-cta.pro:hover { transform: translateY(-1px); box-shadow: 0 18px 42px -12px rgba(255,210,110,0.65); }
+        .of-cta.trial {
+          color: #0b1f14;
+          background: linear-gradient(145deg, #3ef191, #1ED760 55%, #12b855);
+          box-shadow: 0 14px 34px -12px rgba(24,194,124,0.55);
+        }
+        .of-cta.trial:hover { transform: translateY(-1px); box-shadow: 0 18px 42px -12px rgba(24,194,124,0.65); }
         .of-cta:disabled { opacity: 0.65; cursor: default; transform: none; }
+        .of-trial-line {
+          display: flex; flex-direction: column; gap: 6px;
+          margin: -2px 0 14px; padding: 11px 13px; border-radius: 13px;
+          background: rgba(24,194,124,0.08); border: 1px solid rgba(24,194,124,0.28);
+        }
+        .of-trial-badge {
+          display: inline-flex; align-items: center; gap: 6px;
+          width: fit-content; font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
+          color: #4fe0a0; text-transform: uppercase;
+        }
+        .of-trial-sub { font-size: 12px; color: #aab4c0; line-height: 1.45; }
         .of-unavail-note {
           margin: -6px 0 16px; padding: 10px 12px; border-radius: 12px;
           background: rgba(240,68,56,0.08); border: 1px solid rgba(240,68,56,0.25);
@@ -530,6 +688,13 @@ export default function Premium() {
         }
         .of-feature-ico.brvm { background: rgba(24,194,124,0.14); color: #18C27C; }
         .of-feature-ico.ngx { background: rgba(139,92,246,0.14); color: #a78bfa; }
+        .of-feature-ico.ai { background: rgba(34,211,238,0.14); color: #22d3ee; }
+        .of-feature-ico.ai2 { background: rgba(139,92,246,0.14); color: #a78bfa; }
+        .of-feature-ico.ai3 { background: rgba(244,114,182,0.14); color: #f472b6; }
+        .of-feature-ico.ai4 { background: rgba(251,146,60,0.14); color: #fb923c; }
+        .of-feature-ico.ai5 { background: rgba(96,165,250,0.14); color: #60a5fa; }
+        .of-feature-ico.ai6 { background: rgba(52,211,153,0.14); color: #34d399; }
+        .of-feature-ico.ai7 { background: rgba(217,70,239,0.14); color: #d946ef; }
         .of-feature-name { display: flex; align-items: center; gap: 8px; font-size: 15px; }
         .of-tag {
           padding: 2.5px 8px; border-radius: 6px; font-size: 10px; font-weight: 800;

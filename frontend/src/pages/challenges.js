@@ -11,10 +11,11 @@ import { useAuth } from '../lib/auth'
 import { FEATURES } from '../lib/features'
 import {
   Trophy, Flame, Users, Medal, Wallet, TrendingUp, TrendingDown,
-  Crown, CheckCircle2, LogIn, X, ArrowLeft, Sparkles, RefreshCw,
+  Crown, CheckCircle2, LogIn, X, ArrowLeft, Sparkles,
   LayoutGrid, BarChart3, Target, ChevronRight, Search, Zap, CreditCard, Lock,
 } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
+import ServerDownArt from '../components/ServerDownArt'
 
 const fmtXof = (n) => n == null ? '—' : Number(n).toLocaleString('fr-FR').replace(/[,.]\d+/, '').replace(/\s/g, ' ')
 const fmtNum = (n) => n == null ? '—' : Number(n).toLocaleString('fr-FR')
@@ -104,6 +105,41 @@ function SkeletonScreen({ lang }) {
 
 const VIEWS = { home: 'home', rules: 'rules', portfolio: 'portfolio', leaderboard: 'leaderboard', user: 'user' }
 
+function ChallengesList({ lang, list, onOpen }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, paddingTop: 4 }}>
+      <div style={{ padding: '6px 2px 2px' }}>
+        <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>{t(lang, 'ch2Title')}</div>
+        <div style={{ fontSize: 13, color: '#9AA3B2', marginTop: 2 }}>{t(lang, 'ch2JoinSub')}</div>
+      </div>
+      {list.map(c => {
+        const isLive = c.status === 'live' || c.status === 'open'
+        const statusLabel = c.status === 'live' ? t(lang, 'chLive')
+          : c.status === 'open' ? t(lang, 'chOpen')
+            : c.status === 'upcoming' ? (c.registration_open ? t(lang, 'chOpen') : t(lang, 'chUpcoming'))
+              : t(lang, 'chEnded')
+        return (
+          <button key={c.id} onClick={() => onOpen(c.id)}
+            style={{ textAlign: 'left', border: '1px solid rgba(255,255,255,0.1)', background: 'linear-gradient(155deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))', borderRadius: 22, padding: 18, cursor: 'pointer', color: '#fff', font: 'inherit', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: isLive ? '#4dff9e' : '#9AA3B2', background: isLive ? 'rgba(30,215,96,0.15)' : 'rgba(255,255,255,0.06)', border: '1px solid ' + (isLive ? 'rgba(30,215,96,0.38)' : 'rgba(255,255,255,0.12)'), padding: '5px 11px', borderRadius: 99 }}>{statusLabel}</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{fmtXof(c.prize_pool)}</span>
+            </div>
+            <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em' }}>{c.name}</div>
+            {c.tagline && <div style={{ fontSize: 13, color: '#a9b6c8', lineHeight: 1.5 }}>{c.tagline}</div>}
+            <div style={{ display: 'flex', gap: 16, fontSize: 12.5, color: '#9AA3B2', fontWeight: 600 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trophy size={14} /> {c.participants_count ?? 0}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Wallet size={14} /> {fmtXof(c.starting_capital)}</span>
+              {Number(c.entry_fee || 0) > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><CreditCard size={14} /> {fmtXof(c.entry_fee)}</span>}
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: '#1ED760', marginTop: 2 }}>{t(lang, 'ch2OpenChallenge')} <ChevronRight size={16} /></div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Challenges() {
   const router = useRouter()
   const { user } = useAuth()
@@ -113,6 +149,7 @@ export default function Challenges() {
   const [portfolio, setPortfolio] = useState(null)
   const [lb, setLb] = useState([])
   const [profile, setProfile] = useState(null)
+  const [challengesList, setChallengesList] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -140,8 +177,8 @@ export default function Challenges() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     setErr('')
-    const qId = Number(router.query.id)
-    if (qId) explicitIdRef.current = qId
+    const qId = Number(router.query.id) || 0
+    explicitIdRef.current = qId
     try {
       if (qId) {
         const [cd, lbd] = await Promise.all([getChallenge(qId), getChallengeLeaderboard(qId)])
@@ -153,17 +190,10 @@ export default function Challenges() {
         const list = await getChallenges()
         if (!mounted.current || explicitIdRef.current) return
         const listData = list.data?.challenges || []
-        const open = listData.find(c => c.status === 'live' || c.status === 'open')
-          || listData.find(c => c.status !== 'ended') || listData[0]
-        if (!open) {
-          if (mounted.current) { setCh(null); setLoading(false) }
-          return
-        }
-        const [cd, lbd] = await Promise.all([getChallenge(open.id), getChallengeLeaderboard(open.id)])
-        if (!mounted.current || explicitIdRef.current) return
-        setCh(cd.data)
-        setLb(lbd.data?.leaderboard || [])
-        if (cd.data?.joined) refreshPortfolio(cd.data.id)
+        setCh(null)
+        setLb([])
+        setPortfolio(null)
+        setChallengesList(listData)
       }
     } catch {
       if (mounted.current) setErr(t(lang, 'loadError'))
@@ -344,14 +374,16 @@ export default function Challenges() {
           </div>
         </header>
 
-        {loading && !ch ? (
+        {loading && !ch && challengesList.length === 0 ? (
           <SkeletonScreen lang={lang} />
-        ) : err && !ch ? (
+        ) : err && !ch && challengesList.length === 0 ? (
           <div className="ch-state">
-            <div className="ch-state-ico"><RefreshCw size={24} /></div>
-            <div className="ch-state-t">{err}</div>
+            <ServerDownArt size={190} />
+            <div className="ch-state-t">{t(lang, 'loadError')}</div>
             <button className="ch-btn" onClick={loadAll}>{t(lang, 'retry')}</button>
           </div>
+        ) : challengesList.length > 0 && !ch ? (
+          <ChallengesList lang={lang} list={challengesList} onOpen={(id) => router.push(`/challenges?id=${id}`)} />
         ) : ch ? (
           <>
             {/* ===== NAV ===== */}
@@ -1314,9 +1346,6 @@ export default function Challenges() {
 
         .ch-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
           gap: 16px; padding: 70px 24px; text-align: center; animation: fadeUp 0.35s ease both; }
-        .ch-state-ico { width: 62px; height: 62px; border-radius: 22px; display: flex; align-items: center; justify-content: center;
-          background: rgba(240,68,56,0.13); border: 1px solid rgba(240,68,56,0.3); color: #ff8a7d;
-          box-shadow: 0 16px 38px rgba(240,68,56,0.16); }
         .ch-state-t { font-size: 14px; font-weight: 500; color: var(--text-2); line-height: 1.55; max-width: 310px; }
 
         .sk { position: relative; overflow: hidden; border-radius: 10px;

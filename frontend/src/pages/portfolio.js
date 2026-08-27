@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import TriLoader from '../components/TriLoader'
 import {
-  getCompanies, getPortfolio, placeOrder,
+  getCompanies, getPortfolio, placeOrder, cancelOrder, getPortfolioDividends,
   createPortfolioAccount, depositPortfolioAccount, withdrawPortfolioAccount,
   renamePortfolioAccount, deletePortfolioAccount,
   initiateDeposit, verifyDepositOrder, getDepositOrders,
@@ -116,7 +116,10 @@ export default function Portfolio() {
   const [sellLimit, setSellLimit] = useState('')
   const [sellTp, setSellTp] = useState('')
   const [sellSl, setSellSl] = useState('')
+  const [sellUnlimited, setSellUnlimited] = useState(true)
+  const [sellValidUntil, setSellValidUntil] = useState('')
   const [sellErr, setSellErr] = useState('')
+  const [sellInfo, setSellInfo] = useState('')
   const [sellBusy, setSellBusy] = useState(false)
   const [renameModal, setRenameModal] = useState(null)
   const [renameVal, setRenameVal] = useState('')
@@ -139,6 +142,7 @@ export default function Portfolio() {
       return
     }
     let cancelled = false
+    setLoading(true)
     const load = () => getPortfolio(activeAccountId)
       .then(res => {
         if (cancelled) return
@@ -283,6 +287,20 @@ export default function Portfolio() {
   const pendingOrders = orders.filter(o => o.status === 'pending')
   const historyOrders = orders.filter(o => o.status !== 'pending')
 
+  const [dividends, setDividends] = useState([])
+  const [dividendsLoading, setDividendsLoading] = useState(false)
+  const [dividendsErr, setDividendsErr] = useState('')
+  useEffect(() => {
+    if (tab !== 'dividends') return
+    let cancelled = false
+    setDividendsLoading(true); setDividendsErr(''); setDividends([])
+    getPortfolioDividends(activeAccountId)
+      .then(r => { if (!cancelled) setDividends(r.data.dividends || []) })
+      .catch(() => { if (!cancelled) setDividendsErr(t(lang, 'loadError')) })
+      .finally(() => { if (!cancelled) setDividendsLoading(false) })
+    return () => { cancelled = true }
+  }, [tab, activeAccountId])
+
   const refreshPortfolio = (accId = activeAccountId) => {
     setLoading(true)
     getPortfolio(accId).then(res => {
@@ -421,14 +439,19 @@ export default function Portfolio() {
     setSellLimit('')
     setSellTp('')
     setSellSl('')
+    setSellUnlimited(true)
+    setSellValidUntil('')
     setSellErr('')
+    setSellInfo('')
   }
 
   const submitSell = async () => {
     const qty = parseFloat(sellQty)
     if (!(qty > 0)) { setSellErr(t(lang, 'accAmountInvalid')); return }
     if (qty > sellPos.qty + 1e-9) { setSellErr(t(lang, 'tradeInsufficient')); return }
-    const px = sellType === 'limit' ? parseFloat(sellLimit) : (sellPos.price || 0)
+    const px = sellType === 'limit'
+      ? parseFloat(sellLimit)
+      : (Number(sellPos.price) > 0 ? Number(sellPos.price) : (Number(sellPos.avg) > 0 ? Number(sellPos.avg) : 0))
     if (!(px > 0)) { setSellErr(t(lang, 'accInvalidPrice')); return }
     const tpV = parseFloat(sellTp) || null
     const slV = parseFloat(sellSl) || null
@@ -436,8 +459,11 @@ export default function Portfolio() {
     if (slV && slV >= px) { setSellErr(t(lang, 'accSlBelow')); return }
     setSellBusy(true)
     setSellErr('')
+    const validUntil = (sellType === 'limit' && !sellUnlimited && sellValidUntil)
+      ? new Date(sellValidUntil).toISOString()
+      : null
     try {
-      await placeOrder({
+      const r = await placeOrder({
         symbol: sellPos.symbol,
         side: 'sell',
         qty,
@@ -446,10 +472,16 @@ export default function Portfolio() {
         limit_price: sellType === 'limit' ? px : null,
         take_profit: tpV,
         stop_loss: slV,
+        valid_until: validUntil,
         account_id: activeAccountId,
       })
-      setSellPos(null)
-      refreshPortfolio()
+      if (r?.data?.status === 'pending') {
+        setSellInfo(t(lang, 'ordPendingOpen'))
+        refreshPortfolio()
+      } else {
+        setSellPos(null)
+        refreshPortfolio()
+      }
     } catch (e) {
       setSellErr(e.response?.data?.detail || t(lang, 'loadError'))
     } finally {
@@ -482,6 +514,7 @@ export default function Portfolio() {
   const tabs = [
     { id: 'positions', label: t(lang, 'pfOpenPositions') },
     { id: 'orders', label: t(lang, 'pfPendingOrders') },
+    { id: 'dividends', label: t(lang, 'pfDividends') },
     { id: 'history', label: t(lang, 'pfHistory') },
   ]
 
@@ -733,7 +766,40 @@ export default function Portfolio() {
                   <div key={o.id} className="order-row">
                     <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
                     <div className="order-info">
-<div className="order-sym mono">
+ <div className="order-sym mono">
+                        {o.symbol}
+                      </div>
+                      <div className="order-detail">
+                        {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price, account?.currency)} {curLabel(account?.currency)}
+                        {o.valid_until && <span className="order-valid" style={{ fontSize: 11, color: '#8C99AF' }}> · {t(lang, 'orderValidUntil')} {new Date(o.valid_until).toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR')}</span>}
+                      </div>
+                    </div>
+                    <div className="order-right">
+                      <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
+                      <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0), account?.currency)} {curLabel(account?.currency)}</span>
+                      {o.status === 'pending' && (
+                        <button className="order-cancel" style={{ marginTop: 6, alignSelf: 'flex-end', padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(244,63,94,0.45)', background: 'rgba(244,63,94,0.1)', color: '#F4435E', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => cancelOrder(o.id).then(() => refreshPortfolio()).catch(() => {})}>{t(lang, 'orderCancel')}</button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
+          )
+        ) : tab === 'history' ? (
+          historyOrders.length ? (
+            <div className="px-list">
+              {historyOrders.map(o => {
+                const buy = o.side === 'buy'
+                const when = o.created_at ? new Date(o.created_at) : null
+                const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
+                return (
+                  <div key={o.id} className="order-row">
+                    <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
+                    <div className="order-info">
+                      <div className="order-sym mono">
                         {o.symbol}
                       </div>
                       <div className="order-detail">
@@ -751,31 +817,40 @@ export default function Portfolio() {
           ) : (
             <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
           )
-        ) : historyOrders.length ? (
-          <div className="px-list">
-            {historyOrders.map(o => {
-              const buy = o.side === 'buy'
-              const when = o.created_at ? new Date(o.created_at) : null
-              const stKey = o.status === 'pending' ? 'statusPending' : o.status === 'cancelled' ? 'statusCancelled' : 'statusExecuted'
-              return (
-                <div key={o.id} className="order-row">
-                  <span className={`order-side ${buy ? 'buy' : 'sell'}`}>{buy ? t(lang, 'buy') : t(lang, 'sell')}</span>
+        ) : tab === 'dividends' ? (
+          dividendsLoading ? (
+            <div className="px-list"><div className="order-detail" style={{ padding: 20, color: '#8C99AF' }}>{t(lang, 'loading')}</div></div>
+          ) : dividendsErr ? (
+            <div className="order-err" style={{ margin: 16 }}>{dividendsErr}</div>
+          ) : dividends.length ? (
+            <div className="px-list">
+              <div className="div-total-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', marginBottom: 8, background: 'rgba(46,204,113,0.08)', borderRadius: 10, fontWeight: 700 }}>
+                <span>{t(lang, 'divTotal')}</span>
+                <span className="mono">{fmtMoney(dividends.reduce((s, d) => s + d.amount, 0), account?.currency)} {curLabel(account?.currency)}</span>
+              </div>
+              {dividends.map(d => (
+                <div key={`${d.symbol}-${d.fiscal_year}`} className="order-row">
+                  <span className="order-side">{d.symbol}</span>
                   <div className="order-info">
-                    <div className="order-sym mono">
-                        {o.symbol}
-                      </div>
+                    <div className="order-sym mono">{d.name}</div>
                     <div className="order-detail">
-                      {when ? when.toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR') : '—'} · {o.qty} {t(lang, 'shares')} @ {fmtMoney(o.price, account?.currency)} {curLabel(account?.currency)}
+                      {t(lang, 'divFiscalYear')} {d.fiscal_year} · {fmtMoney(d.dividend_per_share, d.currency)} {curLabel(d.currency)} {t(lang, 'divPerShare')} · {d.shares} {t(lang, 'shares')}
                     </div>
                   </div>
                   <div className="order-right">
-                    <span className={`order-status ${o.status}`}>{t(lang, stKey)}</span>
-                    <span className="order-total mono">{fmtMoney((o.qty || 0) * (o.price || 0), account?.currency)} {curLabel(account?.currency)}</span>
+                    <span className="order-total mono">{fmtMoney(d.amount, d.currency)} {curLabel(d.currency)}</span>
+                    {d.payment_date && (
+                      <span className="order-valid" style={{ fontSize: 11, color: '#8C99AF' }}>
+                        {new Date(d.payment_date).toLocaleDateString(lang === 'en' ? 'en-US' : 'fr-FR')}
+                      </span>
+                    )}
                   </div>
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title={t(lang, 'pfNoDividends')} />
+          )
         ) : (
           <EmptyState title={t(lang, 'pfEmptyTitle')} btn={t(lang, 'pfOpenPosition')} onClick={() => router.push('/watchlist')} />
         )}
@@ -954,7 +1029,7 @@ export default function Portfolio() {
             </div>
             <div className="modal-price">
               <span className="mp-label">{t(lang, 'price')}</span>
-              <span className="mp-val">{fmtMoney(sellPos.price, account?.currency)} {curLabel(account?.currency)}</span>
+              <span className="mp-val">{fmtMoney(sellPos.price || sellPos.avg, account?.currency)} {curLabel(account?.currency)}</span>
             </div>
             <div className="otype-row">
               <button className={`otype-btn ${sellType === 'market' ? 'on' : ''}`} onClick={() => setSellType('market')}>{t(lang, 'orderMarket')}</button>
@@ -964,7 +1039,20 @@ export default function Portfolio() {
               <div className="tpsl-row">
                 <span className="tpsl-label">{t(lang, 'limitPrice')} ({curLabel(account?.currency)})</span>
                 <input className="tpsl-input mono" type="number" min="0" step="0.01" value={sellLimit}
-                  placeholder={String(sellPos.price ?? '')} onChange={e => setSellLimit(e.target.value)} />
+                  placeholder={String((sellPos.price ?? sellPos.avg) ?? '')} onChange={e => setSellLimit(e.target.value)} />
+              </div>
+            )}
+            {sellType === 'limit' && (
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'orderValidity')}</span>
+                <label className="tm-check">
+                  <input type="checkbox" checked={sellUnlimited} onChange={e => setSellUnlimited(e.target.checked)} />
+                  {t(lang, 'orderUnlimited')}
+                </label>
+                {!sellUnlimited && (
+                  <input className="tpsl-input mono" type="date" value={sellValidUntil}
+                    onChange={e => setSellValidUntil(e.target.value)} />
+                )}
               </div>
             )}
             <div className="tpsl-grid">
@@ -987,9 +1075,10 @@ export default function Portfolio() {
             </div>
             <div className="modal-total">
               <span>{t(lang, 'total')}</span>
-              <span className="mt-val">{fmtMoney((parseFloat(sellQty) || 0) * (sellType === 'limit' && parseFloat(sellLimit) ? parseFloat(sellLimit) : (sellPos.price || 0)), account?.currency)} {curLabel(account?.currency)}</span>
+              <span className="mt-val">{fmtMoney((parseFloat(sellQty) || 0) * (sellType === 'limit' && parseFloat(sellLimit) ? parseFloat(sellLimit) : (sellPos.price || sellPos.avg || 0)), account?.currency)} {curLabel(account?.currency)}</span>
             </div>
             {sellErr && <div className="order-err">{sellErr}</div>}
+            {sellInfo && <div style={{ fontSize: 12, color: '#F79009', textAlign: 'center' }}>{sellInfo}</div>}
             <button className="modal-exec sell" disabled={sellBusy || !(parseFloat(sellQty) > 0)} onClick={submitSell}>
               {sellBusy ? '...' : t(lang, 'tradePlace')}
             </button>
@@ -1053,10 +1142,10 @@ export default function Portfolio() {
           cursor: pointer; min-width: 0; font-family: inherit;
         }
         .acct-avatar {
-          width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+          width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
           background: #0E3022; color: #2ACB8A;
           display: flex; align-items: center; justify-content: center;
-          font-size: 14px; font-weight: 700;
+          font-size: 12px; font-weight: 700;
         }
         .acct-balance {
           color: #F7F8FA; font-size: 17px; font-weight: 600; white-space: nowrap; letter-spacing: 0;
@@ -1115,7 +1204,7 @@ export default function Portfolio() {
         }
         .pos-day { font-size: 12px; font-weight: 600; }
         .pos-pl-amt { font-size: 12px; font-weight: 500; }
-        .px-list { padding: 20px 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+        .px-list { padding: 20px 0 24px; display: flex; flex-direction: column; gap: 14px; }
         .pos-row {
           display: flex; align-items: center; gap: 13px;
           background: rgba(255, 255, 255, 0.05); border: 1px solid #1C1C1C; border-radius: 18px;

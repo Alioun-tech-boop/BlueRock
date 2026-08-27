@@ -10,6 +10,7 @@ import { ArrowLeft, Star, FileText, Sparkles, Briefcase, X, Plus, Minus, Chevron
 import { detectLang, t, fmtPrice, fmtPriceCur, fmtCompact, fmtChange } from '../lib/i18n'
 import { aggregateOhlc } from '../lib/ohlc'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import DataErrorState from '../components/DataErrorState'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -53,6 +54,8 @@ export default function Quote() {
   const [orderLimit, setOrderLimit] = useState('')
   const [tp, setTp] = useState('')
   const [sl, setSl] = useState('')
+  const [orderUnlimited, setOrderUnlimited] = useState(true)
+  const [orderValidUntil, setOrderValidUntil] = useState('')
   const [orderErr, setOrderErr] = useState('')
   const [marketNote, setMarketNote] = useState('')
   const [flash, setFlash] = useState(null)
@@ -248,26 +251,20 @@ export default function Quote() {
   const yearLow = useMemo(() => yearData.length ? Math.min(...yearData.map(d => d.low_price ?? d.close_price)) : null, [yearData])
 
   const openOrder = (side) => {
-    if (liveInfo && liveInfo.market_open === false) {
-      setMarketNote(t(lang, 'marketClosedHint'))
-      return
-    }
-    setMarketNote('')
+    setMarketNote(liveInfo && liveInfo.market_open === false ? t(lang, 'marketClosedPending') : '')
     if (side === 'buy' && !user) {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
     }
     setOrderQty(side === 'sell' ? String(position?.qty ?? 1) : '100')
+    setOrderUnlimited(true)
+    setOrderValidUntil('')
     setOrderErr('')
     setOrderModal(side)
   }
 
   const executeOrder = async () => {
     if (orderModal !== 'buy' && orderModal !== 'sell') return
-    if (liveInfo && liveInfo.market_open === false) {
-      setOrderErr(t(lang, 'marketClosedHint'))
-      return
-    }
     if (!user) {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
@@ -287,6 +284,9 @@ export default function Quote() {
     }
     setOrderErr('')
     setBusy(true)
+    const validUntil = (orderType === 'limit' && !orderUnlimited && orderValidUntil)
+      ? new Date(orderValidUntil).toISOString()
+      : null
     try {
       const res = await placeOrder({
         symbol,
@@ -297,8 +297,12 @@ export default function Quote() {
         limit_price: orderType === 'limit' ? execPx : null,
         take_profit: tpV,
         stop_loss: slV,
+        valid_until: validUntil,
         account_id: getActiveAccountId(),
       })
+      if (res.data.status === 'pending' && res.data.executes_at_open) {
+        setMarketNote(t(lang, 'orderExecutesOpen'))
+      }
       if (res.data.position && res.data.position.qty > 0) setPosition(res.data.position)
       try {
         const pf = await getPortfolio(getActiveAccountId())
@@ -345,8 +349,7 @@ export default function Quote() {
           </div>
         ) : error || !company ? (
           <div className="loading-screen">
-            <span className="err-title">404 — {t(lang, 'notFound')}</span>
-            <span className="err-sub">{t(lang, 'tryAgain')}</span>
+            <DataErrorState lang={lang} size={170} message={`404 — ${t(lang, 'notFound')}`} />
             <button className="back-btn" onClick={() => router.push('/companies')}>
               {t(lang, 'companies')}
             </button>
@@ -562,6 +565,19 @@ export default function Quote() {
                   placeholder={String(price ?? '')}
                   onChange={e => setOrderLimit(e.target.value)}
                 />
+              </div>
+            )}
+            {orderType === 'limit' && (
+              <div className="tpsl-row">
+                <span className="tpsl-label">{t(lang, 'orderValidity')}</span>
+                <label className="tm-check" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#8C99AF' }}>
+                  <input type="checkbox" checked={orderUnlimited} onChange={e => setOrderUnlimited(e.target.checked)} />
+                  {t(lang, 'orderUnlimited')}
+                </label>
+                {!orderUnlimited && (
+                  <input className="tpsl-input mono" type="date" value={orderValidUntil}
+                    onChange={e => setOrderValidUntil(e.target.value)} />
+                )}
               </div>
             )}
             <div className="tpsl-grid">
@@ -797,10 +813,11 @@ export default function Quote() {
           background: rgba(0,0,0,0.7); display: flex; align-items: flex-end; justify-content: center;
         }
         .modal {
-          width: 100%; max-width: 480px;
+          width: 100%; max-width: 480px; max-height: 88vh;
           background: #141414; border-radius: 20px 20px 0 0;
           padding: 18px 20px calc(18px + env(safe-area-inset-bottom));
           display: flex; flex-direction: column; gap: 10px;
+          overflow-y: auto;
         }
         .modal-head { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
         .om-acc {

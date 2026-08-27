@@ -22,6 +22,43 @@ function errMsg(err, fallback) {
   return err?.message || err?.error_description || fallback
 }
 
+function CodeInput({ value, onChange, onComplete, length = 6, autoFocus }) {
+  const refs = useRef([])
+  const digits = Array.from({ length }, (_, i) => value[i] || '')
+  const handle = (i, raw) => {
+    const ch = raw.replace(/[^0-9]/g, '').slice(-1)
+    const next = value.slice(0, i) + ch + value.slice(i + 1)
+    onChange(next.slice(0, length))
+    if (ch && i < length - 1) refs.current[i + 1]?.focus()
+  }
+  const handleKey = (i, e) => {
+    if (e.key === 'Backspace' && !value[i] && i > 0) {
+      onChange(value.slice(0, i - 1))
+      refs.current[i - 1]?.focus()
+    }
+  }
+  const handlePaste = (e) => {
+    const text = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, length)
+    if (text) {
+      e.preventDefault()
+      onChange(text)
+      onComplete?.(text)
+    }
+  }
+  useEffect(() => {
+    if (value.length === length) onComplete?.(value)
+  }, [value, length])
+  return (
+    <div className="code-row">
+      {digits.map((d, i) => (
+        <input key={i} ref={el => refs.current[i] = el} className="code-cell"
+          inputMode="numeric" maxLength={1} value={d} autoFocus={autoFocus && i === 0}
+          onChange={e => handle(i, e.target.value)} onKeyDown={e => handleKey(i, e)} onPaste={handlePaste} />
+      ))}
+    </div>
+  )
+}
+
 function isImageAvatar(v) {
   return typeof v === 'string' && v.startsWith('data:image/')
 }
@@ -52,7 +89,7 @@ function fileToAvatarDataUrl(file) {
 
 export default function ProfilePage() {
   const router = useRouter()
-  const { user, loading, logout, updateUser, refreshProfile, resendVerification } = useAuth()
+  const { user, loading, logout, updateUser, refreshProfile, resendVerification, verifyOtpEmail } = useAuth()
   const [lang, setLang] = useState('fr')
 
   const [name, setName] = useState('')
@@ -62,6 +99,8 @@ export default function ProfilePage() {
   const [photoBusy, setPhotoBusy] = useState(false)
 
   const [resendBusy, setResendBusy] = useState(false)
+  const [verifyCode, setVerifyCode] = useState('')
+  const [verifyBusy, setVerifyBusy] = useState(false)
 
   // 2FA activation
   const [setupData, setSetupData] = useState(null)
@@ -136,6 +175,22 @@ export default function ProfilePage() {
       banner(errMsg(err, t(lang, 'authError')), null)
     } finally {
       setResendBusy(false)
+    }
+  }
+
+  const verifyEmailCode = async () => {
+    if (verifyCode.length < 6) return
+    setVerifyBusy(true); banner(null, null)
+    try {
+      await verifyOtpEmail(user.email, verifyCode)
+      await refreshProfile()
+      setVerifyCode('')
+      banner(null, t(lang, 'pfEmailVerified'))
+    } catch (err) {
+      banner(errMsg(err, t(lang, 'authError')), null)
+      setVerifyCode('')
+    } finally {
+      setVerifyBusy(false)
     }
   }
 
@@ -334,6 +389,15 @@ export default function ProfilePage() {
             )}
           </div>
 
+          {!user.email_verified && (
+            <div className="otp-verify-box">
+              <CodeInput value={verifyCode} onChange={setVerifyCode} onComplete={verifyEmailCode} />
+              <button className="mini-btn" onClick={verifyEmailCode} disabled={verifyBusy || verifyCode.length < 6}>
+                {verifyBusy ? <Spinner /> : t(lang, 'authOtpVerifyBtn')}
+              </button>
+            </div>
+          )}
+
           <div className="list-row">
             <div className="row-icon"><Shield size={17} /></div>
             <div className="row-text">
@@ -439,6 +503,14 @@ export default function ProfilePage() {
               <div className="cstat">
                 <span className="cstat-n">{community.rockets_received ?? 0}</span>
                 <span className="cstat-l">{t(lang, 'pfLikes')}</span>
+              </div>
+              <div className="cstat">
+                <span className="cstat-n">{community.shares_received ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'cShares')}</span>
+              </div>
+              <div className="cstat">
+                <span className="cstat-n">{community.views_received ?? 0}</span>
+                <span className="cstat-l">{t(lang, 'cViews')}</span>
               </div>
             </div>
           </div>
@@ -549,10 +621,10 @@ export default function ProfilePage() {
           border: 1px solid #1f2a22; border-radius: 20px; padding: 18px 16px;
         }
         .hero-avatar {
-          width: 62px; height: 62px; border-radius: 20px; flex-shrink: 0;
+          width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           background: linear-gradient(135deg, #18C27C, #00994a);
-          font-size: 30px; font-weight: 700; color: #00130a;
+          font-size: 24px; font-weight: 700; color: #00130a;
           overflow: hidden;
         }
         .hero-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -613,6 +685,16 @@ export default function ProfilePage() {
         }
         .mini-btn.danger { background: rgba(240,68,56,0.1); border-color: rgba(240,68,56,0.3); color: #ff8a8c; }
         .mini-btn:disabled { opacity: 0.5; }
+        .otp-verify-box { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 16px 14px; border-top: 1px solid #1f1f1f; }
+        .code-row { display: flex; gap: 10px; justify-content: center; width: 100%; }
+        .code-cell {
+          width: 44px; height: 52px; border-radius: 12px; border: 1.5px solid #262626;
+          background: #0d0d0d; color: #e8e8e8; font-size: 22px; font-weight: 700;
+          text-align: center; outline: none; caret-color: #18C27C;
+          font-family: Inter, sans-serif; font-variant-numeric: tabular-nums;
+          transition: border-color .15s;
+        }
+        .code-cell:focus { border-color: #18C27C; }
         .disable-box, .setup-box, .logout-box { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 14px; border-top: 1px solid #1f1f1f; align-items: center; }
         .disable-sub, .logout-sub { font-size: 12px; color: #9AA3B2; text-align: center; }
         .auth-submit.small.danger { background: rgba(240,68,56,0.15); color: #ff8a8c; }
@@ -642,9 +724,9 @@ export default function ProfilePage() {
         .comm-card, .posts-card { display: flex; flex-direction: column; gap: 12px; }
         .comm-head { display: flex; align-items: center; gap: 12px; }
         .comm-avatar {
-          width: 52px; height: 52px; border-radius: 16px; overflow: hidden; flex-shrink: 0;
+          width: 42px; height: 42px; border-radius: 12px; overflow: hidden; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
-          color: #fff; font-weight: 700; font-size: 22px;
+          color: #fff; font-weight: 700; font-size: 18px;
         }
         .comm-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .comm-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

@@ -10,11 +10,12 @@ par Supabase Auth côté frontend (@supabase/supabase-js). Ce routeur expose :
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -36,6 +37,8 @@ from ..core.email import send_verify_email  # noqa: F401  (utilisé par les test
 from ..core.job_queue import enqueue_email
 from ..database import get_db
 from ..models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -358,9 +361,14 @@ def hash_password(password: str, salt: str) -> str:
 
 
 def _claims_from_token(authorization: str) -> dict | None:
-    if not authorization.startswith("Bearer "):
+    if not authorization or not authorization.startswith("Bearer "):
+        logger.warning("[AUTH] _claims_from_token: no Bearer token (header_len=%d, prefix=%s)", len(authorization or ""), repr((authorization or "")[:20]))
         return None
-    return verify_supabase_jwt(authorization.removeprefix("Bearer ").strip())
+    raw = authorization.removeprefix("Bearer ").strip()
+    if not raw:
+        logger.warning("[AUTH] _claims_from_token: empty token after Bearer prefix")
+        return None
+    return verify_supabase_jwt(raw)
 
 
 def _resolve_user(claims: dict, db: Session) -> User | None:
@@ -419,7 +427,18 @@ def get_current_user(authorization: str = Header(default=""), db: Session = Depe
     claims = _claims_from_token(authorization)
     if not claims:
         raise HTTPException(status_code=401, detail="Session invalide, reconnectez-vous")
-    return _ensure_profile(claims, db)
+    user = _ensure_profile(claims, db)
+    # Invalidation de session : tout JWT émis avant la borne est rejeté
+    # (logout global, changement de mot de passe, etc.).
+    iat = claims.get("iat")
+    if iat and user.session_valid_from is not None:
+        issued_at = datetime.fromtimestamp(iat, tz=timezone.utc)
+        if issued_at < user.session_valid_from:
+            raise HTTPException(status_code=401, detail="Session déconnectée, reconnectez-vous")
+    # Bannissement plateforme (admin) : refus systématique de toutes les API.
+    if user.banned_at is not None:
+        raise HTTPException(status_code=403, detail="Compte suspendu par la plateforme")
+    return user
 
 
 def get_optional_user(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> User | None:
@@ -519,22 +538,30 @@ def send_otp(req: OtpSendRequest, request: Request, db: Session = Depends(get_db
     purpose = req.purpose if req.purpose in ("verify", "login") else "verify"
 
     su = admin_find_user_by_local_id(db, email) or admin_find_user_by_email(email)
-    if not su:
+
+    if not su and purpose == "login":
         raise HTTPException(status_code=404, detail="Aucun compte associé à cet email")
 
-    if su.get("email_confirmed_at"):
+    # Vérifie la vérification côté applicatif (User.email_verified), pas seulement Supabase
+    # Un compte Supabase peut être "confirmé" (email_confirm:true à la création) mais notre User.email_verified reste False
+    # jusqu'à la saisie du code OTP custom. Dans ce cas on doit renvoyer le code.
+    user = db.query(User).filter(User.email == email).first()
+    if user and user.email_verified:
         if purpose == "login":
             raise HTTPException(status_code=409, detail="Cette adresse est déjà vérifiée, connectez-vous simplement")
-        # Un compte déjà confirmé qui redemande un code de vérification (cas
-        # inscription déjà validée) : rien à confirmer.
         return {"status": "ok", "already_confirmed": True}
+    # Si pas de User local mais Supabase est confirmé et purpose=verify, on ne considère pas comme déjà confirmé
+    # (cas d'un ancien compte Supabase migré sans User local)
 
     code = _otp_generate(email)
     if code is None:
+        # Cooldown 60s — on renvoie l'ancien TTL sans spammer
+        entry = _otp_get(email)
+        if entry:
+            remaining = int(entry["expires_at"] - time.time())
+            ttl = max(1, (remaining + 59) // 60)
+            return {"status": "ok", "ttl_minutes": ttl, "resent": True, "cooldown": True}
         raise HTTPException(status_code=429, detail="Un code a déjà été envoyé, réessayez dans une minute")
-
-    # Crée/rafraîchit le profil local si l'utilisateur est déjà connu en base.
-    user = db.query(User).filter(User.email == email).first()
     if user:
         otp = _otp_get(email)
         user.email_verify_code = _otp_hash(code)
@@ -543,8 +570,6 @@ def send_otp(req: OtpSendRequest, request: Request, db: Session = Depends(get_db
         user.email_verify_sent_at = datetime.now()
         db.commit()
 
-    # Envoi délégué à la file Postgres (le worker exécute le SMTP en
-    # arrière-plan) : la requête répond immédiatement.
     enqueue_email(db, "verify", to=email, code=code, ttl_minutes=10)
     return {"status": "ok", "ttl_minutes": 10}
 
@@ -585,13 +610,165 @@ def verify_otp(req: OtpVerifyRequest, request: Request, db: Session = Depends(ge
 
     user = db.query(User).filter(User.email == email).first()
     if user:
+        was_verified = bool(user.email_verified)
         user.email_verified = True
         user.email_verify_code = None
         user.email_verify_expires = None
         user.email_verify_attempts = 0
         db.commit()
+        # Email de bienvenue / confirmation après vérification réussie (une seule fois)
+        if not was_verified:
+            try:
+                enqueue_email(db, "welcome", to=email, name=user.name or email.split("@")[0])
+            except Exception:
+                pass
 
     return {"status": "ok", "confirmed": True}
+
+
+class RegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=2, max_length=80)
+    account_type: str = Field(default="demo", pattern="^(demo|real)$")
+    broker_name: str | None = Field(default=None, max_length=120)
+    broker_account: str | None = Field(default=None, max_length=120)
+
+
+@router.post("/register")
+def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    """Inscription avec OTP par email personnalisé (SMTP bluerock.africa@gmail.com).
+
+    Crée le compte Supabase sans email de confirmation (email_confirm=True)
+    puis envoie un code OTP à 6 chiffres via notre SMTP/Brevo. L'utilisateur
+    doit ensuite vérifier le code via POST /api/auth/otp/verify.
+    """
+    check_rate_limit(request, limit=5, window_seconds=900)
+    email = req.email.strip().lower()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="Adresse email invalide")
+    if len(req.password) < settings.PASSWORD_MIN_LENGTH:
+        raise HTTPException(status_code=422, detail=f"Mot de passe trop court (min {settings.PASSWORD_MIN_LENGTH} caractères)")
+    if settings.PASSWORD_REQUIRE_COMPLEXITY:
+        if not re.search(r"[a-z]", req.password) or not re.search(r"[A-Z]", req.password) or not re.search(r"[0-9]", req.password):
+            raise HTTPException(status_code=422, detail="Le mot de passe doit contenir majuscule, minuscule et chiffre")
+    # Vérifie si déjà existant (Supabase ou local)
+    existing_su = admin_find_user_by_email(email)
+    existing_local = db.query(User).filter(User.email == email).first()
+    # Si déjà vérifié → vrai conflit
+    if existing_local and existing_local.email_verified:
+        raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet email — connectez-vous")
+    if existing_su and existing_su.get("email_confirmed_at") and existing_local and existing_local.email_verified:
+        raise HTTPException(status_code=409, detail="Un compte existe déjà avec cet email — connectez-vous")
+    # Si existe mais non vérifié → on renvoie le code (resend) au lieu de 409
+    if existing_su or existing_local:
+        # Assure le profil local existe
+        user = existing_local
+        if not user and existing_su:
+            try:
+                auth_id = uuid.UUID(existing_su["id"])
+            except Exception:
+                auth_id = None
+            user = User(
+                auth_id=auth_id,
+                name=req.name,
+                email=email,
+                password_hash="",
+                account_type=req.account_type,
+                broker_name=req.broker_name,
+                broker_account=req.broker_account,
+                email_verified=False,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            # Met à jour le mot de passe Supabase pour permettre le login après vérif
+            try:
+                admin_set_password(existing_su["id"], req.password)
+            except Exception:
+                pass
+        elif user and existing_su:
+            # Met à jour le mot de passe si l'utilisateur retente avec un nouveau mdp
+            try:
+                admin_set_password(existing_su["id"], req.password)
+            except Exception:
+                pass
+            if not user.auth_id and existing_su.get("id"):
+                try:
+                    user.auth_id = uuid.UUID(existing_su["id"])
+                    db.commit()
+                except Exception:
+                    pass
+        # Génère/Renvoie le code OTP via notre SMTP (pas de 409)
+        code = _otp_generate(email)
+        if code is None:
+            # Cooldown 60s — on renvoie l'ancien code sans spammer SMTP
+            entry = _otp_get(email)
+            if entry:
+                remaining = int(entry["expires_at"] - time.time())
+                ttl = max(1, (remaining + 59) // 60)
+                logger.info("Inscription existante %s -> OTP déjà envoyé (cooldown, %ds restants)", email, remaining)
+                return {"status": "pending_verification", "email": email, "ttl_minutes": ttl, "resent": True, "cooldown": True}
+            raise HTTPException(status_code=429, detail="Un code a déjà été envoyé, réessayez dans une minute")
+        otp = _otp_get(email)
+        if user:
+            user.email_verify_code = _otp_hash(code)
+            user.email_verify_expires = datetime.fromtimestamp(otp["expires_at"]) if otp else None
+            user.email_verify_attempts = 0
+            user.email_verify_sent_at = datetime.now()
+            db.commit()
+        enqueue_email(db, "verify", to=email, code=code, ttl_minutes=10)
+        logger.info("Inscription existante non vérifiée %s -> OTP renvoyé via %s", email, settings.SMTP_USER or "Brevo")
+        return {"status": "pending_verification", "email": email, "ttl_minutes": 10, "resent": True}
+    # Nouveau compte : crée le compte Supabase sans envoi d'email (email_confirm=True)
+    su = admin_create_user(email, req.password, req.name, metadata={
+        "full_name": req.name,
+        "account_type": req.account_type,
+        "broker_name": req.broker_name,
+        "broker_account": req.broker_account,
+    })
+    if not su:
+        raise HTTPException(status_code=502, detail="Création du compte impossible, réessayez")
+    # Crée le profil local (email non vérifié, attend OTP)
+    try:
+        auth_id = uuid.UUID(su["id"])
+    except Exception:
+        auth_id = None
+    user = User(
+        auth_id=auth_id,
+        name=req.name,
+        email=email,
+        password_hash="",
+        account_type=req.account_type,
+        broker_name=req.broker_name,
+        broker_account=req.broker_account,
+        email_verified=False,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    # Génère et envoie le code OTP via notre SMTP (bluerock.africa@gmail.com)
+    code = _otp_generate(email)
+    if code is None:
+        # Déjà un code récent — on réutilise l'existant en le renvoyant
+        entry = _otp_get(email)
+        if entry:
+            # On ne régénère pas, on renvoie l'ancien via email
+            # Pour simplifier, on attend le cooldown
+            raise HTTPException(status_code=429, detail="Un code a déjà été envoyé, réessayez dans une minute")
+        code = _otp_generate(email)
+        if code is None:
+            raise HTTPException(status_code=429, detail="Un code a déjà été envoyé, réessayez dans une minute")
+    # Persiste le hash dans le profil local pour audit
+    otp = _otp_get(email)
+    user.email_verify_code = _otp_hash(code)
+    user.email_verify_expires = datetime.fromtimestamp(otp["expires_at"]) if otp else None
+    user.email_verify_attempts = 0
+    user.email_verify_sent_at = datetime.now()
+    db.commit()
+    enqueue_email(db, "verify", to=email, code=code, ttl_minutes=10)
+    logger.info("Inscription %s -> OTP envoyé via %s (custom SMTP)", email, settings.SMTP_USER or "Brevo")
+    return {"status": "pending_verification", "email": email, "ttl_minutes": 10}
 
 
 class UserOut(BaseModel):
@@ -765,6 +942,21 @@ def update_me(
     payload = UserOut.from_orm(user).dict()
     payload.update(tokens_available(db, user))
     return payload
+
+
+@router.post("/logout")
+def logout(user: User = Depends(get_current_user),
+           db: Session = Depends(get_db), request: Request = None):
+    """Déconnexion GLOBALE : tout JWT émis avant maintenant est rejeté."""
+    user.session_valid_from = datetime.now(timezone.utc)
+    user.last_login = None
+    from ..services.audit import audit
+    audit(db, "logout", "session", resource_id=user.id,
+          user_id=user.id, actor_role=user.role,
+          ip=request.client.host if request else None,
+          user_agent=request.headers.get("user-agent") if request else None)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/brokers")

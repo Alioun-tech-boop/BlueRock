@@ -1,15 +1,53 @@
-﻿import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { legacyLogin as apiLegacyLogin, getMe, updateMe as apiUpdateMe, sendOtp as apiSendOtp, verifyOtpCode as apiVerifyOtpCode } from '../services/api'
+import { legacyLogin as apiLegacyLogin, getMe, updateMe as apiUpdateMe, sendOtp as apiSendOtp, verifyOtpCode as apiVerifyOtpCode, resetSessionExpiredFlag, logout as apiLogout, registerWithOtp as apiRegisterWithOtp } from '../services/api'
 
 const TOKEN_KEY = 'bluerock_token'
 const USER_KEY = 'bluerock_user'
 
+const store = {
+  get(key) {
+    try { return localStorage.getItem(key) } catch { return null }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value) } catch {}
+  },
+  remove(key) {
+    try { localStorage.removeItem(key) } catch {}
+  },
+}
+
 function loadCached() {
   try {
-    const raw = localStorage.getItem(USER_KEY)
+    const raw = store.get(USER_KEY)
     return raw ? JSON.parse(raw) : null
   } catch { return null }
+}
+
+function clearSensitiveKeys() {
+  try {
+    // Legacy Supabase + BlueRock keys
+    localStorage.removeItem('supabase.auth.token')
+    // Supabase v2 stocke sb-<project>-auth-token et code-verifier
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('sb-') && k.includes('-auth-token')) {
+          localStorage.removeItem(k)
+        }
+      }
+    } catch {}
+    localStorage.removeItem('bluerock_broker_token')
+    localStorage.removeItem('bluerock_admin_token')
+    localStorage.removeItem('bluerock_active_account')
+    localStorage.removeItem('bluerock_api_cache_v1')
+  } catch {}
+  try {
+    sessionStorage.removeItem('bluerock_broker_token')
+    sessionStorage.removeItem('bluerock_admin_token')
+  } catch {}
+  store.remove(TOKEN_KEY)
+  store.remove(USER_KEY)
 }
 
 function profileFromSession(sbUser, profile) {
@@ -43,52 +81,95 @@ export function AuthProvider({ children }) {
   useEffect(() => { userRef.current = user }, [user])
 
   const persist = useCallback((u) => {
-    try { localStorage.setItem(USER_KEY, JSON.stringify(u)) } catch {}
+    try { store.set(USER_KEY, JSON.stringify(u)) } catch {}
   }, [])
 
   const syncSession = useCallback(async (session) => {
-    // session == null → déconnecté
-    const sbUser = session?.user || session
+    let sbUser = session?.user || session
     if (!sbUser) {
       profileRef.current = null
-      try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+      clearSensitiveKeys()
       setUser(null)
       setLoading(false)
       return
     }
-    try { localStorage.setItem(TOKEN_KEY, session?.access_token || sbUser.access_token || '') } catch {}
+    let rawToken = session?.access_token || sbUser.access_token || ''
+    const tokenExpired = session?.expires_at && session.expires_at * 1000 < Date.now()
+    if (!rawToken || tokenExpired) {
+      if (tokenExpired) console.warn('[Auth] syncSession: access_token expired, refreshing...')
+      try {
+        const { data: rd, error } = await supabase.auth.refreshSession()
+        if (!error && rd.session?.access_token) {
+          rawToken = rd.session.access_token
+          session = rd.session
+          sbUser = rd.session.user || sbUser
+        } else {
+          profileRef.current = null
+          clearSensitiveKeys()
+          setUser(null)
+          setLoading(false)
+          return
+        }
+      } catch {
+        profileRef.current = null
+        clearSensitiveKeys()
+        setUser(null)
+        setLoading(false)
+        return
+      }
+    }
+    try { store.set(TOKEN_KEY, rawToken) } catch {}
     let profile = profileRef.current
     if (!profile) {
       try {
-        const res = await getMe().catch(() => null)
+        const res = await getMe().catch((e) => {
+          console.warn('[Auth] getMe() failed:', e?.response?.status || e?.message)
+          return null
+        })
         profile = res ? res.data : null
-      } catch {}
+      } catch (e) { console.warn('[Auth] getMe() exception:', e) }
       profileRef.current = profile || null
     }
     const merged = profileFromSession(sbUser, profile)
     setUser(merged)
     persist(merged)
     setLoading(false)
+    resetSessionExpiredFlag()
   }, [getMe, persist])
 
   useEffect(() => {
     if (busyRef.current) return
     busyRef.current = true
-    supabase.auth.getSession().then(({ data }) => syncSession(data.session))
+    supabase.auth.getSession().then(({ data }) => {
+      const s = data.session
+      if (s && s.expires_at && s.expires_at * 1000 < Date.now()) {
+        supabase.auth.refreshSession().then(({ data: rd, error }) => {
+          syncSession(!error && rd.session ? rd.session : null).finally(() => { busyRef.current = false })
+        }).catch(() => syncSession(null).finally(() => { busyRef.current = false }))
+      } else {
+        syncSession(s).finally(() => { busyRef.current = false })
+      }
+    }).catch(() => syncSession(null).finally(() => { busyRef.current = false }))
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (process.env.NODE_ENV !== 'production') console.warn('[Auth] onAuthStateChange:', _event, session ? 'has_session' : 'null_session')
       if (_event === 'PASSWORD_RECOVERY') setRecovery(true)
-      else if (_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED' || _event === 'SIGNED_OUT') setRecovery(false)
+      else if (_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED') setRecovery(false)
+      if (_event === 'SIGNED_OUT' && !session && profileRef.current) {
+        supabase.auth.getSession().then(({ data }) => {
+          if (data.session) { syncSession(data.session); return }
+          syncSession(null)
+        }).catch(() => syncSession(null))
+        return
+      }
       syncSession(session)
     })
     const onExpired = () => {
-      // La session Supabase est devenue invalide (expiration, rotation échouée…) :
-      // on se déconnecte proprement pour laisser les pages réagir à user==null,
-      // sans redirection brutale depuis l'intercepteur axios.
+      console.warn('[Auth] Session expired event received')
       if (profileRef.current || userRef.current !== null) {
         try { supabase.auth.signOut().catch(() => {}) } catch {}
       }
       profileRef.current = null
-      try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+      clearSensitiveKeys()
       setUser(null)
       setLoading(false)
     }
@@ -102,12 +183,14 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     let res = await supabase.auth.signInWithPassword({ email, password })
+    if (res.error) console.warn('[Auth] signInWithPassword error:', res.error.message)
     if (res.error && /invalid|credentials/i.test(res.error.message || '')) {
-      // Compte pré-Supabase → migration : vérif legacy puis reconnexion
+      // Compte pré-Supabase ? migration : vérif legacy puis reconnexion
       await apiLegacyLogin(email, password).catch(() => null)
       res = await supabase.auth.signInWithPassword({ email, password })
     }
     if (res.error) throw res.error
+    console.warn('[Auth] Login OK, session expires:', res.data.session?.expires_at)
     const sbUser = res.data.user
     const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
     const factors = sbUser?.factors || []
@@ -132,27 +215,21 @@ export function AuthProvider({ children }) {
   }, [syncSession])
 
   const register = useCallback(async (payload) => {
-    const { data, error } = await supabase.auth.signUp({
+    // Backend custom OTP (Brevo/SMTP bluerock.africa@gmail.com) — pas de lien Supabase
+    const res = await apiRegisterWithOtp({
       email: payload.email,
       password: payload.password,
-      options: {
-        emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
-        data: {
-          full_name: payload.name,
-          account_type: payload.account_type || 'demo',
-          broker_name: payload.broker_name || null,
-          broker_account: payload.broker_account || null,
-        },
-      },
+      name: payload.name,
+      account_type: payload.account_type || 'demo',
+      broker_name: payload.broker_name || null,
+      broker_account: payload.broker_account || null,
     })
-    if (error) throw error
-    return data.session ? { status: 'ok', user: data.user } : { status: 'pending_verification', email: payload.email }
+    return { status: 'pending_verification', email: payload.email, ttl_minutes: res.data?.ttl_minutes || 10, resent: res.data?.resent, cooldown: res.data?.cooldown }
   }, [])
 
   const resendVerification = useCallback(async (email) => {
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
-    if (error) throw error
-    return { status: 'sent' }
+    const res = await apiSendOtp(email, 'verify')
+    return res.data
   }, [])
 
   const sendResetCode = useCallback(async (email) => {
@@ -163,15 +240,16 @@ export function AuthProvider({ children }) {
     return { status: 'sent' }
   }, [])
 
-  const logout = useCallback(async () => {
+const logout = useCallback(async () => {
+    try { await apiLogout().catch(() => {}) } catch {}
     try { await supabase.auth.signOut() } catch {}
-    try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY) } catch {}
+    clearSensitiveKeys()
     profileRef.current = null
     setUser(null)
   }, [])
 
-  // Mot de passe oublié : l'utilisateur clique le lien de l'email → événement
-  // PASSWORD_RECOVERY → il ne reste qu'à définir le nouveau mot de passe.
+  // Mot de passe oublié : l'utilisateur clique le lien de l'email ? événement
+  // PASSWORD_RECOVERY ? il ne reste qu'à définir le nouveau mot de passe.
   const updatePassword = useCallback(async (newPassword) => {
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) throw error

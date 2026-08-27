@@ -17,6 +17,7 @@ import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import MarketChart from '../components/MarketChart'
 import InfoDot from '../components/InfoDot'
 import NewsThumb from '../components/NewsThumb'
+import DataErrorState from '../components/DataErrorState'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -189,7 +190,7 @@ export default function Company() {
   const [impYear, setImpYear] = useState('')
   const [impQuarter, setImpQuarter] = useState('')
   const [impToken, setImpToken] = useState(() => {
-    try { return localStorage.getItem(ADMIN_KEY) || '' } catch { return '' }
+    try { return sessionStorage.getItem(ADMIN_KEY) || '' } catch { return '' }
   })
   const [impBusy, setImpBusy] = useState(false)
   const [impMsg, setImpMsg] = useState('')
@@ -274,6 +275,8 @@ export default function Company() {
   const [tradeLimit, setTradeLimit] = useState('')
   const [tradeTp, setTradeTp] = useState('')
   const [tradeSl, setTradeSl] = useState('')
+  const [tradeUnlimited, setTradeUnlimited] = useState(true)
+  const [tradeValidUntil, setTradeValidUntil] = useState('')
   const [owned, setOwned] = useState(0)
   const [sending, setSending] = useState(false)
   const [marketOpen, setMarketOpen] = useState(true)
@@ -293,11 +296,7 @@ export default function Company() {
 
   const openTrade = (side) => {
     if (!full) return
-    if (!marketOpen) {
-      setMcNote(t(lang, 'marketClosedHint'))
-      return
-    }
-    setMcNote('')
+    setMcNote(marketOpen ? '' : t(lang, 'marketClosedPending'))
     if (!user) {
       router.push(`/login?next=${encodeURIComponent(router.asPath)}`)
       return
@@ -305,10 +304,12 @@ export default function Company() {
     setTrade(side)
     setTradeQty(1)
     setTradePrice(price?.current != null ? String(price.current) : '')
-    setTradeType('market')
+    setTradeType(marketOpen ? 'market' : 'limit')
     setTradeLimit('')
     setTradeTp('')
     setTradeSl('')
+    setTradeUnlimited(true)
+    setTradeValidUntil('')
     setTradeMsg('')
     setTradeErr('')
     setSending(false)
@@ -322,10 +323,6 @@ export default function Company() {
 
   const submitTrade = () => {
     if (!full || !trade) return
-    if (!marketOpen) {
-      setTradeErr(t(lang, 'marketClosedHint'))
-      return
-    }
     const qty = Math.floor(Number(tradeQty))
     const px = Number(tradePrice)
     if (!qty || qty <= 0) { setTradeErr(t(lang, 'tradeQtyErr')); return }
@@ -336,6 +333,9 @@ export default function Company() {
     const slV = tradeSl.trim() ? Number(tradeSl) : null
     if ((tpV != null && !(tpV > execPx)) || (slV != null && !(slV < execPx))) { setTradeErr(t(lang, 'tpslErr')); return }
     if (trade === 'sell' && qty > owned) { setTradeErr(t(lang, 'tradeInsufficient')); return }
+    const validUntil = (tradeType === 'limit' && !tradeUnlimited && tradeValidUntil)
+      ? new Date(tradeValidUntil).toISOString()
+      : null
     setSending(true)
     setTradeErr('')
     placeOrder({
@@ -347,14 +347,16 @@ export default function Company() {
       limit_price: tradeType === 'limit' ? execPx : null,
       take_profit: tpV,
       stop_loss: slV,
+      valid_until: validUntil,
       account_id: getActiveAccountId(),
     })
       .then(res => {
         setSending(false)
         const pending = res?.data?.status === 'pending'
+        const atOpen = res?.data?.executes_at_open
         const execPrice = res?.data?.price
         if (!pending && execPrice != null) setTradePrice(String(execPrice))
-        setTradeMsg(t(lang, pending ? 'orderPending' : 'tradePlaced'))
+        setTradeMsg(t(lang, pending ? (atOpen ? 'orderExecutesOpen' : 'orderPending') : 'tradePlaced'))
         if (!pending) setOwned(o => trade === 'buy' ? o + qty : Math.max(0, o - qty))
       })
       .catch(err => {
@@ -381,13 +383,10 @@ export default function Company() {
     return (
       <div className="mobile-root">
         <div className="loading-center">
-          <div className="err-box">
-            <span className="err-title">404</span>
-            <span>{t(lang, 'notFound')}</span>
-            <button className="retry-btn" onClick={() => router.push('/watchlist')}>
-              {t(lang, 'watchlist')}
-            </button>
-          </div>
+          <DataErrorState lang={lang} size={170} message={t(lang, 'notFound')} />
+          <button className="retry-btn" onClick={() => router.push('/watchlist')}>
+            {t(lang, 'watchlist')}
+          </button>
         </div>
         <BottomNav />
         <style jsx>{`
@@ -1121,7 +1120,7 @@ export default function Company() {
                   type="password"
                   placeholder={t(lang, 'finAdminTokenHelp')}
                   value={impToken}
-                  onChange={e => { setImpToken(e.target.value); try { localStorage.setItem(ADMIN_KEY, e.target.value) } catch {} }}
+                  onChange={e => { setImpToken(e.target.value); try { sessionStorage.setItem(ADMIN_KEY, e.target.value) } catch {} }}
                 />
               </div>
               {impErr && <div className="tm-err"><AlertTriangle size={14} /> {impErr}</div>}
@@ -1187,6 +1186,23 @@ export default function Company() {
                         placeholder={tradePrice}
                         onChange={e => setTradeLimit(e.target.value)}
                       />
+                    </div>
+                  )}
+                  {tradeType === 'limit' && (
+                    <div className="tm-row">
+                      <label className="tm-label">{t(lang, 'orderValidity')}</label>
+                      <label className="tm-check" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#8C99AF' }}>
+                        <input type="checkbox" checked={tradeUnlimited} onChange={e => setTradeUnlimited(e.target.checked)} />
+                        {t(lang, 'orderUnlimited')}
+                      </label>
+                      {!tradeUnlimited && (
+                        <input
+                          className="tm-input mono"
+                          type="date"
+                          value={tradeValidUntil}
+                          onChange={e => setTradeValidUntil(e.target.value)}
+                        />
+                      )}
                     </div>
                   )}
                   <div className="tm-row">
@@ -1382,11 +1398,12 @@ export default function Company() {
           display: flex; align-items: flex-end; justify-content: center;
         }
         .trade-modal {
-          width: 100%; max-width: 480px;
+          width: 100%; max-width: 480px; max-height: 88vh;
           background: #141414; border: 1px solid #262626;
           border-radius: 20px 20px 0 0;
           padding: 16px 16px 28px;
           display: flex; flex-direction: column; gap: 12px;
+          overflow-y: auto;
         }
         .tm-head { display: flex; align-items: center; justify-content: space-between; }
         .tm-side {

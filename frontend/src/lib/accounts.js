@@ -3,7 +3,7 @@ export const ACTIVE_ACCOUNT_KEY = 'bluerock_active_account'
 export function getActiveAccountId() {
   try {
     const id = parseInt(localStorage.getItem(ACTIVE_ACCOUNT_KEY), 10)
-    return Number.isFinite(id) ? id : null
+    return Number.isFinite(id) && id > 0 ? id : null
   } catch { return null }
 }
 

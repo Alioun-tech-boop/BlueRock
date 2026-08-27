@@ -49,7 +49,7 @@ export default function Menu() {
       title: t('menuAnalysis'),
       items: [
         { label: t('offers'), desc: t('menuOffersDesc'), icon: Gem, path: '/premium' },
-        { label: t('premiumTitle'), desc: t('menuPremiumDesc'), icon: Compass, path: '/patrimoine' },
+        // Plan patrimoine retiré temporairement
         { label: t('aiAnalyst'), desc: t('menuAnalystDesc'), icon: Sparkles, path: '/analyst' },
         { label: t('community'), desc: t('menuCommunityDesc'), icon: LayoutGrid, path: '/community' },
         { label: t('challenges'), desc: t('ch2Tagline'), icon: Trophy, path: '/challenges' },
@@ -169,7 +169,7 @@ export default function Menu() {
         }
         .acct-card.guest { border: 1px solid #262626; }
         .acct-avatar {
-          width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+          width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
           display: flex; align-items: center; justify-content: center;
           background: rgba(24,194,124,0.12); color: #18C27C;
           overflow: hidden;

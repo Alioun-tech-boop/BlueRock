@@ -28,15 +28,27 @@
   }
 
   return [...groups.entries()]
-    .sort((a, b) => a[0] < b[0] ? -1 : 1)
+    .sort((a, b) => {
+      // Tri numérique si possible (pour 5j qui est un entier), sinon lexical
+      const na = Number(a[0]), nb = Number(b[0])
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
+      return a[0] < b[0] ? -1 : 1
+    })
     .map(([, pts]) => {
       const first = pts[0]
       const last = pts[pts.length - 1]
+      let high = -Infinity, low = Infinity
+      for (const p of pts) {
+        const h = p.high ?? Math.max(p.open ?? p.close, p.close)
+        const l = p.low ?? Math.min(p.open ?? p.close, p.close)
+        if (h > high) high = h
+        if (l < low) low = l
+      }
       return {
         date: first.date,
         open: first.open ?? first.close,
-        high: Math.max(...pts.map(p => p.high ?? Math.max(p.open ?? p.close, p.close))),
-        low: Math.min(...pts.map(p => p.low ?? Math.min(p.open ?? p.close, p.close))),
+        high,
+        low,
         close: last.close,
         volume: pts.reduce((s, p) => s + (p.volume || 0), 0),
       }

@@ -15,6 +15,7 @@ Aucune simulation : sans Supabase/Stripe configurés, l'API refuse de créer
 un ordre d'abonnement.
 """
 
+import datetime
 import logging
 import uuid
 
@@ -45,6 +46,33 @@ def _order_payload(o: SubscriptionOrder) -> dict:
         "created_at": o.created_at.isoformat() if o.created_at else None,
         "confirmed_at": o.confirmed_at.isoformat() if o.confirmed_at else None,
     }
+
+
+@router.post("/trial")
+def start_trial(request: Request, user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    """Offre l'essai gratuit Pro (durée configurée, une seule fois par compte).
+
+    Aucun paiement requis ni config Stripe : l'essai est accordé immédiatement.
+    """
+    check_rate_limit(request, limit=5, window_seconds=60)
+    if is_pro(user):
+        raise HTTPException(status_code=409,
+                            detail="Vous êtes déjà Pro (essai ou abonnement)")
+
+    if user.trial_ends_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Vous avez déjà utilisé votre essai gratuit.",
+            headers={"X-BlueRock-Code": "trial_used"},
+        )
+
+    set_tier(db, user, settings.TIER_PRO)
+    user.trial_ends_at = datetime.datetime.utcnow() + datetime.timedelta(
+        days=settings.TRIAL_DAYS)
+    db.commit()
+    db.refresh(user)
+    return {"plan": tokens_available(db, user)}
 
 
 @router.post("/subscribe")

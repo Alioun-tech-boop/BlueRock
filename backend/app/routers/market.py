@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Dict
@@ -232,22 +232,50 @@ def get_indices(db: Session = Depends(get_db)):
 
 @router.get("/sparklines")
 def get_sparklines(days: int = 30, db: Session = Depends(get_db)):
-    """Séries courtes réelles (clôtures) par entreprise pour les mini-graphiques."""
-    cutoff = date.today() - timedelta(days=max(1, days))
+    """Séries courtes réelles (clôtures) par entreprise pour les mini-graphiques.
+
+    Indexées par id (compat historique) ET par symbole (usage community :
+    cartes financières des publications). `_meta` fournit nom/cours/variation
+    par symbole pour rendre l'encart même hors top performers."""
+    latest = db.query(func.max(MarketData.date)).scalar()
+    if not latest:
+        return {"_meta": {}}
+    cutoff = latest - timedelta(days=max(1, days))
     rows = (
-        db.query(MarketData)
+        db.query(MarketData, Company)
+        .join(Company, Company.id == MarketData.company_id)
         .filter(MarketData.date >= cutoff)
         .order_by(MarketData.company_id, MarketData.date)
         .all()
     )
     result: Dict = {}
-    for md in rows:
+    names: Dict[int, str] = {}
+    symbols: Dict[int, str] = {}
+    for md, co in rows:
         result.setdefault(md.company_id, []).append(round(md.close_price, 2))
-    return result
+        names.setdefault(md.company_id, co.name)
+        symbols.setdefault(md.company_id, co.symbol)
+    clean: Dict = {}
+    meta: Dict = {}
+    for cid, series in result.items():
+        sym = (symbols.get(cid) or "").upper()
+        clean[cid] = series
+        if sym:
+            clean[sym] = series
+            first, last = series[0], series[-1]
+            change = ((last - first) / max(abs(first), 0.0001)) * 100 if len(series) > 1 else 0
+            meta[sym] = {
+                "name": names.get(cid),
+                "close_price": last,
+                "change_percent": round(change, 2),
+                "symbol": sym,
+            }
+    clean["_meta"] = meta
+    return clean
 
 
 @router.get("/news")
-def get_news(limit: int = 500, force: bool = False, request: Request = None):
+def get_news(limit: int = Query(50, ge=1, le=500), force: bool = False, request: Request = None):
     """News marché BRVM : historique persisté trié du plus récent au plus
     ancien (positions stables) + re-scrape en arrière-plan si périmé ou
     demandé (force)."""

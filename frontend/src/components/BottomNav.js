@@ -28,7 +28,7 @@ export default function BottomNav({ active }) {
   }
 
   return (
-    <nav className="bottom-nav">
+    <nav className="bottom-nav" aria-label="Navigation principale">
       {items.map(item => {
         const isActive = active === item.id
         const Icon = item.icon
@@ -38,9 +38,11 @@ export default function BottomNav({ active }) {
             href={item.path}
             onClick={e => go(e, item)}
             className={`bn-item ${isActive ? 'active' : ''}`}
+            aria-current={isActive ? 'page' : undefined}
+            aria-label={t(item.label)}
           >
-            <span className="bn-ico">
-              <Icon size={21} strokeWidth={2} />
+            <span className="bn-ico" aria-hidden="true">
+              <Icon size={20} strokeWidth={1.9} />
             </span>
             <span className="bn-label">{t(item.label)}</span>
           </Link>
@@ -52,12 +54,15 @@ export default function BottomNav({ active }) {
           display: flex;
           align-items: center;
           justify-content: space-around;
-          height: calc(70px + env(safe-area-inset-bottom));
-          padding: 4px 0 env(safe-area-inset-bottom);
-          background: #0A0A0A;
+          height: 64px;
+          padding: 6px 8px;
+          background: rgba(14, 14, 17, 0.8);
+          backdrop-filter: blur(24px) saturate(1.4);
+          -webkit-backdrop-filter: blur(24px) saturate(1.4);
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          border-radius: 22px;
+          box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.05);
           flex-shrink: 0;
-          border-top: 1px solid #1E1E1E;
-          overflow: hidden;
         }
         :global(.bn-item) {
           position: relative;
@@ -67,22 +72,31 @@ export default function BottomNav({ active }) {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 4px;
+          gap: 5px;
           background: none;
           border: none;
           text-decoration: none;
-          color: #9AA3B2;
-          font-size: 12px;
+          color: rgba(255, 255, 255, 0.4);
+          font-size: 11px;
           font-weight: 500;
           cursor: pointer;
-          padding: 4px 2px;
-          transition: color 0.15s ease;
+          padding: 2px;
+          transition: color 0.18s ease;
           font-family: inherit;
         }
-        :global(.bn-item:active) { color: #28C98B; }
-        :global(.bn-item.active) { color: #28C98B; }
+        :global(.bn-ico) {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 30px;
+          border-radius: 14px;
+          transition: background 0.18s ease;
+        }
+        :global(.bn-item.active) { color: #fff; }
+        :global(.bn-item.active .bn-ico) { background: rgba(255, 255, 255, 0.1); }
         :global(.bn-item.active .bn-label) {
-          color: #F7F8FA;
+          color: #fff;
           font-weight: 600;
         }
         :global(.bn-label) {

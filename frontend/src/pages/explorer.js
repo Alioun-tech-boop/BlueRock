@@ -6,6 +6,7 @@ import { getCompanies, getMarketOverview, getMarketSparklines, getMarketNews, ge
 import { t, detectLang, fmtPriceCur } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import TriLoader from '../components/TriLoader'
+import DataErrorState from '../components/DataErrorState'
 import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Compass, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -100,152 +101,178 @@ function AiArt() {
 }
 
 function FinanceBackground() {
-  const ref = useRef(null)
-  useEffect(() => {
-    const canvas = ref.current
-    const ctx = canvas.getContext('2d')
-    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    let w = 0, h = 0, raf = 0, last = 0
-    let particles = []
-    const rand = (a, b) => a + Math.random() * (b - a)
-    const TAU = Math.PI * 2
-
-    const blobs = [
-      { rgba: '76,141,255', size: 0.66, nx: 0.18, ny: -0.22, ax: 0.00011, ay: 0.00013, ph: 0 },
-      { rgba: '139,92,246', size: 0.52, nx: 0.84, ny: 0.18, ax: 0.00009, ay: 0.00010, ph: 2.1 },
-      { rgba: '24,194,124', size: 0.48, nx: 0.12, ny: 0.76, ax: 0.00012, ay: 0.00009, ph: 4.2 },
-      { rgba: '56,143,255', size: 0.60, nx: 0.92, ny: 0.92, ax: 0.00010, ay: 0.00011, ph: 1.3 },
-    ]
-
-    const resize = () => {
-      w = window.innerWidth
-      h = window.innerHeight
-      canvas.width = w * dpr
-      canvas.height = h * dpr
-      canvas.style.width = w + 'px'
-      canvas.style.height = h + 'px'
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    }
-    resize()
-    window.addEventListener('resize', resize)
-
-    const base = () => {
-      const g = ctx.createLinearGradient(0, 0, 0, h)
-      g.addColorStop(0, 'rgba(14,18,30,1)')
-      g.addColorStop(0.55, 'rgba(7,9,16,1)')
-      g.addColorStop(1, 'rgba(3,5,9,1)')
-      ctx.fillStyle = g
-      ctx.fillRect(0, 0, w, h)
-    }
-
-    const aurora = t => {
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      for (const b of blobs) {
-        const bx = b.nx * w + Math.sin(t * b.ax + b.ph) * w * 0.07
-        const by = b.ny * h + Math.cos(t * b.ay + b.ph) * h * 0.06
-        const r = b.size * Math.max(w, h)
-        const g = ctx.createRadialGradient(bx, by, 0, bx, by, r)
-        g.addColorStop(0, `rgba(${b.rgba},0.30)`)
-        g.addColorStop(0.55, `rgba(${b.rgba},0.10)`)
-        g.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = g
-        ctx.fillRect(0, 0, w, h)
-      }
-      ctx.restore()
-    }
-
-    const grid = t => {
-      const vx = w / 2
-      const vy = h * 0.16
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)'
-      ctx.lineWidth = 1
-      for (let i = 0; i < 15; i++) {
-        const a = (i / 15) * TAU
-        ctx.beginPath()
-        ctx.moveTo(vx, vy)
-        ctx.lineTo(vx + Math.cos(a) * w * 1.5, vy + Math.sin(a) * h * 1.5)
-        ctx.stroke()
-      }
-      const spacing = 0.085
-      const depth = (t * 0.00013) % spacing
-      for (let d = depth; d < 1.06; d += spacing) {
-        const y = vy + d * d * h * 1.18
-        ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(w, y)
-        ctx.stroke()
-      }
-    }
-
-    const spawn = () => {
-      particles.push({
-        x: rand(0, w),
-        y: h + rand(10, 40),
-        r: rand(0.8, 2.2),
-        vy: rand(8, 24),
-        vx: rand(-6, 6),
-        tw: rand(0.002, 0.005),
-        ph: rand(0, TAU),
-        green: Math.random() < 0.3,
-        born: performance.now(),
-      })
-    }
-
-    const draw = t => {
-      raf = requestAnimationFrame(draw)
-      if (document.hidden) return
-      const dt = Math.min((t - last) / 1000, 0.05) || 0.016
-      last = t
-      base()
-      aurora(t)
-      grid(t)
-      if (particles.length < 50 && Math.random() < dt * 3) spawn()
-      for (const p of particles) {
-        p.y -= p.vy * dt
-        p.x += p.vx * dt
-        const age = (t - p.born) / 1000
-        const twinkle = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * p.tw + p.ph))
-        const a = Math.max(0, 1 - age / 9) * 0.6 * twinkle
-        if (a <= 0) continue
-        ctx.globalAlpha = a
-        ctx.fillStyle = p.green ? 'rgba(42,203,138,1)' : 'rgba(224,233,255,0.9)'
-        if (p.green) {
-          ctx.shadowColor = 'rgba(24,194,124,0.7)'
-          ctx.shadowBlur = 8
+  return (
+    <div className="fb-root" aria-hidden="true">
+      <div className="fb-base" />
+      <div className="fb-aurora fb-a1" />
+      <div className="fb-aurora fb-a2" />
+      <div className="fb-aurora fb-a3" />
+      <div className="fb-grid" />
+      <div className="fb-sweep" />
+      <div className="fb-line">
+        <svg className="fb-line-svg" viewBox="0 0 1440 320" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="fbStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stopColor="#18C27C" stopOpacity="0.3" />
+              <stop offset="0.55" stopColor="#18C27C" stopOpacity="0.95" />
+              <stop offset="1" stopColor="#4C8DFF" stopOpacity="1" />
+            </linearGradient>
+            <linearGradient id="fbFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#18C27C" stopOpacity="0.18" />
+              <stop offset="1" stopColor="#18C27C" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path
+            className="fb-line-area"
+            d="M0 250 C120 238 180 220 300 214 C420 208 480 226 600 210 C720 194 780 160 900 152 C1020 144 1080 168 1200 138 C1300 116 1380 92 1440 84 L1440 320 L0 320 Z"
+            fill="url(#fbFill)"
+          />
+          <path
+            className="fb-line-path"
+            d="M0 250 C120 238 180 220 300 214 C420 208 480 226 600 210 C720 194 780 160 900 152 C1020 144 1080 168 1200 138 C1300 116 1380 92 1440 84"
+            fill="none" stroke="url(#fbStroke)" strokeWidth="3" strokeLinecap="round"
+          />
+          <path
+            className="fb-line-pulse"
+            d="M0 250 C120 238 180 220 300 214 C420 208 480 226 600 210 C720 194 780 160 900 152 C1020 144 1080 168 1200 138 C1300 116 1380 92 1440 84"
+            fill="none" stroke="#8BFFC9" strokeWidth="3" strokeLinecap="round"
+            strokeDasharray="90 2600"
+          />
+        </svg>
+      </div>
+      <div className="fb-dots">
+        {[[8, 24], [16, 58], [28, 12], [35, 72], [44, 35], [55, 20], [62, 60], [71, 44], [80, 15], [88, 68]].map(([x, y], i) => (
+          <span key={i} className="fb-dot" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${(i % 5) * 1.4}s` }} />
+        ))}
+      </div>
+      <style jsx>{`
+        .fb-root {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          z-index: 0;
+          pointer-events: none;
+          overflow: hidden;
         }
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r, 0, TAU)
-        ctx.fill()
-        ctx.shadowBlur = 0
-      }
-      ctx.globalAlpha = 1
-      particles = particles.filter(p => p.y > -30 && (t - p.born) / 1000 <= 9)
-    }
-
-    if (reduced) {
-      base()
-      aurora(0)
-      grid(0)
-      for (let i = 0; i < 36; i++) {
-        ctx.globalAlpha = rand(0.15, 0.6)
-        ctx.fillStyle = Math.random() < 0.3 ? 'rgba(42,203,138,1)' : 'rgba(224,233,255,0.9)'
-        ctx.beginPath()
-        ctx.arc(rand(0, w), rand(0, h), rand(0.8, 2), 0, TAU)
-        ctx.fill()
-      }
-      ctx.globalAlpha = 1
-      return () => window.removeEventListener('resize', resize)
-    }
-
-    raf = requestAnimationFrame(draw)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', resize)
-    }
-  }, [])
-  return <canvas ref={ref} className="finbg" aria-hidden="true" />
+        .fb-base {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(130% 90% at 78% -12%, rgba(20, 46, 90, 0.55), transparent 55%),
+            radial-gradient(110% 80% at -12% 108%, rgba(6, 46, 40, 0.5), transparent 55%),
+            linear-gradient(180deg, #0A0F1D 0%, #060910 55%, #030509 100%);
+        }
+        .fb-aurora {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(70px);
+          will-change: transform, opacity;
+        }
+        .fb-a1 {
+          width: 62vw; height: 62vh;
+          top: -18%; left: -8%;
+          background: radial-gradient(circle, rgba(76, 141, 255, 0.28), transparent 68%);
+          animation: fbA1 68s ease-in-out infinite alternate;
+        }
+        .fb-a2 {
+          width: 55vw; height: 55vh;
+          top: -6%; right: -14%;
+          background: radial-gradient(circle, rgba(124, 58, 237, 0.22), transparent 68%);
+          animation: fbA2 76s ease-in-out infinite alternate;
+        }
+        .fb-a3 {
+          width: 60vw; height: 60vh;
+          bottom: -22%; left: 22%;
+          background: radial-gradient(circle, rgba(24, 194, 124, 0.20), transparent 68%);
+          animation: fbA3 82s ease-in-out infinite alternate;
+        }
+        .fb-grid {
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+          background-size: 56px 56px;
+          mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, #000 25%, transparent 78%);
+          -webkit-mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, #000 25%, transparent 78%);
+        }
+        .fb-sweep {
+          position: absolute;
+          inset: -40%;
+          background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.05) 50%, transparent 58%);
+          animation: fbSweep 16s ease-in-out infinite;
+        }
+        .fb-line {
+          position: absolute;
+          left: 0; right: 0; bottom: 0;
+          height: 30vh;
+          opacity: 1;
+        }
+        .fb-line-svg { width: 100%; height: 100%; display: block; }
+        .fb-line-path {
+          stroke-dasharray: 2600;
+          stroke-dashoffset: 2600;
+          animation: fbDraw 5.5s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
+        }
+        .fb-line-pulse {
+          opacity: 0;
+          animation: fbPulse 9s linear 6s infinite;
+        }
+        .fb-line-area { animation: fbFadeIn 2.4s ease 0.8s both; }
+        .fb-dots { position: absolute; inset: 0; }
+        .fb-dot {
+          position: absolute;
+          width: 3px; height: 3px; border-radius: 50%;
+          background: rgba(190, 216, 255, 0.6);
+          box-shadow: 0 0 10px rgba(130, 180, 255, 0.8);
+          opacity: 0.15;
+          animation: fbTwinkle 7s ease-in-out infinite;
+        }
+        @media (min-width: 768px) {
+          .fb-line { height: 40vh; }
+          .fb-aurora { filter: blur(90px); }
+          .fb-a1 { width: 44vw; height: 80vh; }
+          .fb-a2 { width: 40vw; height: 70vh; }
+          .fb-a3 { width: 46vw; height: 74vh; }
+          .fb-grid { background-size: 72px 72px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .fb-aurora, .fb-sweep, .fb-dot { animation: none; }
+          .fb-line-path { stroke-dashoffset: 0; animation: none; }
+          .fb-line-pulse, .fb-line-area { animation: none; opacity: 1; }
+        }
+      `}</style>
+      <style jsx global>{`
+        @keyframes fbA1 {
+          0% { transform: translate(0, 0) scale(1); opacity: 0.8; }
+          100% { transform: translate(5vw, 4vh) scale(1.12); opacity: 1; }
+        }
+        @keyframes fbA2 {
+          0% { transform: translate(0, 0) scale(1); opacity: 0.85; }
+          100% { transform: translate(-4vw, 5vh) scale(1.08); opacity: 1; }
+        }
+        @keyframes fbA3 {
+          0% { transform: translate(0, 0) scale(1); opacity: 0.85; }
+          100% { transform: translate(3vw, -4vh) scale(1.15); opacity: 1; }
+        }
+        @keyframes fbSweep {
+          0%, 55% { transform: translateX(-30%); }
+          90%, 100% { transform: translateX(30%); }
+        }
+        @keyframes fbDraw { to { stroke-dashoffset: 0; } }
+        @keyframes fbPulse {
+          0% { stroke-dashoffset: 2600; opacity: 0; }
+          8% { opacity: 1; }
+          60% { stroke-dashoffset: 0; opacity: 0.55; }
+          100% { opacity: 0; }
+        }
+        @keyframes fbTwinkle {
+          0%, 100% { opacity: 0.15; transform: scale(0.8); }
+          50% { opacity: 0.7; transform: scale(1.25); }
+        }
+        @keyframes fbFadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
+    </div>
+  )
 }
 
 export default function Explorer() {
@@ -313,7 +340,9 @@ export default function Explorer() {
   }
 
   const refreshNews = () =>
-    getMarketNews(500).then(r => setNews(r.data.items || [])).catch(() => {})
+    getMarketNews(100).then(r => setNews(r.data.items || r.data.news || [])).catch(e => {
+      console.warn('[Explorer] news failed', e?.response?.status, e?.message)
+    })
 
   useEffect(() => { load() }, [])
 
@@ -381,17 +410,14 @@ return {
   const T = tabs()
 
   return (
-    <div className="mobile-root">
+    <>
       <FinanceBackground />
-      <div className="safe-area">
+      <div className="mobile-root">
+        <div className="safe-area">
         <h1 className="explorer-title">{t('explorer')}</h1>
 
         {error && (
-          <div className="error-bar">
-            <AlertTriangle size={14} color="#F04438" />
-            <span>{error}</span>
-            <button onClick={load} className="retry-btn"><RefreshCw size={13} /></button>
-          </div>
+          <DataErrorState size={140} message={error} retry={load} />
         )}
 
         <div className="action-buttons">
@@ -425,15 +451,16 @@ return {
           ))}
         </div>
 
-        <button className="ai-card" onClick={() => router.push('/analyst')} aria-label={t('aiStudioTitle')}>
+        <button className="ai-card" onClick={() => router.push(isPro ? '/ai-studio' : '/premium')} aria-label={t('aiStudioTitle')}>
           <span className="ai-card-orb" />
           <span className="ai-card-shine" />
           <span className="ai-card-body">
             <span className="ai-card-copy">
               <span className="ai-card-badge"><Sparkles size={12} strokeWidth={2.4} /> {t('aiStudioBadge')}</span>
+              {!isPro && <span className="ai-card-pro"><Lock size={10} /> PRO</span>}
               <span className="ai-card-title">{t('aiStudioTitle')}</span>
               <span className="ai-card-sub">{t('aiStudioSub')}</span>
-              <span className="ai-card-cta">{t('aiStudioCta')} <ArrowRight size={14} strokeWidth={2.6} /></span>
+              <span className="ai-card-cta">{isPro ? t('aiStudioCta') : t('aiProLockCta')} <ArrowRight size={14} strokeWidth={2.6} /></span>
             </span>
             <span className="ai-card-art"><AiArt /></span>
           </span>
@@ -690,19 +717,12 @@ return {
           display: flex;
           flex-direction: column;
           height: 100vh;
-          background: #000000;
+          background: transparent;
           color: #fff;
           font-family: Inter, -apple-system, sans-serif;
           overflow: hidden;
           position: relative;
-        }
-        :global(.finbg) {
-          position: fixed;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          z-index: 0;
-          pointer-events: none;
+          z-index: 1;
         }
         .safe-area {
           flex: 1;
@@ -766,6 +786,9 @@ return {
           border: 1px solid rgba(24,194,124,0.35);
         }
         .action-btn.plan-btn:hover { background: linear-gradient(160deg, rgba(24,194,124,0.26), rgba(139,92,246,0.2)); }
+        @media (max-width: 767px) {
+          .action-btn.plan-btn { display: none !important; }
+        }
         .tabs-strip {
           display: flex;
           gap: 10px;
@@ -865,6 +888,21 @@ return {
           color: #FFD77A;
           background: rgba(255, 215, 122, 0.1);
           border: 1px solid rgba(255, 215, 122, 0.32);
+        }
+        .ai-card-pro {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2.5px 8px;
+          border-radius: 999px;
+          font-size: 9.5px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          color: #FFD77A;
+          background: rgba(255, 215, 122, 0.12);
+          border: 1px solid rgba(255, 215, 122, 0.35);
+          margin-left: 6px;
+          vertical-align: middle;
         }
         .ai-card-title {
           font-size: 21px;
@@ -1251,6 +1289,7 @@ return {
         .pro-lock { cursor: pointer; transition: transform 0.15s ease; }
         .pro-lock:hover { transform: translateY(-1px); }
       `}</style>
-    </div>
+      </div>
+    </>
   )
 }

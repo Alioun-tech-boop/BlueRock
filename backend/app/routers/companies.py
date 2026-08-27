@@ -127,23 +127,19 @@ def _prefetch_context(db: Session, company_ids: List[int]) -> dict:
     ).order_by(ScoreCard.fiscal_year.desc(), ScoreCard.id.desc()).all():
         ctx["scorecards"].setdefault(s.company_id, s)
 
-    fy_rows = db.query(
+    # Batch unique: un seul SELECT pour tous les Résultats nets (au lieu de N queries)
+    rows = db.query(
         FinancialStatement.company_id,
-        func.max(FinancialStatement.fiscal_year),
-    ).filter(
+        FinancialStatement.fiscal_year,
+        FinancialLineItem.value,
+    ).join(FinancialLineItem, FinancialLineItem.statement_id == FinancialStatement.id).filter(
         FinancialStatement.company_id.in_(company_ids),
         FinancialStatement.quarter.is_(None),
-    ).group_by(
-        FinancialStatement.company_id).all()
-    for coid, fy in fy_rows:
-        val = db.query(FinancialLineItem.value).join(FinancialStatement).filter(
-            FinancialStatement.company_id == coid,
-            FinancialStatement.fiscal_year == fy,
-            FinancialStatement.quarter.is_(None),
-            FinancialLineItem.account_name.ilike("%Résultat net%"),
-        ).first()
-        if val and val[0]:
-            ctx["net_incomes"][coid] = val[0]
+        FinancialLineItem.account_name.ilike("%Résultat net%"),
+    ).order_by(FinancialStatement.company_id, FinancialStatement.fiscal_year.desc()).all()
+    for coid, fy, val in rows:
+        if coid not in ctx["net_incomes"] and val is not None:
+            ctx["net_incomes"][coid] = val
 
     from ..scrapers.live_feed import live_feed
     from ..scrapers.ngx_feed import ngx_live_feed
@@ -311,6 +307,7 @@ def list_companies(
     exchange: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=300),
+    cursor: Optional[int] = Query(None, description="Pagination curseur: id du dernier company vu"),
     db: Session = Depends(get_db),
     user: Optional[object] = Depends(get_optional_user),
 ):
@@ -320,7 +317,6 @@ def list_companies(
     if exchange:
         query = query.filter(Company.exchange == exchange.upper())
         if exchange.upper() == "NGX":
-            # La bourse NGX est réservée à l'offre Pro.
             from ..services.tier import require_pro
             require_pro(user)
     if country:
@@ -332,11 +328,22 @@ def list_companies(
         else:
             query = query.filter(Company.sector == sector)
     if search:
+        esc = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         query = query.filter(
-            Company.name.ilike(f"%{search}%") | Company.symbol.ilike(f"%{search}%")
+            Company.name.ilike(f"%{esc}%", escape="\\") | Company.symbol.ilike(f"%{esc}%", escape="\\")
         )
+    if cursor is not None:
+        query = query.filter(Company.id > cursor)
+        # Curseur: tri stable par id
+        query = query.order_by(Company.id.asc())
+        total = None  # pas de count coûteux en mode curseur
+        companies = query.limit(limit).all()
+        ctx = _prefetch_context(db, [c.id for c in companies])
+        enriched = [_enrich_company(c, db, ctx) for c in companies]
+        next_cursor = companies[-1].id if companies else None
+        return {"companies": enriched, "total": total, "next_cursor": next_cursor, "has_more": len(companies) == limit}
     total = query.count()
-    companies = query.offset(skip).limit(limit).all()
+    companies = query.order_by(Company.id.asc()).offset(skip).limit(limit).all()
     ctx = _prefetch_context(db, [c.id for c in companies])
     enriched = [_enrich_company(c, db, ctx) for c in companies]
     return {"companies": enriched, "total": total}

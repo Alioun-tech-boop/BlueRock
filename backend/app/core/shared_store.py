@@ -20,8 +20,6 @@ import threading
 import time
 from typing import Optional
 
-from redis import Redis, RedisError
-
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -44,9 +42,16 @@ class _MemoryBackend:
         self._lock = threading.Lock()
 
     def _sweep(self, now: float) -> None:
-        if len(self._data) > 10000:
+        # Nettoie les expirés dès 500 entrées ou toutes les 1000 écritures, pas seulement à 10k
+        if len(self._data) > 500:
             expired = [k for k, (_, exp) in self._data.items() if exp and exp < now]
             for k in expired:
+                self._data.pop(k, None)
+        # Trim dur à 10000 pour éviter fuite mémoire
+        if len(self._data) > 10000:
+            # Supprime les plus anciennes expirations d'abord
+            oldest = sorted(self._data.items(), key=lambda kv: kv[1][1] or 0)[:1000]
+            for k, _ in oldest:
                 self._data.pop(k, None)
 
     def get(self, key: str) -> Optional[str]:
@@ -106,27 +111,51 @@ class _MemoryBackend:
                 return True
             return False
 
+    def delete_prefix(self, prefix: str) -> None:
+        with self._lock:
+            for k in [k for k in self._data if k.startswith(prefix)]:
+                self._data.pop(k, None)
+
 
 class SharedStore:
     """Interface commune aux deux back-ends (Redis / mémoire)."""
 
     def __init__(self, redis_url: Optional[str] = None) -> None:
         self._mem = _MemoryBackend()
-        self._redis: Optional[Redis] = None
+        self._redis = None
+        self._redis_url = redis_url
+        self._last_connect_attempt = 0.0
         if redis_url:
-            try:
-                client = Redis.from_url(
-                    redis_url,
-                    decode_responses=True,
-                    socket_timeout=2,
-                    socket_connect_timeout=2,
-                    health_check_interval=30,
-                )
-                client.ping()
-                self._redis = client
-                logger.info("SharedStore: Redis connecté")
-            except Exception as e:
-                logger.warning("SharedStore: Redis indisponible (%s) → repli mémoire", e)
+            self._connect()
+
+    def _connect(self) -> None:
+        if not self._redis_url:
+            return
+        try:
+            import ssl as _ssl
+            from redis import Redis
+            client = Redis.from_url(
+                self._redis_url,
+                decode_responses=True,
+                socket_timeout=2,
+                socket_connect_timeout=2,
+                health_check_interval=30,
+                ssl_cert_reqs=_ssl.CERT_NONE,
+            )
+            client.ping()
+            self._redis = client
+            logger.info("SharedStore: Redis connecté")
+        except Exception as e:
+            logger.warning("SharedStore: Redis indisponible (%s) → repli mémoire", e)
+            self._redis = None
+
+    def _ensure_redis(self) -> None:
+        # Reconnexion lazy si Redis était tombé (retry toutes les 30s)
+        if self._redis is None and self._redis_url:
+            now = time.time()
+            if now - self._last_connect_attempt > 30:
+                self._last_connect_attempt = now
+                self._connect()
 
     @property
     def connected(self) -> bool:
@@ -136,41 +165,54 @@ class SharedStore:
         return _PREFIX + key
 
     def get(self, key: str) -> Optional[str]:
+        self._ensure_redis()
         if self._redis:
             try:
                 return self._redis.get(self._k(key))
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis get(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         return self._mem.get(key)
 
     def set(self, key: str, value: str, ttl: Optional[int] = None) -> bool:
+        self._ensure_redis()
         if self._redis:
             try:
                 return bool(self._redis.set(self._k(key), value, ex=ttl))
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis set(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         return self._mem.set(key, value, ttl)
 
     def delete(self, key: str) -> None:
+        self._ensure_redis()
         if self._redis:
             try:
                 self._redis.delete(self._k(key))
                 return
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis delete(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         self._mem.delete(key)
 
+    _INCR_LUA = """
+local n = redis.call('incr', KEYS[1])
+if n == 1 and ARGV[1] ~= '0' then
+  redis.call('expire', KEYS[1], ARGV[1])
+end
+return n
+"""
+
     def incr(self, key: str, ttl: Optional[int] = None) -> int:
+        self._ensure_redis()
         if self._redis:
             try:
-                n = self._redis.incr(self._k(key))
-                if n == 1 and ttl:
-                    self._redis.expire(self._k(key), ttl)
+                if ttl:
+                    n = self._redis.eval(self._INCR_LUA, 1, self._k(key), str(ttl))
+                else:
+                    n = self._redis.incr(self._k(key))
                 return int(n)
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis incr(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         return self._mem.incr(key, ttl)
@@ -178,25 +220,66 @@ class SharedStore:
     def acquire_lock(self, key: str, ttl: int = 30) -> Optional[str]:
         """Prend un verrou distribué (non bloquant). Renvoie un jeton si
         obtenu, None sinon. À relâcher via release_lock."""
+        self._ensure_redis()
         token = secrets.token_hex(16)
         if self._redis:
             try:
                 ok = self._redis.set(self._k(key), token, nx=True, px=ttl * 1000)
                 return token if ok else None
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis acquire_lock(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         return token if self._mem.acquire(key, token, ttl) else None
 
     def release_lock(self, key: str, token: str) -> None:
+        self._ensure_redis()
         if self._redis:
             try:
                 self._redis.eval(_RELEASE_LUA, 1, self._k(key), token)
                 return
-            except RedisError as e:
+            except Exception as e:
                 logger.warning("SharedStore: Redis release_lock(%s) échec (%s) → repli mémoire", key, e)
                 self._redis = None
         self._mem.release(key, token)
+
+    # ---- Cache JSON (fil d'actualité, stats) partagé multi-instance ----
+    def cache_set(self, key: str, value: object, ttl: int) -> None:
+        import json as _json
+        try:
+            self.set(key, _json.dumps(value, default=str), ttl=ttl)
+        except (TypeError, ValueError):
+            pass
+
+    def cache_get(self, key: str):
+        import json as _json
+        raw = self.get(key)
+        if raw is None:
+            return None
+        try:
+            return _json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def cache_delete_prefix(self, prefix: str) -> None:
+        self._ensure_redis()
+        if self._redis:
+            try:
+                cursor = 0
+                while True:
+                    cursor, keys = self._redis.scan(cursor, match=self._k(prefix) + "*", count=200)
+                    if keys:
+                        # UNLINK non bloquant si disponible, sinon DELETE
+                        try:
+                            self._redis.unlink(*keys)
+                        except Exception:
+                            self._redis.delete(*keys)
+                    if cursor == 0:
+                        break
+                return
+            except Exception as e:
+                logger.warning("SharedStore: Redis scan(%s) échec (%s) → repli mémoire", prefix, e)
+                self._redis = None
+        self._mem.delete_prefix(prefix)
 
 
 store = SharedStore(settings.REDIS_URL)

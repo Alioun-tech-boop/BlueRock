@@ -26,7 +26,25 @@ TIER_ALLOTMENT = {
 def is_pro(user: User | None) -> bool:
     if not user:
         return False
-    return (user.tier or settings.TIER_BASIC) == settings.TIER_PRO
+    if (user.tier or settings.TIER_BASIC) != settings.TIER_PRO:
+        return False
+    return not _trial_expired(user)
+
+
+def _trial_expired(user: User) -> bool:
+    """L'essai gratuit est-il terminé (et non renouvelable) ?"""
+    return bool(user.trial_ends_at and user.trial_ends_at < datetime.utcnow())
+
+
+def expire_trial_if_due(db: Session, user: User) -> bool:
+    """Downgrade lazy : si l'essai gratuit est expiré, retour au plan Basic.
+
+    Retourne True si la tier vient d'être rétrogradée.
+    """
+    if user.tier == settings.TIER_PRO and _trial_expired(user):
+        set_tier(db, user, settings.TIER_BASIC)
+        return True
+    return False
 
 
 def allotment_for(tier: str) -> int:
@@ -55,12 +73,16 @@ def refill_tokens(db: Session, user: User) -> int:
 
 def tokens_available(db: Session, user: User) -> dict:
     """État des tokens (allocation, restant, reset) pour le frontend."""
+    expire_trial_if_due(db, user)
     remaining = refill_tokens(db, user)
+    trial_active = user.trial_ends_at is not None and user.trial_ends_at >= datetime.utcnow()
     return {
         "tier": user.tier or settings.TIER_BASIC,
         "ai_tokens": remaining,
         "ai_tokens_limit": allotment_for(user.tier),
         "ai_tokens_reset_at": user.ai_tokens_reset_at.isoformat() if user.ai_tokens_reset_at else None,
+        "is_trial": trial_active,
+        "trial_ends_at": user.trial_ends_at.isoformat() if user.trial_ends_at else None,
     }
 
 

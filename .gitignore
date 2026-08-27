@@ -37,3 +37,5 @@ supabase/supabase/.temp/
 
 # Tesseract portable (271 Mo, dev local uniquement — Docker installe tesseract-ocr)
 tools/
+backups/
+

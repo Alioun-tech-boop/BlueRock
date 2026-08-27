@@ -2,16 +2,19 @@ import axios from 'axios'
 import { supabase } from '../lib/supabase'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL
-  || (typeof window !== 'undefined' && window.location.hostname
-    && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-    ? `http://${window.location.hostname}:8000`
-    : 'http://localhost:8000')
+  || (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? 'http://localhost:8000'
+    : '')
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 12000,
+  timeout: 45000,
   headers: { 'Content-Type': 'application/json' }
 })
+
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
+  console.warn('[API] API_BASE =', API_BASE, 'hostname =', window.location.hostname)
+}
 
 const CACHE_TTL_BY_PREFIX = [
   ['/api/market/overview', 120000],
@@ -49,11 +52,47 @@ const NO_CACHE_PREFIXES = [
 const DEFAULT_TTL = 30000
 const responseCache = new Map()
 const PERSIST_KEY = 'bluerock_api_cache_v1'
+let _lastTokenHash = null
+// Nettoie le cache si l'utilisateur change (évite fuite cross-user sur même navigateur)
+const _maybeClearOnTokenChange = () => {
+  const token = getToken()
+  let h = 'anon'
+  if (token) {
+    let hash = 5381
+    for (let i = 0; i < token.length; i++) hash = ((hash << 5) + hash) ^ token.charCodeAt(i)
+    h = (hash >>> 0).toString(36).slice(0, 8)
+  }
+  if (_lastTokenHash !== null && _lastTokenHash !== h) {
+    responseCache.clear()
+    try { localStorage.removeItem(PERSIST_KEY) } catch {}
+  }
+  _lastTokenHash = h
+}
+if (typeof window !== 'undefined') {
+  try { _maybeClearOnTokenChange() } catch {}
+  window.addEventListener('storage', (e) => { if (e.key === 'bluerock_token') _maybeClearOnTokenChange() })
+}
+
+const getToken = () => {
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('bluerock_token')) || ''
+  } catch { return '' }
+}
 
 const cacheKey = (config) => {
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('bluerock_token') : null
+  const token = getToken()
+  // Hash court du token pour éviter fuite cross-user (u|... partagé entre users)
+  let tokenHash = 'anon'
+  if (token) {
+    try {
+      // DJB2 simple hash, pas crypto mais suffit pour séparer
+      let h = 5381
+      for (let i = 0; i < token.length; i++) h = ((h << 5) + h) ^ token.charCodeAt(i)
+      tokenHash = (h >>> 0).toString(36).slice(0, 8)
+    } catch { tokenHash = token.slice(-8) }
+  }
   const params = config.params ? JSON.stringify(config.params) : ''
-  return `${token ? 'u' : 'a'}|${config.url}${params ? `?${params}` : ''}`
+  return `${tokenHash}|${config.url}${params ? `?${params}` : ''}`
 }
 
 const loadPersistent = () => {
@@ -97,6 +136,7 @@ const notifyNetwork = (online) => {
 }
 
 const ttlFor = (url) => {
+  if (!url) return DEFAULT_TTL
   for (const [prefix, ttl] of CACHE_TTL_BY_PREFIX) {
     if (url.startsWith(prefix)) return ttl
   }
@@ -105,11 +145,14 @@ const ttlFor = (url) => {
 
 const isCacheable = (config) => {
   if (config.method !== 'get' || config.cache === false) return false
-  return !NO_CACHE_PREFIXES.some((p) => config.url.startsWith(p))
+  const url = config.url || ''
+  if (!url) return false
+  return !NO_CACHE_PREFIXES.some((p) => url.startsWith(p))
 }
 
 let refreshPromise = null
 let expiredNotified = false
+let _notifyTimer = null
 
 function refreshSessionOnce() {
   if (!refreshPromise) {
@@ -120,17 +163,36 @@ function refreshSessionOnce() {
 
 function notifySessionExpired() {
   if (typeof window === 'undefined' || expiredNotified) return
-  expiredNotified = true
-  try { window.dispatchEvent(new CustomEvent('bluerock:session-expired')) } catch {}
+  if (_notifyTimer) return
+  _notifyTimer = setTimeout(() => {
+    _notifyTimer = null
+    if (expiredNotified) return
+    expiredNotified = true
+    try { window.dispatchEvent(new CustomEvent('bluerock:session-expired')) } catch {}
+  }, 3000)
+}
+
+export function resetSessionExpiredFlag() {
+  expiredNotified = false
+  if (_notifyTimer) { clearTimeout(_notifyTimer); _notifyTimer = null }
+}
+
+export const logout = () => {
+  try { responseCache.clear(); localStorage.removeItem(PERSIST_KEY) } catch {}
+  return api.post('/api/auth/logout')
 }
 
 api.interceptors.request.use(config => {
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('bluerock_token') : null
+  try { _maybeClearOnTokenChange() } catch {}
+  const token = getToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
   if (isCacheable(config)) {
     const key = cacheKey(config)
     const hit = responseCache.get(key)
     if (hit && hit.expires > Date.now()) {
+      // LRU: déplacer en fin pour éviter éviction prématurée
+      responseCache.delete(key)
+      responseCache.set(key, hit)
       config.adapter = async () => ({
         data: hit.data,
         status: 200,
@@ -139,6 +201,9 @@ api.interceptors.request.use(config => {
         config,
         request: {},
       })
+    } else if (hit) {
+      // Expiré → purge
+      responseCache.delete(key)
     }
   }
   return config
@@ -149,12 +214,14 @@ api.interceptors.response.use(
     notifyNetwork(true)
     if (isCacheable(res.config) && res.status === 200) {
       const key = cacheKey(res.config)
+      const now = Date.now()
       responseCache.set(key, {
         data: res.data,
         headers: res.headers,
-        expires: Date.now() + ttlFor(res.config.url),
+        expires: now + ttlFor(res.config.url),
+        savedAt: now,
       })
-      savePersistent(key, { data: res.data, savedAt: Date.now() })
+      savePersistent(key, { data: res.data, savedAt: now })
       if (responseCache.size > 400) {
         responseCache.delete(responseCache.keys().next().value)
       }
@@ -168,14 +235,28 @@ api.interceptors.response.use(
     if (isNetworkError && config?.method === 'get' && isCacheable(config)) {
       const key = cacheKey(config)
       const mem = responseCache.get(key)
-      const fallback = mem ? { data: mem.data, savedAt: 0 } : persistentHit(key)
+      // TTL du cache persistant: on n'utilise que si frais (< 2 * ttlFor) pour éviter données semaines
+      const ttl = ttlFor(url)
+      let fallback = null
+      if (mem && mem.data != null) {
+        fallback = { data: mem.data, savedAt: mem.savedAt || Date.now() }
+      } else {
+        const ph = persistentHit(key)
+        if (ph) fallback = ph
+      }
       if (fallback && fallback.data != null) {
+        const age = Date.now() - (fallback.savedAt || 0)
+        // Si trop ancien (>2*TTL), on ne renvoie pas de stale silencieux — on laisse l'erreur réseau remonter
+        if (age > ttl * 2) {
+          notifyNetwork(false)
+          return Promise.reject(err)
+        }
         notifyNetwork(false)
         return Promise.resolve({
           data: fallback.data,
           status: 200,
           statusText: 'OK',
-          headers: {},
+          headers: { 'X-Cache': 'STALE', 'X-Stale-Age': String(Math.round(age / 1000)) },
           config,
           request: {},
           __stale: true,
@@ -185,7 +266,9 @@ api.interceptors.response.use(
     if (response && response.status === 401 &&
         !url.includes('/auth/login') && !url.includes('/auth/register') && !url.includes('/auth/login-2fa') &&
         !url.includes('/auth/verify-email') && !url.includes('/auth/reset-password') && !url.includes('/auth/legacy-login') &&
+        !url.includes('/auth/me') &&
         !url.includes('/broker-connect')) {
+      console.warn('[API] 401 on', url, '__authRetried:', err.config.__authRetried)
       if (typeof window !== 'undefined' && !err.config.__authRetried) {
         err.config.__authRetried = true
         return refreshSessionOnce()
@@ -235,6 +318,36 @@ export const analystChat = (data) => api.post('/api/analysis/ask', data)
 export const getCompanyDetail = (id) => api.get(`/api/companies/${id}`)
 export const getScreen = (params) => api.get('/api/analysis/screen', { params })
 export const getCompanyPrediction = (id) => api.get(`/api/analysis/companies/${id}/predict`)
+export const getAiStatus = () => api.get('/api/ai/status')
+export const getAiStudio = () => api.get('/api/ai/studio', { timeout: 40000 })
+export const getAiRiskAnalysis = () => api.get('/api/ai/risk/analysis', { cache: false })
+export const getAiAlerts = (limit = 30) => api.get('/api/ai/alerts', { params: { limit }, cache: false })
+export const getAiDecisionDetail = (id) => api.get(`/api/ai/decisions/${id}`, { cache: false })
+export const getAiBacktests = (limit = 10) => api.get('/api/ai/backtests', { params: { limit } })
+export const exportAiDecisions = (format, limit = 200) => api.get('/api/ai/export/decisions', {
+  params: { format, limit }, responseType: 'blob', cache: false,
+})
+export const exportAiAudit = (limit = 200) => api.get('/api/ai/export/audit', {
+  params: { limit }, responseType: 'blob', cache: false,
+})
+export const exportAiReport = (month) => api.get('/api/ai/export/report', {
+  params: { month }, responseType: 'blob', cache: false,
+})
+export const adminAiBacktest = (body, token) => api.post('/api/ai/admin/backtest', body, {
+  headers: token ? { 'X-Admin-Token': token } : {}, timeout: 300000, cache: false,
+})
+export const adminAiWalkForward = (body, token) => api.post('/api/ai/admin/walk-forward', body, {
+  headers: token ? { 'X-Admin-Token': token } : {}, timeout: 600000, cache: false,
+})
+export const getAdminAiRiskConfig = (token) => api.get('/api/ai/admin/risk-config', {
+  headers: token ? { 'X-Admin-Token': token } : {}, cache: false,
+})
+export const postAdminAiRiskConfig = (limits, token) => api.post('/api/ai/admin/risk-config', { limits }, {
+  headers: token ? { 'X-Admin-Token': token } : {}, cache: false,
+})
+export const adminAiStressTest = (token) => api.post('/api/ai/admin/stress-test', null, {
+  headers: token ? { 'X-Admin-Token': token } : {}, cache: false,
+})
 export const ingestPdf = (formData, adminToken) => api.post('/api/ingestion/pdf', formData, {
   headers: { 'Content-Type': 'multipart/form-data', ...(adminToken ? { 'X-Admin-Token': adminToken } : {}) },
 })
@@ -246,6 +359,7 @@ export const getFetchStatus = () => api.get('/api/ingestion/fetch/status')
 export const getIngestionStatements = (companyId, fiscalYear) => api.get('/api/ingestion/statements', { params: { company_id: companyId, fiscal_year: fiscalYear } })
 export const getIngestionSummary = () => api.get('/api/ingestion/summary')
 export const getMacroLatest = () => api.get('/api/macro/latest')
+export const getSimulationPatrimoine = () => api.get('/api/simulate/patrimoine')
 
 export const legacyLogin = (email, password) => api.post('/api/auth/legacy-login', { email, password })
 export const getMe = () => api.get('/api/auth/me')
@@ -253,8 +367,10 @@ export const getBrokers = () => api.get('/api/auth/brokers')
 export const updateMe = (payload) => api.put('/api/auth/me', payload)
 export const sendOtp = (email, purpose) => api.post('/api/auth/otp/send', { email, purpose })
 export const verifyOtpCode = (email, code) => api.post('/api/auth/otp/verify', { email, code })
+export const registerWithOtp = (payload) => api.post('/api/auth/register', payload)
 export const getPortfolio = (accountId) => api.get('/api/portfolio', { params: { account_id: accountId || undefined }, timeout: 60000 })
 export const getPortfolioAccounts = () => api.get('/api/portfolio/accounts')
+export const getPortfolioDividends = (accountId) => api.get('/api/portfolio/dividends', { params: { account_id: accountId || undefined }, timeout: 60000 })
 export const createPortfolioAccount = (payload) => api.post('/api/portfolio/accounts', payload)
 export const depositPortfolioAccount = (id, amount) => api.post(`/api/portfolio/accounts/${id}/deposit`, { amount })
 export const withdrawPortfolioAccount = (id, amount) => api.post(`/api/portfolio/accounts/${id}/withdraw`, { amount })
@@ -262,6 +378,7 @@ export const initiateDeposit = (accountId, amount) => api.post('/api/payments/de
 export const verifyDepositOrder = (orderId) => api.post(`/api/payments/orders/${orderId}/verify`)
 export const getDepositOrders = () => api.get('/api/payments/orders')
 export const subscribePro = () => api.post('/api/subscription/subscribe')
+export const startProTrial = () => api.post('/api/subscription/trial')
 export const verifySubscription = (orderId) => api.post(`/api/subscription/orders/${orderId}/verify`)
 export const cancelSubscription = () => api.post('/api/subscription/cancel')
 export const getSubscriptionStatus = () => api.get('/api/subscription/status')
@@ -269,6 +386,7 @@ export const renamePortfolioAccount = (id, name) => api.patch(`/api/portfolio/ac
 export const deletePortfolioAccount = (id) => api.delete(`/api/portfolio/accounts/${id}`)
 export const getPosition = (symbol, accountId) => api.get(`/api/portfolio/positions/${symbol}`, { params: { account_id: accountId || undefined } })
 export const placeOrder = (payload) => api.post('/api/portfolio/orders', payload)
+export const cancelOrder = (orderId) => api.delete(`/api/portfolio/orders/${orderId}`)
 export const getPremiumPlan = () => api.get('/api/premium/plan')
 export const getPremiumPlans = () => api.get('/api/premium/plans')
 export const getPremiumPlansLite = () => api.get('/api/premium/plans-lite')
@@ -302,20 +420,81 @@ export const brokerConnectStatement = (brokerToken) => api.get('/api/broker-conn
 export const brokerConnectUnlink = (brokerToken) => api.post('/api/broker-connect/unlink', null, {
   headers: { 'X-Broker-Token': brokerToken }, cache: false,
 })
-export const getCommunityPosts = (tab = 'forYou', limit = 20) => api.get('/api/community/posts', { params: { tab, limit } })
-export const getCommunityUsers = (search = '', limit = 30) => api.get('/api/community/users', { params: { search, limit } })
+export const getCommunityPosts = (tab = 'forYou', limit = 20, opts = {}) => api.get('/api/community/posts', { params: { tab, limit, ...opts } })
+export const getCommunityPost = (id) => api.get(`/api/community/posts/${id}`)
+export const getCommunityDiscover = () => api.get('/api/community/discover')
+export const getCommunitySuggestions = (limit = 5) => api.get('/api/community/suggestions', { params: { limit } })
+export const getCommunityUsers = (search = '', limit = 30, proOnly = false) => api.get('/api/community/users', { params: { search, limit, pro_only: proOnly } })
 export const getCommunityUser = (id) => api.get(`/api/community/users/${id}`)
 export const getCommunityMe = () => api.get('/api/community/me')
 export const followCommunityUser = (id) => api.post(`/api/community/users/${id}/follow`)
 export const createCommunityPost = (formData) => api.post('/api/community/posts', formData, {
-  headers: { 'Content-Type': 'multipart/form-data' },
+  // Ne pas forcer Content-Type: laisse axios/browser ajouter la boundary
   timeout: 60000,
 })
 export const rocketCommunityPost = (id) => api.post(`/api/community/posts/${id}/rocket`)
+export const shareCommunityPost = (id) => api.post(`/api/community/posts/${id}/share`)
+export const saveCommunityPost = (id) => api.post(`/api/community/posts/${id}/save`)
+export const markPostSeen = (id) => api.post(`/api/community/posts/${id}/seen`).catch(() => {})
+export const deleteCommunityPost = (id) => api.delete(`/api/community/posts/${id}`)
+export const deleteCommunityComment = (postId, commentId) => api.delete(`/api/community/posts/${postId}/comments/${commentId}`)
 export const getCommunityComments = (id) => api.get(`/api/community/posts/${id}/comments`)
 export const addCommunityComment = (id, content) => api.post(`/api/community/posts/${id}/comments`, { content })
 export const reactCommunityComment = (postId, commentId) => api.post(`/api/community/posts/${postId}/comments/${commentId}/react`)
 export const updateCommunityMe = (payload) => api.put('/api/community/me', payload)
+export const getCommunityDrafts = () => api.get('/api/community/drafts')
+export const saveCommunityDraft = (payload) => api.post('/api/community/drafts', payload)
+export const deleteCommunityDraft = (id) => api.delete(`/api/community/drafts/${id}`)
+export const publishCommunityDraft = (id, formData) => api.post(`/api/community/drafts/${id}/publish`, formData, {
+  timeout: 60000,
+})
+export const createCommunityReport = (payload) => api.post('/api/community/reports', payload)
+export const getCommunityModerationQueue = () => api.get('/api/community/moderation/queue')
+export const resolveCommunityReport = (id, payload) => api.post(`/api/community/moderation/reports/${id}/resolve`, payload)
+export const banCommunityUser = (id) => api.post(`/api/community/moderation/users/${id}/ban`)
+export const unbanCommunityUser = (id) => api.post(`/api/community/moderation/users/${id}/unban`)
+export const getCommunityModerationHistory = () => api.get('/api/community/moderation/history')
+export const getCommunityAiPulse = (symbol, days = 30) => api.get('/api/community/ai/pulse', { params: { symbol, days } })
+export const getCommunityAiWatch = (days = 30) => api.get('/api/community/ai/watch', { params: { days } })
+export const appealCommunityPost = (id) => api.post(`/api/community/posts/${id}/appeal`)
+export const getMyReputation = () => api.get('/api/community/reputation', { cache: false })
+export const getPublicReputation = (userId) => api.get(`/api/community/reputation/${userId}`, { cache: false })
+export const getReputationLeaderboard = (limit = 20) => api.get('/api/community/leaderboard', { params: { limit } })
+export const getCommunityEvents = (params) => api.get('/api/community/events', { params })
+export const getCommunityEvent = (id) => api.get(`/api/community/events/${id}`)
+export const createCommunityEvent = (payload) => api.post('/api/community/events', payload, { cache: false })
+export const updateCommunityEvent = (id, payload) => api.patch(`/api/community/events/${id}`, payload, { cache: false })
+export const deleteCommunityEvent = (id) => api.delete(`/api/community/events/${id}`, { cache: false })
+export const registerCommunityEvent = (id) => api.post(`/api/community/events/${id}/register`, null, { cache: false })
+export const cancelCommunityEvent = (id) => api.post(`/api/community/events/${id}/cancel`, null, { cache: false })
+export const getCommunityGroups = (params) => api.get('/api/community/groups', { params })
+export const createCommunityGroup = (payload) =>
+  payload instanceof FormData
+    ? api.post('/api/community/groups', payload)
+    : api.post('/api/community/groups', payload)
+export const getCommunityGroup = (ref) => api.get(`/api/community/groups/${ref}`)
+export const updateCommunityGroup = (ref, payload) => api.patch(`/api/community/groups/${ref}`, payload)
+export const archiveCommunityGroup = (ref) => api.delete(`/api/community/groups/${ref}`)
+export const joinCommunityGroup = (ref) => api.post(`/api/community/groups/${ref}/join`)
+export const leaveCommunityGroup = (ref) => api.post(`/api/community/groups/${ref}/leave`)
+export const inviteCommunityMember = (ref, profileId) => api.post(`/api/community/groups/${ref}/invite`, { profile_id: profileId })
+export const acceptCommunityInvite = (ref) => api.post(`/api/community/groups/${ref}/invites/accept`)
+export const declineCommunityInvite = (ref) => api.post(`/api/community/groups/${ref}/invites/decline`)
+export const getCommunityGroupInvites = (ref) => api.get(`/api/community/groups/${ref}/invites`)
+export const getCommunityGroupMembers = (ref, params) => api.get(`/api/community/groups/${ref}/members`, { params })
+export const getCommunityGroupPosts = (ref, params) => api.get(`/api/community/groups/${ref}/posts`, { params, cache: false })
+export const approveCommunityMemberRequest = (ref, profileId) => api.post(`/api/community/groups/${ref}/requests/${profileId}/approve`)
+export const rejectCommunityMemberRequest = (ref, profileId) => api.post(`/api/community/groups/${ref}/requests/${profileId}/reject`)
+export const setCommunityMemberRole = (ref, profileId, role) => api.patch(`/api/community/groups/${ref}/members/${profileId}/role`, { role })
+export const suspendCommunityMember = (ref, profileId) => api.post(`/api/community/groups/${ref}/members/${profileId}/suspend`)
+export const banCommunityMember = (ref, profileId) => api.post(`/api/community/groups/${ref}/members/${profileId}/ban`)
+export const restoreCommunityMember = (ref, profileId) => api.post(`/api/community/groups/${ref}/members/${profileId}/restore`)
+export const getProfessionalDirectory = (params) => api.get('/api/community/professionals', { params })
+export const applyProfessional = (payload) => api.post('/api/community/professional/apply', payload)
+export const getMyProfessional = () => api.get('/api/community/professional/me')
+export const getProfessionalReviews = (status = '') => api.get('/api/community/professional/reviews', { params: { status } })
+export const approveProfessional = (profileId) => api.post(`/api/community/professional/reviews/${profileId}/approve`)
+export const rejectProfessional = (profileId, note) => api.post(`/api/community/professional/reviews/${profileId}/reject`, { note })
 export const getChallenges = () => api.get('/api/community/challenges')
 export const joinChallenge = (id) => api.post(`/api/community/challenges/${id}/join`)
 export const leaveChallenge = (id) => api.delete(`/api/community/challenges/${id}/join`)

@@ -109,10 +109,17 @@ def test_full_virtual_challenge_flow(client, challenge, user):
     assert j["portfolio"]["cash"] < 10_000_000
     assert len(j["portfolio"]["positions"]) > 0
 
-    # 5. Achat impossible si liquidités insuffisantes
+    # 5. Quantité hors bornes (sécurité) → rejet 422
     r = client.post(f"/api/community/challenges/{cid}/portfolio/orders",
                     json={"symbol": "SNTS", "side": "buy", "qty": 100_000_000})
-    assert r.status_code == 409
+    assert r.status_code == 422, r.text
+
+    # 5b. Liquidités insuffisantes (qty réaliste > cash) → 409
+    price = j["price"]
+    big_qty = (10_000_000 // max(int(price), 1)) + 1000
+    r = client.post(f"/api/community/challenges/{cid}/portfolio/orders",
+                    json={"symbol": "SNTS", "side": "buy", "qty": big_qty})
+    assert r.status_code == 409, r.text
 
     # 6. Vente au-delà des quantités détenues
     r = client.post(f"/api/community/challenges/{cid}/portfolio/orders",

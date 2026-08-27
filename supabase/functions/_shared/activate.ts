@@ -67,6 +67,23 @@ export async function activateOrder(
     return { ok: true }
   }
 
+  if (meta.purpose === 'group_fee') {
+    const memberId = Number(meta.community_member_id)
+    if (!memberId) return { ok: true, reason: 'missing_member_id' }
+    const { data: member } = await admin
+      .from('community_members')
+      .select('community_id, user_id')
+      .eq('id', memberId)
+      .maybeSingle()
+    if (!member) return { ok: true, reason: 'member_not_found' }
+    await admin
+      .from('community_members')
+      .update({ status: 'active', order_pending_id: null })
+      .eq('id', memberId)
+      .eq('status', 'pending')
+    return { ok: true }
+  }
+
   const { data: pf } = await admin
     .from('portfolios')
     .select('balance')

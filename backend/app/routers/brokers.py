@@ -153,6 +153,28 @@ def my_accounts(user: User = Depends(get_current_user), db: Session = Depends(ge
     return {"accounts": [_account_out(a) for a in accounts]}
 
 
+@router.get("/admin/accounts")
+def admin_accounts(
+    user_id: int | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    skip: int = 0,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Liste exhaustive des dossiers SGI (plateforme admin)."""
+    query = db.query(BrokerAccount)
+    if user_id is not None:
+        query = query.filter(BrokerAccount.user_id == user_id)
+    if status:
+        query = query.filter(BrokerAccount.status == status)
+    total = query.count()
+    accounts = query.order_by(BrokerAccount.created_at.desc()).offset(skip).limit(limit).all()
+    return {"total": total, "accounts": [
+        {**_account_out(a), "user_id": a.user_id} for a in accounts
+    ]}
+
+
 @router.post("/{account_id}/review")
 def review_dossier(
     account_id: int,

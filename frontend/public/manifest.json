@@ -1,19 +1,18 @@
 {
+  "id": "/",
   "name": "BLUEROCK — BRVM Financial Intelligence",
   "short_name": "BLUEROCK",
   "description": "Plateforme d'investissement BRVM : cours en temps réel, analyse IA, portefeuille.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0D162B",
-  "theme_color": "#0D162B",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "categories": ["finance", "business", "news"],
   "lang": "fr",
   "icons": [
-    {
-      "src": "/logo.png",
-      "sizes": "any",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
@@ -21,8 +20,26 @@
       "purpose": "any"
     },
     {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
       "src": "/icon-512.png",
       "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "any",
       "type": "image/png",
       "purpose": "any"
     }

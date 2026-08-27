@@ -6,6 +6,7 @@ import { getScreen, getSectors } from '../services/api'
 import { ArrowLeft, RefreshCw, X, Filter } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
+import DataErrorState from '../components/DataErrorState'
 
 const RATINGS = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC', 'CC', 'C']
 
@@ -111,10 +112,7 @@ export default function Screen() {
         </div>
 
         {error && (
-          <div className="error-bar">
-            <span>{t(lang, 'loadError')}</span>
-            <button onClick={() => fetchScreen()}>{t(lang, 'tryAgain')}</button>
-          </div>
+          <DataErrorState lang={lang} size={140} message={t(lang, 'loadError')} retry={() => fetchScreen()} />
         )}
 
         <div className="result-list">

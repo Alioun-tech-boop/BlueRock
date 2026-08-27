@@ -33,6 +33,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session
+      if (session.payment_status !== 'paid') {
+        console.log(
+          `checkout ${session.id} ignored: payment_status=${session.payment_status} (paid requis)`,
+        )
+        return json({ received: true })
+      }
       const orderId = Number(session.metadata?.order_id)
       if (session.mode === 'subscription') {
         await activateSubscription(session, stripe)
