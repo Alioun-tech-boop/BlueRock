@@ -479,22 +479,56 @@ export default function Watchlist() {
       const favRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(FAV_KEY) : null
       const hasFav = favRaw !== null && JSON.parse(favRaw || '[]').length > 0
       if (!hasFav) {
-        const top = [...(e.data.companies || [])]
-          .filter((s) => s.instrument_type === 'equity')
+        // 20 actions par défaut, visibles par tous les nouveaux utilisateurs.
+        // Basic = BRVM uniquement (NGX réservé Pro) pour éviter une watchlist vide
+        // quand les top market_cap sont NGX mais filtrés côté affichage.
+        const pool = [...(e.data.companies || [])].filter(
+          (s) => s.instrument_type === 'equity' && (isPro || (s.exchange || 'BRVM') !== 'NGX')
+        )
+        const top = pool
           .sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0))
-          .slice(0, 15)
+          .slice(0, 20)
           .map((s) => s.symbol)
+        // Fallback : si pool < 20 (ex: BRVM seule 47 mais tri vide), compléter par BRVM
+        if (top.length < 20) {
+          const extra = [...(e.data.companies || [])]
+            .filter((s) => s.instrument_type === 'equity' && !top.includes(s.symbol))
+            .sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0))
+            .slice(0, 20 - top.length)
+            .map((s) => s.symbol)
+          top.push(...extra)
+        }
         if (top.length) {
           setFavorites(top)
           saveJSON(FAV_KEY, top)
         }
+      } else {
+        // Migration : anciens utilisateurs avec 15 favoris NGX invisibles (Basic) ou 15 seulement → étendre à 20 BRVM
+        try {
+          const cur = JSON.parse(favRaw || '[]')
+          if (cur.length > 0 && cur.length < 20) {
+            const pool = [...(e.data.companies || [])].filter(
+              (s) => s.instrument_type === 'equity' && (isPro || (s.exchange || 'BRVM') !== 'NGX')
+            )
+            const sortedPool = pool.sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0)).map(s => s.symbol)
+            const merged = [...cur]
+            for (const sym of sortedPool) {
+              if (merged.length >= 20) break
+              if (!merged.includes(sym)) merged.push(sym)
+            }
+            if (merged.length > cur.length) {
+              setFavorites(merged)
+              saveJSON(FAV_KEY, merged)
+            }
+          }
+        } catch {}
       }
     } catch {
       if (!silent && mounted.current) setError(true)
     } finally {
       if (!silent && mounted.current) setLoading(false)
     }
-  }, [])
+  }, [user?.tier])
 
   useEffect(() => {
     mounted.current = true
