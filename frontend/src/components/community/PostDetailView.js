@@ -61,7 +61,26 @@ export default function PostDetailView({ p, lang, me, onDeleted, embedded = fals
       .finally(() => setBusy(false))
   }
 
-  const toggleShare = () => {
+  const shareLink = () => {
+    const url = typeof window !== 'undefined' ? `${window.location.origin}/community/post/${p.id}` : `/community/post/${p.id}`
+    return url
+  }
+  const copyShareLink = async () => {
+    const url = shareLink()
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try { await navigator.share({ title: p.title || 'BlueRock', text: (p.content || '').slice(0,120), url }); return true } catch {}
+    }
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(url); return true } } catch {}
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = url; ta.style.position='fixed'; ta.style.opacity='0'
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
+      return true
+    } catch { return false }
+  }
+  const toggleShare = async () => {
+    const copied = await copyShareLink()
+    if (copied) setFlash(t(lang, 'cLinkCopied') || 'Lien copié !')
     if (!me || busy) return
     setBusy(true)
     shareCommunityPost(p.id)
@@ -237,7 +256,7 @@ export default function PostDetailView({ p, lang, me, onDeleted, embedded = fals
             <span>{t(lang, 'cComments')}</span>
             {(p.comments ?? 0) > 0 && <em>{p.comments}</em>}
           </button>
-          <button className={`co-pv-act${shared ? ' on share' : ''}`} onClick={toggleShare} disabled={!me || busy} title={shared ? t(lang, 'cUnshare') : t(lang, 'cShare')}>
+          <button className={`co-pv-act${shared ? ' on share' : ''}`} onClick={toggleShare} disabled={busy} title={shared ? t(lang, 'cUnshare') : t(lang, 'cShare')}>
             <Share2 size={20} />
             <span>{shared ? t(lang, 'cUnshare') : t(lang, 'cShare')}</span>
             {shares > 0 && <em>{shares}</em>}

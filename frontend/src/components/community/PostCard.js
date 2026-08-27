@@ -246,7 +246,32 @@ export default function PostCard({ p, lang, me, onDeleted, delay = 0, onOpen, co
       .finally(() => setBusyRocket(false))
   }
 
-  const toggleShare = () => {
+  const shareLink = () => {
+    const url = typeof window !== 'undefined' ? `${window.location.origin}/community/post/${p.id}` : `/community/post/${p.id}`
+    return url
+  }
+  const copyShareLink = async () => {
+    const url = shareLink()
+    // 1) Web Share API si dispo (mobile)
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try { await navigator.share({ title: p.title || 'BlueRock', text: (p.content || '').slice(0,120), url }); return true } catch {}
+    }
+    // 2) Clipboard moderne
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(url); return true }
+    } catch {}
+    // 3) fallback execCommand
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = url; ta.style.position='fixed'; ta.style.opacity='0'
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
+      return true
+    } catch { return false }
+  }
+  const toggleShare = async () => {
+    // toujours copier le lien, même si non connecté
+    const copied = await copyShareLink()
+    if (copied) setFlash(t(lang, 'cLinkCopied') || 'Lien copié !')
     if (!me || busyShare) return
     setBusyShare(true)
     shareCommunityPost(p.id)
@@ -401,7 +426,7 @@ export default function PostCard({ p, lang, me, onDeleted, delay = 0, onOpen, co
               <Heart size={20} />{rockets > 0 ? rockets : ''}
             </button>
             <CommentsPanel post={p} lang={lang} me={me} onDeleted={onDeleted} defaultOpen={commentsOpen} />
-            <button className={`fs-act fs-share ${shared ? 'on' : ''}`} onClick={toggleShare} disabled={!me || busyShare} title={shared ? t(lang, 'cUnshare') : t(lang, 'cShare')}>
+            <button className={`fs-act fs-share ${shared ? 'on' : ''}`} onClick={toggleShare} disabled={busyShare} title={shared ? t(lang, 'cUnshare') : t(lang, 'cShare')}>
               <Share2 size={20} />{shares > 0 ? shares : ''}
             </button>
             <button className={`fs-act fs-save ${saved ? 'on' : ''}`} onClick={toggleSave} disabled={saveBusy}>
