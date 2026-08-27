@@ -40,8 +40,8 @@ class ValuationService:
             prev = self.db.query(FinancialRatio)\
                 .filter(FinancialRatio.company_id == company_id, FinancialRatio.fiscal_year == fiscal_year - yr, FinancialRatio.quarter.is_(None))\
                 .first()
-            if prev and prev.eps:
-                growth_rates.append((prev.eps - eps) / abs(eps) if eps != 0 else 0)
+            if prev and prev.eps and prev.eps != 0:
+                growth_rates.append((eps - prev.eps) / abs(prev.eps))
         
         avg_growth = sum(growth_rates) / len(growth_rates) if growth_rates else self.GROWTH_RATE_DEFAULT
         growth_rate = min(max(avg_growth, -0.2), 0.30)
@@ -53,6 +53,9 @@ class ValuationService:
             cost_equity = self.RISK_FREE_RATE + self.EQUITY_RISK_PREMIUM
             cost_debt = self.RISK_FREE_RATE * 0.7
             wacc = weight_equity * cost_equity + weight_debt * cost_debt
+        # Garde-fou terminal : wacc doit dépasser la croissance perpétuelle
+        if wacc <= self.TERMINAL_GROWTH + 0.01:
+            wacc = self.TERMINAL_GROWTH + 0.02
         
         pv_fcf = 0
         for year in range(1, self.PROJECTION_YEARS + 1):
@@ -66,8 +69,9 @@ class ValuationService:
         return dcf_value
     
     def calculate_graham_value(self, eps: float, bvps: float, growth_rate: float = 0) -> float:
+        # growth_rate est en décimal (0.20 = 20%) → formule Graham attend un % : 8.5+2*g*100
         if growth_rate > 0:
-            return eps * (8.5 + 2 * growth_rate) * 4.4 / 6.5
+            return eps * (8.5 + 2 * growth_rate * 100) * 4.4 / 6.5
         return (22.5 * eps * bvps) ** 0.5 if eps > 0 and bvps > 0 else 0
     
     def calculate_buffett_value(self, eps: float, growth_rate: float = 0.10, years: int = 10) -> float:

@@ -38,12 +38,12 @@ export default function CommunityPostPage() {
   }, [id])
 
   const back = () => {
-    if (document.referrer && document.referrer.startsWith(window.location.origin)) router.back()
+    if (typeof window !== 'undefined' && document.referrer && document.referrer.startsWith(window.location.origin)) router.back()
     else router.push('/community')
   }
 
   const onDeleted = (pid) => {
-    if (pid === post.id) router.push('/community')
+    if (pid === post?.id) router.push('/community')
   }
 
   return (

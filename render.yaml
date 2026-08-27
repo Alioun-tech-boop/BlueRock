@@ -22,6 +22,8 @@ services:
       # distribué SharedStore évite la double-exécution si on scale.
       - key: WORKER_JOBS
         value: "1"
+      - key: TRUST_PROXY_IPS
+        value: "*"
       # Secrets — définis manuellement dans le dashboard (jamais commités)
       - key: DATABASE_URL
         sync: false

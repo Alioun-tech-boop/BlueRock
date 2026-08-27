@@ -57,6 +57,13 @@ const DEFAULT_TTL = 30000
 const responseCache = new Map()
 const PERSIST_KEY = 'bluerock_api_cache_v1'
 let _lastTokenHash = null
+
+const getToken = () => {
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('bluerock_token')) || ''
+  } catch { return '' }
+}
+
 // Nettoie le cache mémoire si l'utilisateur change (évite fuite cross-user) —
 // ne supprime PLUS le cache persistant : il sert de filet hors connexion
 // et la clé contient déjà le hash du token, donc pas de fuite.
@@ -78,12 +85,6 @@ const _maybeClearOnTokenChange = () => {
 if (typeof window !== 'undefined') {
   try { _maybeClearOnTokenChange() } catch {}
   window.addEventListener('storage', (e) => { if (e.key === 'bluerock_token') _maybeClearOnTokenChange() })
-}
-
-const getToken = () => {
-  try {
-    return (typeof localStorage !== 'undefined' && localStorage.getItem('bluerock_token')) || ''
-  } catch { return '' }
 }
 
 const cacheKey = (config) => {

@@ -140,7 +140,8 @@ class SharedStore:
                 socket_timeout=2,
                 socket_connect_timeout=2,
                 health_check_interval=30,
-                ssl_cert_reqs=_ssl.CERT_NONE,
+                ssl_cert_reqs=_ssl.CERT_REQUIRED,
+                ssl_check_hostname=True,
             )
             client.ping()
             self._redis = client

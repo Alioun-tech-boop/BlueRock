@@ -39,7 +39,6 @@ const PAGE_TITLES = {
   '/challenges': 'Défis',
   '/donnees': 'Données PDF',
   '/notifications': 'Notifications',
-  '/patrimoine': 'Patrimoine · Simulateur',
   '/premium': 'Premium',
   '/compte-titre': 'Compte Titre',
   '/kyc': 'Vérification KYC',

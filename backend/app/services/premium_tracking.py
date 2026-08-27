@@ -86,7 +86,7 @@ def _notify(db: Session, plan: PremiumPlan, ntype: str, title: str, body: str,
         type=ntype,
         title=title,
         body=body,
-        link="/patrimoine",
+        link="/portfolio",
     )
     db.add(n)
     db.flush()

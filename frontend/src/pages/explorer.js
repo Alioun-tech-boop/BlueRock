@@ -7,7 +7,7 @@ import { t, detectLang, fmtPriceCur } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import TriLoader from '../components/TriLoader'
 import DataErrorState from '../components/DataErrorState'
-import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Compass, Lock, Sparkles, ArrowRight } from 'lucide-react'
+import { Newspaper, Calendar, Briefcase, BarChart3, TrendingUp, DollarSign, AlertTriangle, RefreshCw, ExternalLink, X, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const sectorInfo = {
@@ -344,7 +344,7 @@ export default function Explorer() {
       console.warn('[Explorer] news failed', e?.response?.status, e?.message)
     })
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [isPro])
 
   useEffect(() => {
     const interval = setInterval(() => { if (!document.hidden) load() }, 180000)
@@ -368,18 +368,20 @@ export default function Explorer() {
     .sort((a, b) => b[1].length - a[1].length)
     .map(([sector, stocks]) => {
     const series = []
-    const len = Math.min(...stocks.map(s => (sparklines[s.id] || []).length))
+    const lens = stocks.map(s => (sparklines[s.id] || []).length).filter(l=>l>0)
+    const len = lens.length ? Math.min(...lens) : 0
     if (len > 1) {
       for (let i = 0; i < len; i++) {
         const vals = stocks.map(s => sparklines[s.id][i]).filter(v => v != null)
-        series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
+        if (vals.length) series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
       }
     }
-return {
+ return {
       name: sector,
       count: stocks.length,
       change: stocks.reduce((sum, s) => sum + (s.change_percent || 0), 0) / (stocks.length || 1),
       color: sectorInfo[sector]?.color || '#666',
+      series,
     }
   })
 
@@ -392,11 +394,12 @@ return {
     .sort((a, b) => b[1].length - a[1].length)
     .map(([sector, stocks]) => {
       const series = []
-      const len = Math.min(...stocks.map(s => (sparklines[s.id] || []).length))
+      const lens = stocks.map(s => (sparklines[s.id] || []).length).filter(l=>l>0)
+      const len = lens.length ? Math.min(...lens) : 0
       if (len > 1) {
         for (let i = 0; i < len; i++) {
           const vals = stocks.map(s => sparklines[s.id][i]).filter(v => v != null)
-          series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
+          if (vals.length) series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
         }
       }
       return {
@@ -404,6 +407,7 @@ return {
         count: stocks.length,
         change: stocks.reduce((sum, s) => sum + (s.change_percent || 0), 0) / (stocks.length || 1),
         color: '#8b5cf6',
+        series,
       }
     })
 
@@ -432,10 +436,6 @@ return {
           <button className="action-btn" onClick={() => router.push('/brokers')}>
             <Briefcase size={28} color="#fff" />
             <span>{t('brokers')}</span>
-          </button>
-          <button className="action-btn plan-btn" onClick={() => router.push('/patrimoine')}>
-            <Compass size={28} color="#18C27C" />
-            <span>{t('premiumTitle')}</span>
           </button>
         </div>
 
@@ -781,14 +781,6 @@ return {
           text-decoration: none;
         }
         .action-btn:hover { background: #333; }
-        .action-btn.plan-btn {
-          background: linear-gradient(160deg, rgba(24,194,124,0.16), rgba(139,92,246,0.12));
-          border: 1px solid rgba(24,194,124,0.35);
-        }
-        .action-btn.plan-btn:hover { background: linear-gradient(160deg, rgba(24,194,124,0.26), rgba(139,92,246,0.2)); }
-        @media (max-width: 767px) {
-          .action-btn.plan-btn { display: none !important; }
-        }
         .tabs-strip {
           display: flex;
           gap: 10px;
