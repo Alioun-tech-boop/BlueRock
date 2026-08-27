@@ -7,6 +7,7 @@ import '../styles/design.css'
 import '../styles/desktop.css'
 import '../styles/community.css'
 import { AuthProvider } from '../lib/auth'
+import ErrorBoundary from '../components/ErrorBoundary'
 import DesktopDock from '../components/DesktopDock'
 import NetworkBanner from '../components/NetworkBanner'
 import InstallPWA from '../components/InstallPWA'
@@ -104,10 +105,12 @@ export default function App({ Component, pageProps }) {
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet" />
       </Head>
       <AuthProvider>
-        <NetworkBanner />
-        <InstallPWA />
-        <DesktopDock />
-        <Component {...pageProps} />
+        <ErrorBoundary>
+          <NetworkBanner />
+          <InstallPWA />
+          <DesktopDock />
+          <Component {...pageProps} />
+        </ErrorBoundary>
       </AuthProvider>
     </>
   )
