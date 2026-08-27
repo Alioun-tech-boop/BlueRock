@@ -9,6 +9,7 @@ import { useAuth } from '../lib/auth'
 import { getUnreadCount } from '../services/api'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import DataErrorState from '../components/DataErrorState'
+import { getFavKey, migrateAnonFavToUser } from '../lib/accounts'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -476,8 +477,17 @@ export default function Watchlist() {
       // Offre Basic = BRVM seule ; NGX est réservé à l'offre Pro.
       setStocks(isPro ? all : all.filter(s => (s.exchange || 'BRVM') !== 'NGX'))
       setError(false)
-      const favRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(FAV_KEY) : null
-      const hasFav = favRaw !== null && JSON.parse(favRaw || '[]').length > 0
+      // Migration anonyme → utilisateur : conserve les favoris créés avant connexion
+      try { migrateAnonFavToUser(user) } catch {}
+      const favKey = getFavKey(user)
+      const favRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(favKey) : null
+      // fallback : si clé per-user vide mais ancienne clé globale a des données (compat)
+      let effectiveRaw = favRaw
+      if ((effectiveRaw == null || JSON.parse(effectiveRaw || '[]').length === 0) && favKey !== FAV_KEY) {
+        const anonRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(FAV_KEY) : null
+        if (anonRaw && JSON.parse(anonRaw || '[]').length > 0) effectiveRaw = anonRaw
+      }
+      const hasFav = effectiveRaw !== null && JSON.parse(effectiveRaw || '[]').length > 0
       if (!hasFav) {
         // 20 actions par défaut, visibles par tous les nouveaux utilisateurs.
         // Basic = BRVM uniquement (NGX réservé Pro) pour éviter une watchlist vide
@@ -500,12 +510,14 @@ export default function Watchlist() {
         }
         if (top.length) {
           setFavorites(top)
-          saveJSON(FAV_KEY, top)
+          saveJSON(favKey, top)
+          // aussi garder une copie anonyme pour compat si user est null
+          if (favKey !== FAV_KEY && !localStorage.getItem(FAV_KEY)) try { saveJSON(FAV_KEY, top) } catch {}
         }
       } else {
         // Migration : anciens utilisateurs avec 15 favoris NGX invisibles (Basic) ou 15 seulement → étendre à 20 BRVM
         try {
-          const cur = JSON.parse(favRaw || '[]')
+          const cur = JSON.parse(effectiveRaw || '[]')
           if (cur.length > 0 && cur.length < 20) {
             const pool = [...(e.data.companies || [])].filter(
               (s) => s.instrument_type === 'equity' && (isPro || (s.exchange || 'BRVM') !== 'NGX')
@@ -518,8 +530,18 @@ export default function Watchlist() {
             }
             if (merged.length > cur.length) {
               setFavorites(merged)
-              saveJSON(FAV_KEY, merged)
+              saveJSON(favKey, merged)
+            } else {
+              // s'assurer que l'état reflète la clé per-user
+              if (JSON.stringify(cur) !== JSON.stringify(loadJSON(favKey, []))) {
+                setFavorites(cur)
+                saveJSON(favKey, cur)
+              }
             }
+          } else if (effectiveRaw !== favRaw) {
+            // favRaw vide mais anon a des données → hydrater
+            const cur2 = JSON.parse(effectiveRaw || '[]')
+            if (cur2.length) { setFavorites(cur2); saveJSON(favKey, cur2) }
           }
         } catch {}
       }
@@ -528,12 +550,20 @@ export default function Watchlist() {
     } finally {
       if (!silent && mounted.current) setLoading(false)
     }
-  }, [user?.tier])
+  }, [user?.id, user?.auth_id, user?.tier])
 
   useEffect(() => {
     mounted.current = true
     setLang(detectLang())
-    setFavorites(loadJSON(FAV_KEY, []))
+    try { migrateAnonFavToUser(user) } catch {}
+    const favKeyInit = getFavKey(user)
+    const anonFallback = favKeyInit !== FAV_KEY ? loadJSON(FAV_KEY, null) : null
+    const perUserFav = loadJSON(favKeyInit, null)
+    if (perUserFav && perUserFav.length) setFavorites(perUserFav)
+    else if (anonFallback && anonFallback.length) {
+      setFavorites(anonFallback)
+      saveJSON(favKeyInit, anonFallback)
+    } else setFavorites(loadJSON(favKeyInit, []))
     fetchData()
     const interval = setInterval(() => fetchData(true), 60000)
     return () => {
@@ -588,9 +618,12 @@ export default function Watchlist() {
   }, [])
 
   const toggleFavorite = (symbol) => {
+    const favKey = getFavKey(user)
     setFavorites(prev => {
       const next = prev.includes(symbol) ? prev.filter(s => s !== symbol) : [...prev, symbol]
-      saveJSON(FAV_KEY, next)
+      saveJSON(favKey, next)
+      // garder la clé anonyme en miroir pour la déconnexion
+      try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
       return next
     })
   }

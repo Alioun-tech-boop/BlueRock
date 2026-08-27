@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { detectLang, t } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
-import { getActiveAccountId, setActiveAccountId as persistActiveAccountId, clearActiveAccountId } from '../lib/accounts'
+import { getActiveAccountId, setActiveAccountId as persistActiveAccountId, clearActiveAccountId, getPortfolioKey, migrateAnonPortfolioToUser } from '../lib/accounts'
 
 const PORT_KEY = 'bluerock_portfolio_v1'
 
@@ -93,9 +93,22 @@ export default function Portfolio() {
   const [account, setAccount] = useState(null)
   const [activeAccountId, setActiveAccountId] = useState(() => getActiveAccountId())
 
+  // Hydrate per-user active account après connexion (migration anonyme → user)
+  useEffect(() => {
+    if (authLoading) return
+    try { migrateAnonPortfolioToUser(user) } catch {}
+    const perUserId = getActiveAccountId(user)
+    if (perUserId != null && perUserId !== activeAccountId) setActiveAccountId(perUserId)
+    // si déconnecté, retomber sur clé anonyme
+    if (!user) {
+      const anonId = getActiveAccountId(null)
+      if (anonId != null && anonId !== perUserId) setActiveAccountId(anonId)
+    }
+  }, [user, authLoading])
+
   const applyActiveAccount = id => {
     setActiveAccountId(id)
-    persistActiveAccountId(id)
+    persistActiveAccountId(id, user)
   }
 
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -155,8 +168,15 @@ export default function Portfolio() {
         if (res.data.account && !activeAccountId) {
           applyActiveAccount(res.data.account.id)
         }
-        const local = loadJSON(PORT_KEY, {})
-        const localEntries = Object.entries(local).filter(([, p]) => p.qty > 0)
+        const portKey = getPortfolioKey(user)
+        const local = loadJSON(portKey, {})
+        // fallback anonyme si per-user vide
+        let effectiveLocal = local
+        if (Object.keys(effectiveLocal).length === 0 && portKey !== PORT_KEY) {
+          const anonLocal = loadJSON(PORT_KEY, {})
+          if (Object.keys(anonLocal).length) effectiveLocal = anonLocal
+        }
+        const localEntries = Object.entries(effectiveLocal).filter(([, p]) => p.qty > 0)
         if (localEntries.length && (!res.data.positions || !res.data.positions.length) && !migrated) {
           setMigrated(true)
           Promise.all(localEntries.map(([sym, p]) =>
@@ -170,7 +190,11 @@ export default function Portfolio() {
                 const pos2 = {}
                 ;(r.data.positions || []).forEach(p => { pos2[p.symbol] = { qty: p.qty, avgPrice: p.avg_price } })
                 setPositions(pos2)
-                localStorage.removeItem(PORT_KEY)
+                try {
+                  localStorage.removeItem(getPortfolioKey(user))
+                  // garder anon propre aussi si migré depuis anon
+                  if (getPortfolioKey(user) !== PORT_KEY) localStorage.removeItem(PORT_KEY)
+                } catch {}
               }).catch(() => {})
             }
           })
@@ -420,7 +444,7 @@ export default function Portfolio() {
       await deletePortfolioAccount(acc.id)
       if (acc.id === activeAccountId) {
         setActiveAccountId(null)
-        clearActiveAccountId()
+        clearActiveAccountId(user)
         refreshPortfolio(null)
       } else {
         refreshPortfolio()

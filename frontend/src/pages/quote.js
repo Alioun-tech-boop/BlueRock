@@ -11,6 +11,7 @@ import { detectLang, t, fmtPrice, fmtPriceCur, fmtCompact, fmtChange } from '../
 import { aggregateOhlc } from '../lib/ohlc'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import DataErrorState from '../components/DataErrorState'
+import { getFavKey, migrateAnonFavToUser } from '../lib/accounts'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -144,10 +145,11 @@ export default function Quote() {
     setAllData([])
     setLiveVol(null)
     load()
-    setIsFav(loadJSON(FAV_KEY, []).includes(symbol))
+    try { migrateAnonFavToUser(user) } catch {}
+    setIsFav(loadJSON(getFavKey(user), []).includes(symbol))
     if (user) {
-      getPosition(symbol, getActiveAccountId()).then(r => { if (mounted.current) setPosition(r.data) }).catch(() => {})
-      getPortfolio(getActiveAccountId()).then(r => {
+      getPosition(symbol, getActiveAccountId(user)).then(r => { if (mounted.current) setPosition(r.data) }).catch(() => {})
+      getPortfolio(getActiveAccountId(user)).then(r => {
         if (!mounted.current) return
         setOrders(r.data?.orders || [])
         setActiveAcc(r.data?.account || null)
@@ -163,9 +165,11 @@ export default function Quote() {
   }, [symbol, load, tick, user])
 
   const toggleFavorite = () => {
-    const favs = loadJSON(FAV_KEY, [])
+    const favKey = getFavKey(user)
+    const favs = loadJSON(favKey, [])
     const next = favs.includes(symbol) ? favs.filter(s => s !== symbol) : [...favs, symbol]
-    saveJSON(FAV_KEY, next)
+    saveJSON(favKey, next)
+    try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
     setIsFav(next.includes(symbol))
   }
 
@@ -298,14 +302,14 @@ export default function Quote() {
         take_profit: tpV,
         stop_loss: slV,
         valid_until: validUntil,
-        account_id: getActiveAccountId(),
+        account_id: getActiveAccountId(user),
       })
       if (res.data.status === 'pending' && res.data.executes_at_open) {
         setMarketNote(t(lang, 'orderExecutesOpen'))
       }
       if (res.data.position && res.data.position.qty > 0) setPosition(res.data.position)
       try {
-        const pf = await getPortfolio(getActiveAccountId())
+        const pf = await getPortfolio(getActiveAccountId(user))
         if (mounted.current) setOrders(pf.data?.orders || [])
       } catch {}
       setOrderModal(null)

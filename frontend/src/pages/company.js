@@ -18,6 +18,7 @@ import MarketChart from '../components/MarketChart'
 import InfoDot from '../components/InfoDot'
 import NewsThumb from '../components/NewsThumb'
 import DataErrorState from '../components/DataErrorState'
+import { getFavKey, migrateAnonFavToUser } from '../lib/accounts'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -151,7 +152,8 @@ export default function Company() {
       .then(res => {
         if (!mounted.current) return
         setFull(res.data)
-        setIsFav(loadJSON(FAV_KEY, []).includes(res.data.company.symbol))
+        try { migrateAnonFavToUser(user) } catch {}
+        setIsFav(loadJSON(getFavKey(user), []).includes(res.data.company.symbol))
         try { localStorage.setItem('bluerock_last_symbol', res.data.company.symbol) } catch {}
         getMarketCalendar()
           .then(r => { if (mounted.current) setCalEvents(r.data.items || []) })
@@ -160,7 +162,7 @@ export default function Company() {
       .catch(() => { if (mounted.current) setError(true) })
       .finally(() => { if (mounted.current) setLoading(false) })
     return () => { mounted.current = false }
-  }, [id])
+  }, [id, user?.id, user?.auth_id])
 
   useEffect(() => {
     let cancelled = false
@@ -259,15 +261,17 @@ export default function Company() {
     }
   }
 
+  const { user } = useAuth()
+
   const toggleFavorite = () => {
     if (!full) return
-    const favs = loadJSON(FAV_KEY, [])
+    const favKey = getFavKey(user)
+    const favs = loadJSON(favKey, [])
     const next = favs.includes(full.company.symbol) ? favs.filter(s => s !== full.company.symbol) : [...favs, full.company.symbol]
-    saveJSON(FAV_KEY, next)
+    saveJSON(favKey, next)
+    try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
     setIsFav(next.includes(full.company.symbol))
   }
-
-  const { user } = useAuth()
   const [trade, setTrade] = useState(null)
   const [tradeQty, setTradeQty] = useState(1)
   const [tradePrice, setTradePrice] = useState('')
@@ -288,11 +292,11 @@ export default function Company() {
   useEffect(() => {
     if (!user) { setActiveAcc(null); return }
     let cancelled = false
-    getPortfolio(getActiveAccountId())
+    getPortfolio(getActiveAccountId(user))
       .then(r => { if (!cancelled) setActiveAcc(r.data?.account || null) })
       .catch(() => { if (!cancelled) setActiveAcc(null) })
     return () => { cancelled = true }
-  }, [user])
+  }, [user?.id, user?.auth_id])
 
   const openTrade = (side) => {
     if (!full) return
@@ -314,7 +318,7 @@ export default function Company() {
     setTradeErr('')
     setSending(false)
     setOwned(0)
-    getPosition(full.company.symbol, getActiveAccountId())
+    getPosition(full.company.symbol, getActiveAccountId(user))
       .then(r => setOwned(r.data?.qty || 0))
       .catch(() => {})
   }
@@ -348,7 +352,7 @@ export default function Company() {
       take_profit: tpV,
       stop_loss: slV,
       valid_until: validUntil,
-      account_id: getActiveAccountId(),
+      account_id: getActiveAccountId(user),
     })
       .then(res => {
         setSending(false)

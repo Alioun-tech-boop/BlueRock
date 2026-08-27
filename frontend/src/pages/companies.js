@@ -8,6 +8,7 @@ import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
 import { applyLogoBackground, onLogoError } from '../lib/logoBg'
 import { useAuth } from '../lib/auth'
 import DataErrorState from '../components/DataErrorState'
+import { getFavKey, migrateAnonFavToUser } from '../lib/accounts'
 
 const FAV_KEY = 'bluerock_favorites_v1'
 
@@ -49,7 +50,8 @@ export default function Companies() {
   useEffect(() => {
     mounted.current = true
     setLang(detectLang())
-    setFavorites(loadJSON(FAV_KEY, []))
+    try { migrateAnonFavToUser(user) } catch {}
+    setFavorites(loadJSON(getFavKey(user), []))
     if (router.query?.exchange === 'NGX' && !isPro) {
       setExchange('BRVM')
       return
@@ -57,7 +59,7 @@ export default function Companies() {
     fetchData()
     return () => { mounted.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, exchange, isPro])
+  }, [type, exchange, isPro, user?.id, user?.auth_id])
 
   const switchType = (v) => { if (v !== type) { setType(v); setSearch('') } }
   const switchExchange = (v) => {
@@ -69,9 +71,11 @@ export default function Companies() {
   }
 
   const toggleFavorite = (symbol) => {
+    const favKey = getFavKey(user)
     setFavorites(prev => {
       const next = prev.includes(symbol) ? prev.filter(s => s !== symbol) : [...prev, symbol]
-      saveJSON(FAV_KEY, next)
+      saveJSON(favKey, next)
+      try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
       return next
     })
   }
