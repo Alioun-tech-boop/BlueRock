@@ -26,3 +26,26 @@
   for = "/*.html"
   [headers.values]
     Cache-Control = "no-store"
+
+# Correction 404 export statique : les routes dynamiques [id]/[slug] n'ont qu'un fichier
+# modèle ([id].html) — on réécrit toute URL /community/post/123 vers ce modèle (200)
+[[redirects]]
+  from = "/community/group/*/members"
+  to = "/community/group/[slug]/members.html"
+  status = 200
+  force = false
+[[redirects]]
+  from = "/community/post/*"
+  to = "/community/post/[id].html"
+  status = 200
+  force = false
+[[redirects]]
+  from = "/community/user/*"
+  to = "/community/user/[id].html"
+  status = 200
+  force = false
+[[redirects]]
+  from = "/community/group/*"
+  to = "/community/group/[slug].html"
+  status = 200
+  force = false

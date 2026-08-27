@@ -33,13 +33,17 @@ const CACHE_TTL_BY_PREFIX = [
   ['/api/analysis/screen', 120000],
   ['/api/analysis/companies', 300000],
   ['/api/ingestion/summary', 60000],
+  ['/api/community/posts', 60000],
+  ['/api/community/discover', 300000],
+  ['/api/community/groups', 60000],
+  ['/api/community/users', 120000],
 ]
 const NO_CACHE_PREFIXES = [
   '/api/auth',
   '/api/portfolio',
   '/api/notifications',
   '/api/premium',
-  '/api/community',
+  // '/api/community' retiré : le fil est mis en cache persistant pour ne jamais perdre les données hors connexion
   '/api/brokers',
   '/api/broker-connect',
   '/api/seed',
@@ -53,7 +57,9 @@ const DEFAULT_TTL = 30000
 const responseCache = new Map()
 const PERSIST_KEY = 'bluerock_api_cache_v1'
 let _lastTokenHash = null
-// Nettoie le cache si l'utilisateur change (évite fuite cross-user sur même navigateur)
+// Nettoie le cache mémoire si l'utilisateur change (évite fuite cross-user) —
+// ne supprime PLUS le cache persistant : il sert de filet hors connexion
+// et la clé contient déjà le hash du token, donc pas de fuite.
 const _maybeClearOnTokenChange = () => {
   const token = getToken()
   let h = 'anon'
@@ -64,7 +70,8 @@ const _maybeClearOnTokenChange = () => {
   }
   if (_lastTokenHash !== null && _lastTokenHash !== h) {
     responseCache.clear()
-    try { localStorage.removeItem(PERSIST_KEY) } catch {}
+    // PERSIST_KEY conservé : les entrées par hash (anon|abc123|url) restent isolées
+    // et servent de fallback offline pour le fil communauté et les fiches société
   }
   _lastTokenHash = h
 }
@@ -246,8 +253,10 @@ api.interceptors.response.use(
       }
       if (fallback && fallback.data != null) {
         const age = Date.now() - (fallback.savedAt || 0)
-        // Si trop ancien (>2*TTL), on ne renvoie pas de stale silencieux — on laisse l'erreur réseau remonter
-        if (age > ttl * 2) {
+        // Fil communauté et fiches société : on garde le stale jusqu'à 24h pour ne jamais vider l'écran hors connexion
+        const isCommunityOrCompany = url.startsWith('/api/community') || url.startsWith('/api/companies')
+        const maxStale = isCommunityOrCompany ? 24 * 60 * 60 * 1000 : ttl * 2
+        if (age > maxStale) {
           notifyNetwork(false)
           return Promise.reject(err)
         }
