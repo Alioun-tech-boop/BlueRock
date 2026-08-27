@@ -34,8 +34,9 @@ function fmt(n, lang, currency) {
 }
 
 function Sparkline({ series, up }) {
-  if (!series || series.length < 2) return <div className="gc-empty" />
-  const points = series.slice(-25)
+  if (!Array.isArray(series) || series.length < 2) return <div className="gc-empty" />
+  const points = series.slice(-25).filter(Number.isFinite)
+  if (points.length < 2) return <div className="gc-empty" />
   const h = 54; const w = 96
   const max = Math.max(...points); const min = Math.min(...points)
   const r = h / (max - min || 1)
@@ -372,7 +373,7 @@ export default function Explorer() {
     const len = lens.length ? Math.min(...lens) : 0
     if (len > 1) {
       for (let i = 0; i < len; i++) {
-        const vals = stocks.map(s => sparklines[s.id][i]).filter(v => v != null)
+        const vals = stocks.map(s => (sparklines[s.id] || [])[i]).filter(v => v != null)
         if (vals.length) series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
       }
     }
@@ -398,7 +399,7 @@ export default function Explorer() {
       const len = lens.length ? Math.min(...lens) : 0
       if (len > 1) {
         for (let i = 0; i < len; i++) {
-          const vals = stocks.map(s => sparklines[s.id][i]).filter(v => v != null)
+          const vals = stocks.map(s => (sparklines[s.id] || [])[i]).filter(v => v != null)
           if (vals.length) series.push(vals.reduce((a, b) => a + b, 0) / vals.length)
         }
       }
