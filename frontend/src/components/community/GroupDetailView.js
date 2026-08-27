@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BadgeCheck, Clock, Coins, Crown, EyeOff, Lock, ShieldCheck, Tag, UserCheck, UserPlus, Users, X, Check, FileText, KeyRound } from 'lucide-react'
+import { BadgeCheck, Clock, Coins, Crown, EyeOff, Lock, ShieldCheck, Tag, UserCheck, UserPlus, Users, X, Check, FileText, KeyRound, Share2, Link2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import {
   getCommunityGroup, getCommunityGroupMembers, getCommunityGroupPosts,
@@ -39,6 +39,7 @@ export default function GroupDetailView({ slug, lang, embedded = false, initialM
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState('')
+  const [copied, setCopied] = useState(false)
   const [me, setMe] = useState(initialMe)
   const alive = useRef(true)
 
@@ -101,6 +102,22 @@ export default function GroupDetailView({ slug, lang, embedded = false, initialM
   const showFlash = (m) => {
     setFlash(m)
     setTimeout(() => { if (alive.current) setFlash('') }, 3200)
+  }
+
+  const copyLink = async () => {
+    if (!group) return
+    const url = typeof window !== 'undefined' ? `${window.location.origin}/community/group/${group.slug}` : `/community/group/${group.slug}`
+    try {
+      if (navigator.share) {
+        try { await navigator.share({ title: group.name, text: group.description || '', url }); showFlash(t(lang, 'grpLinkCopied')); return } catch {}
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        const ta = document.createElement('textarea'); ta.value = url; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta)
+      }
+      setCopied(true); showFlash(t(lang, 'grpLinkCopied') || (lang==='en'?'Link copied!':'Lien copié !')); setTimeout(()=> setCopied(false), 1800)
+    } catch { showFlash(url) }
   }
 
   const toggleJoin = () => {
@@ -213,6 +230,10 @@ export default function GroupDetailView({ slug, lang, embedded = false, initialM
           )}
           <span className="co-gv-chip"><FileText size={12} /> {group.posts_count ?? 0}</span>
         </div>
+        <button className="co-gv-share" onClick={copyLink} aria-label={t(lang, 'grpShareLink') || 'Copier le lien'} title={t(lang, 'grpShareLink') || 'Copier le lien'}>
+            {copied ? <Check size={16} /> : <Share2 size={16} />}
+            <span className="co-gv-share-txt">{copied ? (t(lang,'grpLinkCopied')||'Copié') : (t(lang,'grpShareLink')||'Partager')}</span>
+          </button>
         {group.is_pending ? (
           <span className="co-gv-chip pend"><Clock size={12} />{t(lang, 'grpPending')}</span>
         ) : group.is_invited ? (
@@ -440,6 +461,17 @@ export default function GroupDetailView({ slug, lang, embedded = false, initialM
           border: 1px solid rgba(255, 255, 255, .28); box-shadow: none;
         }
         .co-gv-join.on:hover:not(:disabled) { background: rgba(255, 255, 255, .09); }
+        .co-gv-share {
+          display: inline-flex; align-items: center; gap: 7px;
+          background: rgba(255,255,255,.07); color: rgba(255,255,255,.88);
+          border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+          padding: 10px 14px; font-family: var(--font-rounded); font-size: 13px; font-weight: 700;
+          cursor: pointer; transition: all .15s; flex: none;
+        }
+        .co-gv-share:hover { background: rgba(255,255,255,.12); color: #fff; }
+        .co-gv-share:active { transform: scale(.97); }
+        .co-gv-share-txt { display: none; }
+        @media (min-width: 420px) { .co-gv-share-txt { display: inline; } }
 
         .co-gv-flash {
           margin-top: 12px; font-size: 13px; color: #4fe0a0;

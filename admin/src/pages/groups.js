@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AdminLayout from '../components/AdminLayout'
-import { adminGroups, adminGroupStatus, adminGroupCreate, adminGroupDelete } from '../services/api'
+import { adminGroups, adminGroupStatus, adminGroupCreate, adminGroupDelete, adminGroupUpdateBanner } from '../services/api'
 import Pager from '../components/Pager'
 import { t } from '../lib/i18n'
-import { Plus, Trash2, Search } from 'lucide-react'
+import { Plus, Trash2, Search, Image } from 'lucide-react'
 
 const PAGE = 20
 
@@ -25,6 +25,8 @@ export default function GroupsPage() {
   const [flashErr, setFlashErr] = useState(false)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(EMPTY_GROUP)
+  const [editingBanner, setEditingBanner] = useState(null)
+  const [bannerForm, setBannerForm] = useState({ banner: '' })
   const [confirmDel, setConfirmDel] = useState(null)
   const debounce = useRef(null)
   const timer = useRef(null)
@@ -73,6 +75,18 @@ export default function GroupsPage() {
       })
   }
 
+  const editBanner = (group) => {
+    setEditingBanner(group)
+    setBannerForm({ banner: group.banner || '' })
+  }
+
+  const saveBanner = () => {
+    if (!editingBanner) return
+    adminGroupUpdateBanner(editingBanner.id, { banner: bannerForm.banner })
+      .then(() => { setEditingBanner(null); setBannerForm({ banner: '' }); load(); showFlash('Photo de couverture mise à jour') })
+      .catch(() => showFlash(t('loadError'), true))
+  }
+
   return (
     <AdminLayout title={t('groupsTitle')} sub={t('groupsSub')}>
       <div className="adm-panel">
@@ -91,55 +105,66 @@ export default function GroupsPage() {
           <div className="adm-empty">{t('noResults')}</div>
         ) : (
           <table className="adm-table">
-            <thead>
-              <tr>
-                <th>{t('thTitle')}</th>
-                <th>Slug</th>
-                <th>{t('thCat')}</th>
-                <th>Visibilité</th>
-                <th>{t('postsCount')}</th>
-                <th>Accès</th>
-                <th>{t('thStatus')}</th>
-                <th>{t('thCreated')}</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(g => (
-                <tr key={g.id}>
-                  <td style={{ fontWeight: 700 }}>{g.name}</td>
-                  <td className="adm-muted">{g.slug}</td>
-                  <td><span className="adm-badge gray">{g.category || '—'}</span></td>
-                  <td><span className="adm-badge amber">{g.visibility || '—'}</span></td>
-                  <td className="adm-muted">{g.posts_count}</td>
-                  <td>
-                    {g.is_paid
-                      ? <span className="adm-badge pro">{g.price_xof?.toLocaleString('fr-FR')} FCFA</span>
-                      : <span className="adm-badge gray">Gratuit</span>}
-                  </td>
-                  <td><span className={`adm-badge ${statusBadge[g.status] || 'gray'}`}>{t('g' + (g.status === 'active' ? 'Active' : g.status === 'suspended' ? 'Suspended' : 'Archived'))}</span></td>
-                  <td className="adm-muted">{fmtDate(g.created_at)}</td>
-                  <td>
-                    <div className="adm-flex" style={{ flexWrap: 'nowrap' }}>
-                      <select
-                        className="adm-select" style={{ fontSize: 11.5 }}
-                        value={g.status} onChange={e => setStatus(g.id, e.target.value)}
-                      >
-                        <option value="active">{t('gActive')}</option>
-                        <option value="suspended">{t('gSuspended')}</option>
-                        <option value="archived">{t('gArchived')}</option>
-                      </select>
-                      <button className="adm-btn danger" onClick={() => setConfirmDel(g.id)} title="Supprimer (posts détachés, pas supprimés)">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+<thead>
+                <tr>
+                  <th>{t('thTitle')}</th>
+                  <th>Slug</th>
+                  <th>{t('thCat')}</th>
+                  <th>Couverture</th>
+                  <th>Visibilité</th>
+                  <th>{t('postsCount')}</th>
+                  <th>Accès</th>
+                  <th>{t('thStatus')}</th>
+                  <th>{t('thCreated')}</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {rows && <Pager page={page} pageSize={PAGE} total={total} onPage={p => { setPage(p); setRows(null) }} />}
+              </thead>
+              <tbody>
+                {rows.map(g => (
+                  <tr key={g.id}>
+                    <td style={{ fontWeight: 700 }}>{g.name}</td>
+                    <td className="adm-muted">{g.slug}</td>
+                    <td><span className="adm-badge gray">{g.category || '—'}</span></td>
+                    <td>
+                      {g.banner ? (
+                        <img src={g.banner} alt="" style={{ width: 60, height: 30, objectFit: 'cover', borderRadius: 4 }} />
+                      ) : (
+                        <span className="adm-muted">—</span>
+                      )}
+                    </td>
+                    <td><span className="adm-badge amber">{g.visibility || '—'}</span></td>
+                    <td className="adm-muted">{g.posts_count}</td>
+                    <td>
+                      {g.is_paid
+                        ? <span className="adm-badge pro">{g.price_xof?.toLocaleString('fr-FR')} FCFA</span>
+                        : <span className="adm-badge gray">Gratuit</span>}
+                    </td>
+                    <td><span className={`adm-badge ${statusBadge[g.status] || 'gray'}`}>{t('g' + (g.status === 'active' ? 'Active' : g.status === 'suspended' ? 'Suspended' : 'Archived'))}</span></td>
+                    <td className="adm-muted">{fmtDate(g.created_at)}</td>
+                    <td>
+                      <div className="adm-flex" style={{ flexWrap: 'nowrap' }}>
+                        <select
+                          className="adm-select" style={{ fontSize: 11.5 }}
+                          value={g.status} onChange={e => setStatus(g.id, e.target.value)}
+                        >
+                          <option value="active">{t('gActive')}</option>
+                          <option value="suspended">{t('gSuspended')}</option>
+                          <option value="archived">{t('gArchived')}</option>
+                        </select>
+                        <button className="adm-btn" onClick={() => editBanner(g)} title="Modifier la photo de couverture">
+                          <Image size={14} />
+                        </button>
+                        <button className="adm-btn danger" onClick={() => setConfirmDel(g.id)} title="Supprimer (posts détachés, pas supprimés)">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {rows && <Pager page={page} pageSize={PAGE} total={total} onPage={p => { setPage(p); setRows(null) }} />}
       </div>
 
       {flash && <div className={`adm-flash ${flashErr ? 'err' : ''}`}>{flash}</div>}
@@ -191,6 +216,25 @@ export default function GroupsPage() {
             <div className="adm-flex" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
               <button className="adm-btn" onClick={() => setConfirmDel(null)}>{t('annCancel')}</button>
               <button className="adm-btn danger" onClick={delGroup}>{t('deleteBtn')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingBanner && (
+        <div className="adm-modal-bg" onClick={() => { setEditingBanner(null); setBannerForm({ banner: '' }) }}>
+          <div className="adm-modal" onClick={e => e.stopPropagation()}>
+            <h3>Modifier la photo de couverture</h3>
+            <div className="adm-modal-field">
+              <label>URL de l'image (https://...)</label>
+              <input className="adm-input" value={bannerForm.banner} onChange={e => setBannerForm({ ...bannerForm, banner: e.target.value })} placeholder="https://..." />
+              {bannerForm.banner && (
+                <img src={bannerForm.banner} alt="" style={{ maxWidth: 300, maxHeight: 150, borderRadius: 8, marginTop: 8, objectFit: 'cover' }} onError={e => { e.target.style.display = 'none' }} />
+              )}
+            </div>
+            <div className="adm-flex" style={{ justifyContent: 'flex-end' }}>
+              <button className="adm-btn" onClick={() => { setEditingBanner(null); setBannerForm({ banner: '' }) }}>{t('annCancel')}</button>
+              <button className="adm-btn primary" onClick={saveBanner}>Enregistrer</button>
             </div>
           </div>
         </div>

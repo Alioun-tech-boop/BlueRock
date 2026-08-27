@@ -480,7 +480,9 @@ def _attachment_public_url(a: CommunityAttachment) -> str:
     if a.kind == "link":
         return a.url or ""
     if a.kind in ("image", "video", "file") and a.url:
-        return _signed_url_cached(STORAGE_BUCKET, a.url)
+        if a.url.startswith("http://") or a.url.startswith("https://") or a.url.startswith("data:"):
+            return a.url
+        return _signed_url_cached(STORAGE_BUCKET, a.url) or a.url
     return ""
 
 
@@ -1890,7 +1892,7 @@ def _group_payload(
         "status": g.status,
         "avatar": g.avatar or "",
         "banner": g.banner or "",
-        "banner_url": _signed_url_cached(STORAGE_BUCKET, g.banner) if g.banner else "",
+        "banner_url": (g.banner if g.banner and (g.banner.startswith("http://") or g.banner.startswith("https://")) else _signed_url_cached(STORAGE_BUCKET, g.banner)) if g.banner else "",
         "member_count": member_count if member_count is not None else _member_count_sql(db, g.id),
         "posts_count": (
             db.query(func.count(CommunityPost.id)).filter(CommunityPost.group_id == g.id).scalar()

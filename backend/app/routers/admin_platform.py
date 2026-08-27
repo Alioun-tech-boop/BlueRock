@@ -24,6 +24,7 @@ from ..models.user import User
 from ..models.news import NewsItem
 from ..models.announcement import Announcement
 from ..models.community import CommunityPost, CommunityGroup, CommunityUser, CommunityReport, CommunityProfessional
+from ..models.challenge import Challenge
 from ..models.kyc import UserKyc
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -507,6 +508,10 @@ class GroupUpsert(BaseModel):
     status: str = Field(default="active", max_length=24)
 
 
+class GroupBannerUpdate(BaseModel):
+    banner: str = Field(default="", max_length=500)
+
+
 def _slugify(s: str) -> str:
     import re as _re
     s = s.lower().strip()
@@ -559,6 +564,24 @@ def admin_group_delete(
     db.commit()
     return {"id": gid, "deleted": True}
 
+
+@router.patch("/groups/{gid}/banner")
+def admin_group_update_banner(
+    gid: int,
+    payload: GroupBannerUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """Met à jour la photo de couverture (banner) d'une communauté."""
+    group = db.query(CommunityGroup).filter(CommunityGroup.id == gid).first()
+    if group is None:
+        raise HTTPException(status_code=404, detail="Communauté introuvable")
+    group.banner = payload.banner
+    db.commit()
+    return {"id": group.id, "banner": group.banner}
+
+
+# ============================== Communauté : posts ==============================
 
 class CommunityPostCreate(BaseModel):
     title: str = Field(min_length=3, max_length=240)
@@ -1137,3 +1160,121 @@ def admin_ngx_backfill(
     """
     from ..scrapers.ngx_feed import ngx_live_feed
     return ngx_live_feed.backfill(days=days, limit=limit, provider=provider)
+
+
+# ============================== Challenges (admin) ==============================
+
+
+class ChallengeUpsert(BaseModel):
+    name: str = Field(min_length=3, max_length=160)
+    tagline: Optional[str] = Field(default="", max_length=300)
+    description: Optional[str] = Field(default="", max_length=5000)
+    status: str = Field(default="upcoming", max_length=20)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    registration_end: Optional[str] = None
+    prize_pool: float = Field(default=0, ge=0)
+    prizes: Optional[str] = Field(default="")  # JSON string
+    rules: Optional[str] = Field(default="")  # JSON string or plain lines
+    max_participants: int = Field(default=0, ge=0)
+    entry_fee: float = Field(default=0, ge=0)
+    starting_capital: float = Field(default=10000000, ge=1000)
+    is_featured: bool = False
+
+
+def _parse_dt(s: Optional[str]):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _challenge_admin_out(c: Challenge) -> dict:
+    return {
+        "id": c.id,
+        "name": c.name,
+        "tagline": c.tagline or "",
+        "description": c.description or "",
+        "status": c.status,
+        "start_date": c.start_date.isoformat() if c.start_date else None,
+        "end_date": c.end_date.isoformat() if c.end_date else None,
+        "registration_end": c.registration_end.isoformat() if c.registration_end else None,
+        "prize_pool": c.prize_pool or 0,
+        "prizes": c.prizes or "",
+        "rules": c.rules or "",
+        "max_participants": c.max_participants or 0,
+        "entry_fee": c.entry_fee or 0,
+        "starting_capital": c.starting_capital or 10000000,
+        "is_featured": bool(c.is_featured),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    }
+
+
+@router.get("/challenges")
+def admin_challenges_list(db: Session = Depends(get_db), _=Depends(require_admin)):
+    rows = db.query(Challenge).order_by(Challenge.id.desc()).all()
+    return {"total": len(rows), "items": [_challenge_admin_out(r) for r in rows]}
+
+
+@router.post("/challenges")
+def admin_challenge_create(payload: ChallengeUpsert, db: Session = Depends(get_db), _=Depends(require_admin)):
+    if payload.status not in ("upcoming", "open", "live", "ended"):
+        raise HTTPException(status_code=400, detail="Statut invalide (upcoming|open|live|ended)")
+    c = Challenge(
+        name=payload.name.strip(),
+        tagline=(payload.tagline or "").strip(),
+        description=payload.description or "",
+        status=payload.status,
+        start_date=_parse_dt(payload.start_date),
+        end_date=_parse_dt(payload.end_date),
+        registration_end=_parse_dt(payload.registration_end),
+        prize_pool=payload.prize_pool,
+        prizes=payload.prizes or "",
+        rules=payload.rules or "",
+        max_participants=payload.max_participants,
+        entry_fee=payload.entry_fee,
+        starting_capital=payload.starting_capital,
+        is_featured=payload.is_featured,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return _challenge_admin_out(c)
+
+
+@router.patch("/challenges/{cid}")
+def admin_challenge_update(cid: int, payload: ChallengeUpsert, db: Session = Depends(get_db), _=Depends(require_admin)):
+    c = db.query(Challenge).filter(Challenge.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Défi introuvable")
+    if payload.status not in ("upcoming", "open", "live", "ended"):
+        raise HTTPException(status_code=400, detail="Statut invalide")
+    c.name = payload.name.strip()
+    c.tagline = (payload.tagline or "").strip()
+    c.description = payload.description or ""
+    c.status = payload.status
+    c.start_date = _parse_dt(payload.start_date)
+    c.end_date = _parse_dt(payload.end_date)
+    c.registration_end = _parse_dt(payload.registration_end)
+    c.prize_pool = payload.prize_pool
+    c.prizes = payload.prizes or ""
+    c.rules = payload.rules or ""
+    c.max_participants = payload.max_participants
+    c.entry_fee = payload.entry_fee
+    c.starting_capital = payload.starting_capital
+    c.is_featured = payload.is_featured
+    db.commit()
+    db.refresh(c)
+    return _challenge_admin_out(c)
+
+
+@router.delete("/challenges/{cid}")
+def admin_challenge_delete(cid: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    c = db.query(Challenge).filter(Challenge.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Défi introuvable")
+    db.delete(c)
+    db.commit()
+    return {"id": cid, "deleted": True}

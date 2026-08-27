@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import {
   LayoutDashboard, Users, MessagesSquare, Users2, ShieldCheck, Newspaper, Megaphone,
-  Flag, ScrollText, LogOut, Activity, UserRound,
+  Flag, ScrollText, LogOut, Activity, UserRound, Trophy,
 } from 'lucide-react'
 import { t } from '../lib/i18n'
 import { supabase, getToken, clearToken } from '../lib/supabase'
@@ -22,6 +22,7 @@ const GROUPS = [
       { href: '/community-users', key: 'cusers', icon: UserRound, label: 'Membres' },
       { href: '/posts', key: 'posts', icon: MessagesSquare, label: t('postsTitle') },
       { href: '/groups', key: 'groups', icon: Users2, label: t('groupsTitle') },
+      { href: '/challenges', key: 'challenges', icon: Trophy, label: 'Défis' },
       { href: '/moderation', key: 'mod', icon: Flag, label: 'Modération' },
     ],
   },

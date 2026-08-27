@@ -79,7 +79,9 @@ export default function CommunityCarousel({ lang, onSeeAll, onOpen }) {
               <div
                 className="cc-banner"
                 style={{
-                  backgroundImage: `linear-gradient(135deg, hsl(${hueOf(g.name)} 55% 22% / .55), hsl(${(hueOf(g.name) + 50) % 360} 45% 14% / .40)), url('${coverPhoto(`group-${g.id}-${g.slug}`)}')`,
+                  backgroundImage: g.banner_url
+                    ? `url('${g.banner_url}')`
+                    : `linear-gradient(135deg, hsl(${hueOf(g.name)} 55% 22% / .55), hsl(${(hueOf(g.name) + 50) % 360} 45% 14% / .40))`,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                 }}

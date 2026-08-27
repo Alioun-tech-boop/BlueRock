@@ -47,7 +47,7 @@ export default function CommunityGroupPage() {
       <style jsx global>{`
         body.community-body { background: #0a0a0d !important; }
 
-        .co-doc { min-height: 100vh; display: flex; flex-direction: column; }
+        .co-doc { height: 100vh; height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; }
         .co-doc-bar {
           position: sticky; top: 0; z-index: 50;
           display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;

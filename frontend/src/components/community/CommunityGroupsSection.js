@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Users, UserPlus, Search, Plus, ArrowLeft, Lock, Crown, ShieldCheck,
-  Ban, PauseCircle, RotateCcw, Check, X, EyeOff, Tag, BadgeCheck, Coins, Clock, MessageCircle,
+  Ban, PauseCircle, RotateCcw, Check, X, EyeOff, Tag, BadgeCheck, Coins, Clock, MessageCircle, Share2, Link2,
 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import {
@@ -95,6 +95,16 @@ export default function CommunityGroupsSection({ lang, user, onOpenMembers }) {
   const flashMsg = (msg) => {
     setFlash(msg)
     setTimeout(() => { if (mounted.current) setFlash('') }, 2600)
+  }
+
+  const copyGroupLink = async (g, e) => {
+    if (e) { e.preventDefault(); e.stopPropagation() }
+    const url = typeof window !== 'undefined' ? `${window.location.origin}/community/group/${g.slug}` : `/community/group/${g.slug}`
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(url)
+      else { const ta=document.createElement('textarea'); ta.value=url; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta) }
+      flashMsg(t(lang,'grpLinkCopied')||'Lien copié !')
+    } catch { flashMsg(url) }
   }
 
   const afterMutation = (fn) => fn()
@@ -218,6 +228,9 @@ export default function CommunityGroupsSection({ lang, user, onOpenMembers }) {
                         {g.is_paid && <span className="cg-chip pay"><Coins size={11} /> {(g.price_xof ?? 0).toLocaleString(lang === 'en' ? 'en-US' : 'fr-FR')} FCFA</span>}
                         {g.is_pending && <span className="cg-chip pend"><Clock size={11} />{t(lang, 'grpPending')}</span>}
                         {g.status !== 'active' && <span className={`cg-chip stat ${g.status}`}>{g.status === 'archived' ? t(lang, 'grpArchived') : t(lang, 'grpSuspended')}</span>}
+                        <button className="cg-chip cg-share-mini" onClick={(e)=>copyGroupLink(g,e)} aria-label={t(lang,'grpShareLink')||'Partager'} title={t(lang,'grpShareLink')||'Copier le lien'}>
+                          <Share2 size={11} />
+                        </button>
                       </span>
                     </span>
                     <span className="cg-body">
@@ -338,6 +351,9 @@ export default function CommunityGroupsSection({ lang, user, onOpenMembers }) {
         .cg-chip.pay { color: #4fe0a0; border-color: rgba(24,194,124,0.32); background: rgba(24,194,124,0.10); }
         .cg-chip.stat.archived { color: #8b94a3; }
         .cg-chip.stat.suspended { color: #ffb45c; border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.08); }
+        .cg-share-mini { cursor:pointer; margin-left:auto; background: rgba(255,255,255,.10) !important; border-color: rgba(255,255,255,.18) !important; color:#fff !important; padding:5px 8px !important; }
+        .cg-share-mini:hover { background: rgba(255,255,255,.18) !important; }
+        .cg-share-mini:active { transform: scale(.95); }
 
         .cg-error {
           font-size: 13.5px; color: #ff9d92; background: rgba(240,68,56,0.10);
@@ -844,6 +860,9 @@ function GroupDetail({ lang, initial, version, error, setError, flashMsg, onBack
           {g.my_role === 'creator' && <Crown size={16} />}
           {g.my_role === 'admin' && <ShieldCheck size={16} color="#18C27C" />}
         </span>
+        <button className="cg-back" style={{marginLeft:'auto'}} onClick={async()=>{ const url=typeof window!=='undefined'?`${window.location.origin}/community/group/${g.slug}`:`/community/group/${g.slug}`; try{ if(navigator.clipboard) await navigator.clipboard.writeText(url); else {const ta=document.createElement('textarea');ta.value=url;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta)} flashMsg(t(lang,'grpLinkCopied')||'Lien copié !')}catch{flashMsg(url)} }} aria-label={t(lang,'grpShareLink')||'Partager'} title={t(lang,'grpShareLink')||'Copier le lien'}>
+          <Share2 size={16} />
+        </button>
       </div>
 
       <div

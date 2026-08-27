@@ -47,6 +47,11 @@ export default function Patrimoine() {
   }
 
   useEffect(() => {
+    // Retiré temporairement — redirige vers le menu
+    router.replace('/menu')
+  }, [router])
+
+  useEffect(() => {
     mounted.current = true
     setLang(detectLang())
     load()

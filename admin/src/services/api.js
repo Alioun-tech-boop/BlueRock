@@ -88,6 +88,12 @@ export const adminCommunityUserTogglePro = (id) => api.post(`/api/admin/communit
 export const adminGroupCreate = (payload) => api.post('/api/admin/groups', payload, { cache: false })
 export const adminGroupDelete = (id) => api.delete(`/api/admin/groups/${id}`, { cache: false })
 
+export const adminGroupUpdateBanner = (gid, payload) => api.patch(`/api/admin/groups/${gid}/banner`, payload, { cache: false })
+export const adminChallenges = () => api.get('/api/admin/challenges', { cache: false })
+export const adminChallengeCreate = (payload) => api.post('/api/admin/challenges', payload, { cache: false })
+export const adminChallengeUpdate = (id, payload) => api.patch(`/api/admin/challenges/${id}`, payload, { cache: false })
+export const adminChallengeDelete = (id) => api.delete(`/api/admin/challenges/${id}`, { cache: false })
+
 export const adminAnnouncements = (params) => api.get('/api/admin/announcements', { params, cache: false })
 export const adminAnnouncementCreate = (payload) => api.post('/api/admin/announcements', payload, { cache: false })
 export const adminAnnouncementUpdate = (id, payload) => api.patch(`/api/admin/announcements/${id}`, payload, { cache: false })

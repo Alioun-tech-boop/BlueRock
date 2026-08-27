@@ -1959,6 +1959,8 @@ const dict = {
     grpRoleUpdated: 'Rôle mis à jour',
     grpErrorJoin: 'Impossible de rejoindre',
     grpErrorGeneric: 'Une erreur est survenue. Réessayez.',
+    grpShareLink: 'Partager',
+    grpLinkCopied: 'Lien copié !',
     // Professionnels (Phase 2)
     proTitle: 'Professionnels',
     proTabDirectory: 'Annuaire',
@@ -3967,6 +3969,8 @@ const dict = {
     grpRoleUpdated: 'Role updated',
     grpErrorJoin: 'Unable to join',
     grpErrorGeneric: 'Something went wrong. Please try again.',
+    grpShareLink: 'Share',
+    grpLinkCopied: 'Link copied!',
     // Professionals (Phase 2)
     proTitle: 'Professionals',
     proTabDirectory: 'Directory',

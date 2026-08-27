@@ -3,6 +3,7 @@ import {
   MessageCircle, Trash2, Send, BadgeCheck, Link2, X, Flag, Heart, Bookmark, MoreHorizontal, Share2,
 } from 'lucide-react'
 import { t } from '../../lib/i18n'
+import { PhotoAvatar } from '../../lib/photo'
 import {
   rocketCommunityPost, shareCommunityPost, saveCommunityPost,
   deleteCommunityPost, getCommunityComments, addCommunityComment,
@@ -114,9 +115,7 @@ export function CommentsPanel({ post, lang, me, onDeleted, defaultOpen = false }
           {comments.length === 0 && loaded && <div className="fs-cnone">{t(lang, 'cNoComments')}</div>}
           {comments.map(c => (
             <div className="fs-comment" key={c.id}>
-              <span className="fs-cavatar" style={{ background: c.author.avatar_color || '#3a3a44' }}>
-                {initialsOf(c.author.display_name)}
-              </span>
+              <PhotoAvatar name={c.author.display_name} avatar={c.author.avatar} color={c.author.avatar_color} size={32} className="fs-cavatar" />
               <div className="fs-ccol">
                 <div className="fs-cmeta">
                   <span className="fs-cname">{c.author.display_name}</span>
@@ -316,9 +315,7 @@ export default function PostCard({ p, lang, me, onDeleted, delay = 0, onOpen, co
       >
         <div className="fs-body">
           <div className="fs-top">
-            <span className="fs-avatar" style={{ background: a.avatar_color || '#3a3a44' }}>
-              {initialsOf(a.display_name)}
-            </span>
+            <PhotoAvatar name={a.display_name} avatar={a.avatar} color={a.avatar_color} size={46} className="fs-avatar" />
             <div className="fs-topcol">
               <div className="fs-name">
                 {a.display_name}
