@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import BottomNav from '../components/BottomNav'
 import TriLoader from '../components/TriLoader'
-import { getCompanies, getMarketLive } from '../services/api'
+import { getCompanies, getMarketLive, getWatchlist, replaceWatchlist, addWatchlist, removeWatchlist } from '../services/api'
 import { Search, Plus, Star, X, ChevronDown, ChevronRight, Bell, Menu, Globe2, Coins, Crown, Zap } from 'lucide-react'
 import { detectLang, t, fmtPrice, fmtPriceCur, fmtChange } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
@@ -513,6 +513,7 @@ export default function Watchlist() {
           saveJSON(favKey, top)
           // aussi garder une copie anonyme pour compat si user est null
           if (favKey !== FAV_KEY && !localStorage.getItem(FAV_KEY)) try { saveJSON(FAV_KEY, top) } catch {}
+          if (user) replaceWatchlist(top).catch(()=>{})
         }
       } else {
         // Migration : anciens utilisateurs avec 15 favoris NGX invisibles (Basic) ou 15 seulement → étendre à 20 BRVM
@@ -531,6 +532,7 @@ export default function Watchlist() {
             if (merged.length > cur.length) {
               setFavorites(merged)
               saveJSON(favKey, merged)
+              if (user) replaceWatchlist(merged).catch(()=>{})
             } else {
               // s'assurer que l'état reflète la clé per-user
               if (JSON.stringify(cur) !== JSON.stringify(loadJSON(favKey, []))) {
@@ -624,9 +626,56 @@ export default function Watchlist() {
       saveJSON(favKey, next)
       // garder la clé anonyme en miroir pour la déconnexion
       try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
+      // sync serveur en arrière-plan (jamais bloquant, jamais de perte si offline)
+      if (user) {
+        const isAdd = next.includes(symbol)
+        const p = isAdd ? addWatchlist(symbol) : removeWatchlist(symbol)
+        p.catch(() => {
+          // si offline, on remplacera au prochain sync complet
+          try { localStorage.setItem('bluerock_watchlist_dirty', '1') } catch {}
+        })
+      }
       return next
     })
   }
+
+  // Sync serveur <-> local : jamais de perte, serveur = source de vérité si connecté
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const doSync = async () => {
+      try {
+        const favKey = getFavKey(user)
+        const localFav = loadJSON(favKey, [])
+        const res = await getWatchlist().catch(() => null)
+        if (cancelled || !res) return
+        const serverFav = res.data?.symbols || []
+        if (serverFav.length === 0 && localFav.length > 0) {
+          await replaceWatchlist(localFav).catch(() => {})
+        } else if (serverFav.length > 0) {
+          const a = [...localFav].sort().join(',')
+          const b = [...serverFav].sort().join(',')
+          if (a !== b) {
+            setFavorites(serverFav)
+            saveJSON(favKey, serverFav)
+            try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, serverFav) } catch {}
+          } else if (!localFav.length) {
+            setFavorites(serverFav)
+          }
+        } else if (serverFav.length === 0 && localFav.length === 0) {
+          // les 20 par défaut seront créés par fetchData, on poussera ensuite
+          const dirty = localStorage.getItem('bluerock_watchlist_dirty')
+          if (dirty) {
+            localStorage.removeItem('bluerock_watchlist_dirty')
+            const cur = loadJSON(favKey, [])
+            if (cur.length) await replaceWatchlist(cur).catch(()=>{})
+          }
+        }
+      } catch {}
+    }
+    doSync()
+    return () => { cancelled = true }
+  }, [user?.id, user?.auth_id])
 
   const sectors = [...new Set(stocks.map(s => s.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   const countries = [...new Set(stocks.map(s => s.country).filter(Boolean))].sort((a, b) => a.localeCompare(b))

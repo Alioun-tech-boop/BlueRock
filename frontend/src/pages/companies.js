@@ -76,6 +76,12 @@ export default function Companies() {
       const next = prev.includes(symbol) ? prev.filter(s => s !== symbol) : [...prev, symbol]
       saveJSON(favKey, next)
       try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
+      if (user) {
+        import('../services/api').then(({ addWatchlist, removeWatchlist }) => {
+          const p = next.includes(symbol) ? addWatchlist(symbol) : removeWatchlist(symbol)
+          p.catch(()=>{})
+        })
+      }
       return next
     })
   }

@@ -512,6 +512,11 @@ export const retryKycVerification = () => api.post('/api/kyc/retry', null, { cac
 export const adminKycStats = (token) => api.get('/api/admin/kyc/stats', { headers: { 'X-Admin-Token': token }, cache: false })
 export const adminKycList = (token, status) => api.get('/api/admin/kyc', { headers: { 'X-Admin-Token': token }, params: status ? { status } : {}, cache: false })
 
+export const getWatchlist = () => api.get('/api/watchlist', { cache: false })
+export const addWatchlist = (symbol) => api.post(`/api/watchlist/${encodeURIComponent(symbol)}`, null, { cache: false })
+export const removeWatchlist = (symbol) => api.delete(`/api/watchlist/${encodeURIComponent(symbol)}`, { cache: false })
+export const replaceWatchlist = (symbols) => api.put('/api/watchlist', { symbols }, { cache: false })
+
 export const clearApiCache = () => {
   responseCache.clear()
   try { localStorage.removeItem(PERSIST_KEY) } catch {}

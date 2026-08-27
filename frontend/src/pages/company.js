@@ -270,6 +270,12 @@ export default function Company() {
     const next = favs.includes(full.company.symbol) ? favs.filter(s => s !== full.company.symbol) : [...favs, full.company.symbol]
     saveJSON(favKey, next)
     try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
+    if (user) {
+      import('../services/api').then(({ addWatchlist, removeWatchlist }) => {
+        const p = next.includes(full.company.symbol) ? addWatchlist(full.company.symbol) : removeWatchlist(full.company.symbol)
+        p.catch(()=>{})
+      })
+    }
     setIsFav(next.includes(full.company.symbol))
   }
   const [trade, setTrade] = useState(null)

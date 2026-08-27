@@ -170,6 +170,12 @@ export default function Quote() {
     const next = favs.includes(symbol) ? favs.filter(s => s !== symbol) : [...favs, symbol]
     saveJSON(favKey, next)
     try { if (favKey !== FAV_KEY) saveJSON(FAV_KEY, next) } catch {}
+    if (user) {
+      import('../services/api').then(({ addWatchlist, removeWatchlist }) => {
+        const p = next.includes(symbol) ? addWatchlist(symbol) : removeWatchlist(symbol)
+        p.catch(()=>{})
+      })
+    }
     setIsFav(next.includes(symbol))
   }
 

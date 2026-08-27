@@ -16,7 +16,8 @@ from .database import engine, Base
 from .models.news import NewsItem
 from .models.broker_connect import BrokerClientAccount, BrokerSession, BrokerLoginEvent
 from .models.payment import DepositOrder
-from .routers import companies, analysis, market, seed, ingestion, macro, simulation, auth, portfolio, premium, brokers, community, challenges, notifications, broker_connect, kyc, kyc_webhook, admin_kyc, payments, subscription, ai, ai_admin, admin_platform
+from .models.watchlist import WatchlistItem
+from .routers import companies, analysis, market, seed, ingestion, macro, simulation, auth, portfolio, premium, brokers, community, challenges, notifications, broker_connect, kyc, kyc_webhook, admin_kyc, payments, subscription, ai, ai_admin, admin_platform, watchlist
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
@@ -217,6 +218,7 @@ app.include_router(ai.router)
 app.include_router(ai_admin.router)
 app.include_router(admin_platform.router)
 app.include_router(admin_platform.public_router)
+app.include_router(watchlist.router)
 
 app.include_router(csp_router)
 
