@@ -269,7 +269,8 @@ export default function Portfolio() {
       const cost = avg * qty
       const pl = value - cost
       const plPct = cost ? (pl / cost) * 100 : 0
-      const dayPl = value * (chg / 100)
+      const prevPrice = chg !== 0 ? price / (1 + chg / 100) : price
+      const dayPl = (price - prevPrice) * qty
       return { symbol, stock, qty, avg, price, chg, value, cost, pl, plPct, dayPl, id: stock?.id }
     }).filter(p => p.qty > 0)
   }, [positions, stocks])
@@ -280,7 +281,8 @@ export default function Portfolio() {
     const dayPl = positionList.reduce((s, p) => s + p.dayPl, 0)
     const totalPl = value - cost
     const totalPlPct = cost ? (totalPl / cost) * 100 : 0
-    const dayPlPct = value ? (dayPl / value) * 100 : 0
+    const prevValue = value - dayPl
+    const dayPlPct = prevValue ? (dayPl / prevValue) * 100 : 0
     return { value, cost, dayPl, dayPlPct, totalPl, totalPlPct }
   }, [positionList])
 
