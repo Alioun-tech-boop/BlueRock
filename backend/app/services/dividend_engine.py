@@ -48,8 +48,16 @@ def run_dividend_engine(db: Session) -> int:
         company = d.company
         if not company:
             continue
+        # Ne jamais verser les dividendes synthétiques (non réellement payés)
+        if getattr(d, "is_synthetic", False):
+            continue
         dps = d.dividend_per_share or 0
         if dps <= 0:
+            continue
+        # Éligibilité : ex_date (ou payment_date si ex_date manquant) doit être après l'acquisition
+        # et le dividende doit avoir été réellement détaché (ex_date <= aujourd'hui si présent)
+        eligibility_date = d.ex_date or d.payment_date
+        if eligibility_date and eligibility_date > now:
             continue
         # Batch: toutes les positions sur ce symbole d'un coup
         positions = db.query(Position).filter(
@@ -70,7 +78,67 @@ def run_dividend_engine(db: Session) -> int:
         for pos in positions:
             if (pos.user_id, pos.portfolio_id) in existing:
                 continue
-            amount = round(dps * pos.qty, 2)
+            held_at_ex = None
+            # Vérifie que la position était détenue à la date d'éligibilité (ex_date)
+            # en sommant les ordres exécutés jusqu'à cette date ; si aucun historique, on
+            # exige au moins un ordre d'achat exécuté avant ex_date, sinon on skip
+            # pour éviter de créditer avant acquisition.
+            if eligibility_date:
+                from ..models.user import Order as _Order
+                # Quantité détenue à ex_date = somme des buys - sells exécutés jusqu'à ex_date
+                # On utilise executed_at (ou created_at en fallback) tronqué à la date
+                buy_qty = 0.0
+                sell_qty = 0.0
+                # Recherche les ordres exécutés pour ce symbole/portefeuille jusqu'à ex_date
+                # Limite à 200 ordres par position pour éviter un scan trop large
+                hist_orders = db.query(_Order).filter(
+                    _Order.user_id == pos.user_id,
+                    _Order.portfolio_id == pos.portfolio_id,
+                    _Order.symbol == pos.symbol,
+                    _Order.status == "executed",
+                ).order_by(_Order.executed_at.asc()).limit(200).all()
+                if hist_orders:
+                    for o in hist_orders:
+                        # Date d'exécution effective (exécuté_at ou created_at)
+                        exec_date = None
+                        if getattr(o, "executed_at", None):
+                            exec_date = o.executed_at.date() if hasattr(o.executed_at, "date") else o.executed_at
+                        elif getattr(o, "created_at", None):
+                            exec_date = o.created_at.date() if hasattr(o.created_at, "date") else o.created_at
+                        if exec_date and exec_date <= eligibility_date:
+                            if o.side == "buy":
+                                buy_qty += float(o.qty or 0)
+                            elif o.side == "sell":
+                                sell_qty += float(o.qty or 0)
+                    held_at_ex = buy_qty - sell_qty
+                    # Si l'historique montre 0 détenu à ex_date, ne pas verser
+                    # (ex: achat après ex_date, ou position créée après)
+                    if held_at_ex <= 1e-9:
+                        # Fallback : si aucun ordre d'achat avant ex_date, on considère non éligible
+                        # sauf si la position provient d'un seed sans historique (on autorise alors si
+                        # eligibility_date est très récente et qu'aucun ordre n'existe)
+                        has_any_buy_before = any(
+                            getattr(o, "executed_at", None) and o.side == "buy" and (o.executed_at.date() if hasattr(o.executed_at, "date") else o.executed_at) <= eligibility_date
+                            for o in hist_orders
+                        )
+                        if not has_any_buy_before:
+                            continue
+                        # Si on a un historique mais quantité nulle à ex_date, skip
+                        if hist_orders:
+                            continue
+                else:
+                    # Aucun historique d'ordres : on ne peut pas vérifier l'acquisition,
+                    # on exige que la position ait au moins un dividende déjà payé ou on skip
+                    # pour les dividendes anciens afin d'éviter le rattrapage rétroactif.
+                    # Ici on skip si le dividende est plus vieux que 30 jours et qu'aucun ordre n'existe
+                    # (évite de créditer des années de dividendes à une position seed récente)
+                    from datetime import timedelta as _td
+                    if eligibility_date < (now - _td(days=30)):
+                        continue
+                    held_at_ex = None
+            # Montant basé sur la quantité détenue à ex_date si calculable, sinon quantité actuelle
+            qty_for_div = held_at_ex if isinstance(held_at_ex, (int, float)) and held_at_ex and held_at_ex > 1e-9 else pos.qty
+            amount = round(dps * qty_for_div, 2)
             if amount <= 0:
                 continue
             # Verrou portefeuille pour éviter race avec withdraw/buy
