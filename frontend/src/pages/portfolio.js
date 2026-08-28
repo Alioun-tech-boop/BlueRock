@@ -738,7 +738,7 @@ export default function Portfolio() {
                   const cur = account?.currency
                   const curSuffix = cur === 'XOF' ? ' FCFA' : ''
                   return (
-                    <div key={p.symbol} className="pos-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
+                    <div key={p.symbol} className="pos-row" onClick={() => openSell(p)}>
                       <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
                         {p.stock?.logo_url ? (
                           <img
@@ -753,15 +753,9 @@ export default function Portfolio() {
                         <div className="pos-qty">{p.qty} {t(lang, 'shares')}</div>
                       </div>
                       <div className="pos-right">
-                        <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.price, cur)}{curSuffix}</div>
+                        <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.value, cur)}{curSuffix}</div>
                         <div className={`pos-perf mono ${up ? 'up' : 'down'}`}>{fmtPlPct(p.plPct)} · {up ? '+' : ''}{fmtMoney(p.pl, cur)}{curSuffix}</div>
                       </div>
-                      <button
-                        className="pos-sell"
-                        onClick={e => { e.stopPropagation(); openSell(p) }}
-                      >
-                        {t(lang, 'accSell')}
-                      </button>
                     </div>
                   )
                 })}
