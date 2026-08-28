@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Tests d'intégration contre le serveur live (http://127.0.0.1:8000).
+"""Tests sécurité reproductibles.
 
-Couvre la sécurité mise en place : auth obligatoire sur les endpoints
-sensibles, jeton avec expiration, rate limiting, admin token.
+Par défaut, les tests tournent directement contre l'app FastAPI en mémoire.
+Définir BLUEROCK_TEST_URL permet de rejouer le même jeu contre un serveur live
+ou déployé.
 """
 import os
 import time
@@ -10,11 +11,17 @@ import uuid
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 BASE = os.environ.get("BLUEROCK_TEST_URL", "http://127.0.0.1:8000")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
-client = httpx.Client(base_url=BASE, timeout=60)
+if os.environ.get("BLUEROCK_TEST_URL"):
+    client = httpx.Client(base_url=BASE, timeout=60)
+else:
+    from app.main import app
+
+    client = TestClient(app)
 
 
 def _email():

@@ -3,7 +3,7 @@ import AdminLayout from '../components/AdminLayout'
 import { adminGroups, adminGroupStatus, adminGroupCreate, adminGroupDelete, adminGroupUpdateBanner } from '../services/api'
 import Pager from '../components/Pager'
 import { t } from '../lib/i18n'
-import { Plus, Trash2, Search, Image } from 'lucide-react'
+import { Plus, Trash2, Search, Image as ImageIcon } from 'lucide-react'
 
 const PAGE = 20
 
@@ -152,7 +152,7 @@ export default function GroupsPage() {
                           <option value="archived">{t('gArchived')}</option>
                         </select>
                         <button className="adm-btn" onClick={() => editBanner(g)} title="Modifier la photo de couverture">
-                          <Image size={14} />
+                          <ImageIcon size={14} />
                         </button>
                         <button className="adm-btn danger" onClick={() => setConfirmDel(g.id)} title="Supprimer (posts détachés, pas supprimés)">
                           <Trash2 size={14} />
@@ -226,7 +226,7 @@ export default function GroupsPage() {
           <div className="adm-modal" onClick={e => e.stopPropagation()}>
             <h3>Modifier la photo de couverture</h3>
             <div className="adm-modal-field">
-              <label>URL de l'image (https://...)</label>
+              <label>URL de l&apos;image (https://...)</label>
               <input className="adm-input" value={bannerForm.banner} onChange={e => setBannerForm({ ...bannerForm, banner: e.target.value })} placeholder="https://..." />
               {bannerForm.banner && (
                 <img src={bannerForm.banner} alt="" style={{ maxWidth: 300, maxHeight: 150, borderRadius: 8, marginTop: 8, objectFit: 'cover' }} onError={e => { e.target.style.display = 'none' }} />

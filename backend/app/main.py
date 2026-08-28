@@ -681,17 +681,30 @@ def _job_guard(name: str, ttl_seconds: int):
     return token
 
 
+def _startup_schema_ddl_enabled() -> bool:
+    raw = os.environ.get("BLUEROCK_ALLOW_STARTUP_DDL")
+    if raw is not None:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return settings.DEBUG
+
+
 @app.on_event("startup")
 def on_startup():
-    try:
-        _migrate_v2()
-    except Exception as e:
-        logger.warning(f"Schema v2 migration skipped: {e}")
-    Base.metadata.create_all(bind=engine)
-    try:
-        _ensure_schema()
-    except Exception as e:
-        logger.warning(f"Schema migration skipped: {e}")
+    if _startup_schema_ddl_enabled():
+        try:
+            _migrate_v2()
+        except Exception as e:
+            logger.warning(f"Schema v2 migration skipped: {e}")
+        Base.metadata.create_all(bind=engine)
+        try:
+            _ensure_schema()
+        except Exception as e:
+            logger.warning(f"Schema migration skipped: {e}")
+    else:
+        logger.info(
+            "Startup schema DDL disabled; apply Alembic migrations before boot "
+            "(set BLUEROCK_ALLOW_STARTUP_DDL=1 only for controlled maintenance)."
+        )
     try:
         from .database import SessionLocal
         from .services.dividend_engine import run_dividend_engine

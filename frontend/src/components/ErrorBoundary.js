@@ -22,7 +22,7 @@ export default class ErrorBoundary extends Component {
         <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:16, background:'#0a0a0a', color:'#fff', padding:24, fontFamily:'Inter, sans-serif', textAlign:'center' }}>
           <h2 style={{ fontSize:28, fontWeight:700, letterSpacing:-0.02 }}>Erreur technique</h2>
           <p style={{ color:'#8b8b8b', fontSize:15, maxWidth:380, lineHeight:1.55 }}>
-            Une erreur s'est produite. Essayez de recharger la page, ou revenez plus tard.
+            Une erreur s&apos;est produite. Essayez de recharger la page, ou revenez plus tard.
           </p>
           <button onClick={() => { window.location.reload() }} style={{ padding:'10px 22px', borderRadius:12, border:'none', background:'#18C27C', color:'#00130a', fontWeight:700, fontSize:14, cursor:'pointer' }}>
             Recharger
