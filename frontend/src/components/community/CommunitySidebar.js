@@ -116,7 +116,7 @@ export default function CommunitySidebar({ lang, me, active, onActivate, onOpenP
           </button>
         ) : (
           <button className="co-side-profil" onClick={() => router.push('/login')}>
-            <span className="avatar" style={{ background: '#232329' }}>?</span>
+            <span className="avatar" style={{ background: '#232329', color: 'rgba(255,255,255,0.9)' }}><UserRound size={16} strokeWidth={1.9} /></span>
             <span className="col">
               <span className="nm">{t(lang, 'cLoginCta')}</span>
               <span className="hd">{t(lang, 'cLoginRequired')}</span>
