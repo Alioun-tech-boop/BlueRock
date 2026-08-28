@@ -587,7 +587,7 @@ export default function Portfolio() {
         </div>
       )}
 
-      <div className="safe-area">
+      <div className="safe-area pf-safe">
         {user && (
           <div className="pf-accbar">
             {accounts.map(a => (
