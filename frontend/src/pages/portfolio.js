@@ -734,6 +734,9 @@ export default function Portfolio() {
               <div className="px-list">
                 {sortedList.map(p => {
                   const up = p.pl >= 0
+                  const chgUp = (p.chg ?? 0) >= 0
+                  const cur = account?.currency
+                  const curSuffix = cur === 'XOF' ? ' FCFA' : ''
                   return (
                     <div key={p.symbol} className="pos-row" onClick={() => p.id && router.push(`/company?id=${p.id}`)}>
                       <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
@@ -747,22 +750,11 @@ export default function Portfolio() {
                       </div>
                       <div className="pos-info">
                         <div className="pos-name">{p.stock?.name || p.symbol}</div>
-                        <div className="pos-sub">
-                          {p.symbol} · {p.qty} {t(lang, 'shares')} · {t(lang, 'pfAvgPrice')} {fmtMoney(p.avg, account?.currency)}
-                        </div>
-                        <div className="pos-sub2">
-                          <span className={`pos-day ${p.chg >= 0 ? 'up' : 'down'}`}>
-                            {p.chg >= 0 ? '+' : ''}{p.chg.toFixed(2)}% {t(lang, 'today')}
-                          </span>
-                        </div>
+                        <div className="pos-qty">{p.qty} {t(lang, 'shares')}</div>
                       </div>
                       <div className="pos-right">
-                        <div className="pos-value mono">{fmtMoney(p.value, account?.currency)}</div>
-                        <div className={`pos-pl mono ${up ? 'up' : 'down'}`}>
-                          {up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                          {fmtPlPct(p.plPct)}
-                        </div>
-                        <div className={`pos-pl-amt mono ${up ? 'up' : 'down'}`}>{up ? '+' : ''}{fmtMoney(p.pl, account?.currency)}</div>
+                        <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.price, cur)}{curSuffix}</div>
+                        <div className={`pos-perf mono ${up ? 'up' : 'down'}`}>{fmtPlPct(p.plPct)} · {up ? '+' : ''}{fmtMoney(p.pl, cur)}{curSuffix}</div>
                       </div>
                       <button
                         className="pos-sell"
@@ -1249,6 +1241,9 @@ export default function Portfolio() {
           font-size: 12px; font-weight: 400; color: #8C99AF; margin-top: 3px;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        .pos-qty { font-size: 12px; font-weight: 500; color: #8C99AF; margin-top: 2px; }
+        .pos-price { font-size: 16px; font-weight: 700; }
+        .pos-perf { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .pos-tpsl { margin-left: 8px; font-size: 11px; font-weight: 700; }
         .pos-tpsl.up { color: #2ACB8A; }
         .pos-tpsl.down { color: #F04438; }
