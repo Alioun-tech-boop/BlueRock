@@ -35,6 +35,16 @@
     padding-top: 80px !important;
     padding-bottom: 28px !important;
   }
+  /* Portfolio : barre d’icônes/comptes fixée en haut, ne doit pas passer sous le dock */
+  .pf-accbar {
+    position: sticky !important;
+    top: 80px !important;
+    z-index: 5 !important;
+    background: #000 !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+    margin-top: 0 !important;
+  }
 
   /* Chat analyste : hauteur pleine écran, plus de dock en bas */
   .chat-container {
