@@ -652,7 +652,7 @@ export default function Portfolio() {
                 setMoneyModal({ mode: 'deposit', account: acc })
               }}
             >
-              <span className="pf-money-ico"><ArrowDownToLine size={20} strokeWidth={2.2} /></span>
+              <span className="pf-money-ico"><ArrowDownToLine size={18} strokeWidth={2.2} /></span>
               <span className="pf-money-txt">
                 <strong>{t(lang, 'accDeposit')}</strong>
               </span>
@@ -671,7 +671,7 @@ export default function Portfolio() {
                 setMoneyModal({ mode: 'withdraw', account: acc })
               }}
             >
-              <span className="pf-money-ico"><ArrowUpFromLine size={20} strokeWidth={2.2} /></span>
+              <span className="pf-money-ico"><ArrowUpFromLine size={18} strokeWidth={2.2} /></span>
               <span className="pf-money-txt">
                 <strong>{t(lang, 'accWithdraw')}</strong>
               </span>
@@ -1290,12 +1290,12 @@ export default function Portfolio() {
         .order-status.cancelled { background: rgba(240,68,56,0.14); color: #F04438; }
         .order-total { font-size: 15px; font-weight: 600; color: #F7F8FA; }
         .pf-money-cards {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-          padding: 16px 22px 0;
+          display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+          padding: 14px 22px 0;
         }
         .pf-money-card {
-          display: flex; align-items: center; gap: 12px;
-          border-radius: 18px; padding: 16px; cursor: pointer; font-family: inherit;
+          display: flex; align-items: center; gap: 10px;
+          border-radius: 14px; padding: 12px 14px; cursor: pointer; font-family: inherit;
           border: none; text-align: left;
           transition: transform 160ms ease-out, opacity 160ms ease-out;
         }
@@ -1306,13 +1306,13 @@ export default function Portfolio() {
         }
         .pf-money-card.withdraw { background: rgba(255, 255, 255, 0.05); border: 1px solid #262626; }
         .pf-money-ico {
-          width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
+          width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px;
           display: flex; align-items: center; justify-content: center;
         }
         .pf-money-card.deposit .pf-money-ico { background: rgba(0, 19, 10, 0.25); color: #00130a; }
         .pf-money-card.withdraw .pf-money-ico { background: rgba(255, 255, 255, 0.08); color: #E8EEF7; }
-        .pf-money-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .pf-money-txt strong { font-size: 15.5px; font-weight: 800; letter-spacing: 0; }
+        .pf-money-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+        .pf-money-txt strong { font-size: 13.5px; font-weight: 700; letter-spacing: 0; }
         .pf-money-card.deposit .pf-money-txt strong { color: #00130a; }
         .pf-money-card.withdraw .pf-money-txt strong { color: #F7F8FA; }
 
