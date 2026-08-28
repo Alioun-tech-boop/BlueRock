@@ -339,6 +339,14 @@ export default function Portfolio() {
     }).catch(() => {}).finally(() => setLoading(false))
   }
 
+  // Polling auto pour les ordres en attente : dès qu'il y a un pending,
+  // on rafraîchit toutes les 10s pour déplacer les exécutés vers l'historique
+  useEffect(() => {
+    if (!orders.some(o => o.status === 'pending')) return
+    const id = setInterval(() => refreshPortfolio(), 10000)
+    return () => clearInterval(id)
+  }, [orders, activeAccountId])
+
   // Bascule d'un compte à l'autre : demande toujours confirmation explicite
   // pour éviter de mélanger les ordres entre les sous-portefeuilles.
   const requestSwitch = acc => {

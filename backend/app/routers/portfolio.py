@@ -683,7 +683,21 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
             )
 
     market_open = live_feed.in_market_hours()
-    place_pending = (order_type == "limit") or (not market_open)
+    is_demo = (getattr(portfolio, "type", "") or "").lower() == "demo"
+    # Limit : exécution immédiate si le cours actuel déclenche déjà (marché ouvert)
+    if order_type == "limit":
+        current_px = _market_price_of(db, symbol)
+        if market_open and current_px is not None:
+            triggered = (side == "buy" and current_px <= req.limit_price) or (side == "sell" and current_px >= req.limit_price)
+            if triggered:
+                place_pending = False
+                exec_px = current_px
+            else:
+                place_pending = True
+        else:
+            place_pending = True
+    else:
+        place_pending = (not market_open and not is_demo)
 
     # Ordre enregistré en "pending" : exécution automatique à l'ouverture
     # (ou au croisement du cours pour un ordre à cours limité). On valide tout
