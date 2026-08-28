@@ -138,10 +138,19 @@ class Settings(BaseSettings):
     # connexion sociale simulée (dev uniquement — prise de contrôle de compte si actif en prod)
     ALLOW_SOCIAL_SIMULATE: bool = False
 
+    # KYC : en production ne peut pas être désactivé (sécurité).
+    # En dev/DEBUG, FEATURE_KYC_ENABLED=false désactive le parcours KYC.
     FEATURE_SUBSCRIPTION_ENABLED: bool = True      # abonnement Pro (offre payante)
     FEATURE_BROKER_ACCOUNTS_ENABLED: bool = True   # ouverture de compte-titre réel (SGI)
-    FEATURE_KYC_ENABLED: bool = True               # parcours de vérification d'identité
+    FEATURE_KYC_ENABLED: bool = True               # parcours de vérification d'identité (PROD = True obligatoire)
     FEATURE_PAID_CHALLENGES_ENABLED: bool = True   # défis à inscription payante
+
+    @property
+    def kyc_effectively_enabled(self) -> bool:
+        """KYC est toujours activé en production. En DEBUG, FEATURE_KYC_ENABLED peut le désactiver."""
+        if not self.DEBUG:
+            return True
+        return self.FEATURE_KYC_ENABLED
 
     # Politique de mot de passe
     PASSWORD_MIN_LENGTH: int = 8

@@ -165,7 +165,7 @@ def broker_link(user: User = Depends(get_current_user),
 
     from ..config import settings
     from ..services.kyc_flow import kyc_verified
-    if getattr(settings, "FEATURE_KYC_ENABLED", False) and not kyc_verified(db, user.id):
+    if settings.kyc_effectively_enabled and not kyc_verified(db, user.id):
         raise HTTPException(
             status_code=403,
             detail="Vérification KYC requise avant de lier un compte réel (page Vérification).",

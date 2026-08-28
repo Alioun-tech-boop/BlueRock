@@ -92,6 +92,13 @@ class Portfolio(Base):
 
     __table_args__ = (
         CheckConstraint("balance >= 0", name="ck_portfolio_balance_non_negative"),
+        CheckConstraint("type IN ('demo','real')", name="ck_portfolio_type_valid"),
+        CheckConstraint("currency IN ('XOF','NGN')", name="ck_portfolio_currency_valid"),
+        CheckConstraint("(type = 'demo') OR (broker_client_id IS NOT NULL)", name="ck_portfolio_real_requires_broker"),
+        # TODO migration: CREATE TRIGGER trg_portfolio_immutable
+        # BEFORE UPDATE OF type, currency ON portfolios
+        # FOR EACH ROW WHEN (OLD.type = 'real') EXECUTE FUNCTION raise_immutable();
+        # Cela empêche la mutation type/currency d'un compte réel (démo OK).
     )
 
     user_portfolios = relationship("UserPortfolio", back_populates="portfolio",

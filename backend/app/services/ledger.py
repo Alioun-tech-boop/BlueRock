@@ -36,24 +36,15 @@ def record_ledger_entries(db: Session, user_id: int, entries: list[tuple],
     base_key = f"{ref_type}:{ref_id}"
     # Clé d'idempotence unique PAR écriture (DR/CR du même lot).
     entry_keys = [f"{base_key}:{account_code}:{entry_type}" for (account_code, entry_type, _amount) in entries]
-    # Vérifie que TOUTES les clés existent (pas une seule) — sinon ledger déséquilibré si crash partiel
-    existing_count = db.query(LedgerEntry.id).filter(
-        LedgerEntry.idempotency_key.in_(entry_keys)
-    ).count()
-    if existing_count == len(entry_keys):
-        return {"status": "duplicate"}
-    if existing_count > 0:
-        # Partiel: un précédent crash a inséré 1/2 écritures → on ne rejoue pas, on loggue l'anomalie
-        import logging as _lg
-        _lg.getLogger(__name__).warning(
-            "Ledger partiel détecté pour %s:%s (%d/%d) — écritures manquantes ignorées",
-            ref_type, ref_id, existing_count, len(entry_keys)
-        )
-        return {"status": "partial_duplicate"}
+    # Utilise INSERT ... ON CONFLICT DO NOTHING pour chaque écriture (anti-race, idempotence forte).
+    # Plus de COUNT + INSERT en deux temps (race condition).
+    posted = 0
     for (account_code, entry_type, amount), k in zip(entries, entry_keys):
         if amount <= 0:
             continue
-        db.add(LedgerEntry(
+        # INSERT ... ON CONFLICT DO NOTHING via SQLAlchemy Core upsert
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        stmt = pg_insert(LedgerEntry).values(
             user_id=user_id,
             portfolio_id=portfolio_id,
             account_code=account_code,
@@ -64,8 +55,19 @@ def record_ledger_entries(db: Session, user_id: int, entries: list[tuple],
             ref_id=str(ref_id),
             idempotency_key=k,
             meta=meta or None,
-        ))
-    return {"status": "posted"}
+        ).on_conflict_do_nothing(index_elements=["idempotency_key"])
+        db.execute(stmt)
+        # Vérifie si l'insertion a eu lieu (rowcount n'est pas fiable pour ON CONFLICT DO NOTHING)
+        # On vérifie par lecture
+        inserted = db.query(LedgerEntry.id).filter(LedgerEntry.idempotency_key == k).first() is not None
+        if inserted:
+            posted += 1
+    if posted == len([e for e in entries if e[2] > 0]):
+        return {"status": "posted"}
+    elif posted > 0:
+        return {"status": "partial_duplicate"}
+    else:
+        return {"status": "duplicate"}
 
 
 def cash_net(portfolio: Portfolio) -> float:

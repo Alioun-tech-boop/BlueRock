@@ -434,7 +434,8 @@ def create_account(req: AccountRequest, user: User = Depends(get_current_user),
     if acc_type == "real":
         from ..config import settings
         from ..services.kyc_flow import kyc_verified
-        if settings.FEATURE_KYC_ENABLED and not kyc_verified(db, user.id):
+        # KYC obligatoire pour réel (ne peut être désactivé en prod via kyc_effectively_enabled)
+        if settings.kyc_effectively_enabled and not kyc_verified(db, user.id):
             raise HTTPException(
                 status_code=403,
                 detail="Votre identité n'est pas encore vérifiée. Terminez la vérification KYC "
@@ -701,6 +702,7 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
             )
 
     market_open = live_feed.in_market_hours()
+    is_real = (getattr(portfolio, "type", "") or "demo").lower() == "real"
     # Limit : exécution immédiate si le cours actuel déclenche déjà (marché ouvert)
     if order_type == "limit":
         current_px = _market_price_of(db, symbol)
@@ -715,6 +717,10 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
             place_pending = True
     else:
         place_pending = (not market_open)
+
+    # Comptes réels : TOUJOURS pending (délégation au courtier), jamais exécution locale
+    if is_real:
+        place_pending = True
 
     # Ordre enregistré en "pending" : exécution automatique à l'ouverture
     # (ou au croisement du cours pour un ordre à cours limité). On valide tout
@@ -753,7 +759,15 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
         db.commit()
         return {"ok": True, "status": "pending", "side": side, "symbol": symbol, "qty": req.qty,
                 "price": exec_px, "order_id": order.id, "position": None,
-                "executes_at_open": not market_open}
+                "executes_at_open": not market_open, "delegated_to_broker": is_real}
+
+    # Comptes réels : NE PAS exécuter localement (délégation courtier)
+    if is_real:
+        sync_broker_account(db, portfolio)
+        db.commit()
+        return {"ok": True, "status": "pending", "side": side, "symbol": symbol, "qty": req.qty,
+                "price": exec_px, "order_id": order.id, "position": None,
+                "executes_at_open": True, "delegated_to_broker": True}
 
     pos = db.query(Position).filter(
         Position.user_id == user.id, Position.portfolio_id == portfolio.id,

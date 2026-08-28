@@ -705,7 +705,8 @@ def place_challenge_order(
 
     if side == "buy":
         from ..services.kyc_flow import kyc_verified
-        if settings.FEATURE_KYC_ENABLED and not kyc_verified(db, user.id):
+        # KYC required for challenges (cannot be disabled in production)
+        if settings.kyc_effectively_enabled and not kyc_verified(db, user.id):
             raise HTTPException(
                 status_code=403,
                 detail="Votre identité n'est pas encore vérifiée. Terminez la vérification KYC "

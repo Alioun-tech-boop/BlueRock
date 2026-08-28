@@ -31,8 +31,8 @@ from ..services.kyc_flow import (
 
 
 def _require_kyc_enabled():
-    """Interrupteur : le parcours KYC est temporairement indisponible."""
-    if not settings.FEATURE_KYC_ENABLED:
+    """Interrupteur : le parcours KYC est temporairement indisponible en dev uniquement."""
+    if not settings.kyc_effectively_enabled:
         raise HTTPException(
             status_code=503,
             detail="La vérification d'identité (KYC) est indisponible pour le moment.",

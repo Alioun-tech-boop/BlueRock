@@ -152,6 +152,17 @@ def run_dividend_engine(db: Session) -> int:
             pf = db.query(Portfolio).filter(Portfolio.id == pos.portfolio_id).with_for_update().first()
             if not pf:
                 continue
+            # Journalisation double-entrée pour le dividende (CASH_x CR / DIVIDEND DR)
+            from ..services.ledger import record_ledger_entries
+            record_ledger_entries(
+                db,
+                [
+                    {"ref_type": "dividend", "ref_id": str(d.id), "account_code": f"CASH_{pf.id}", "entry_type": "CR", "amount": amount, "currency": pf.currency or "XOF"},
+                    {"ref_type": "dividend", "ref_id": str(d.id), "account_code": f"DIVIDEND_{company.symbol}", "entry_type": "DR", "amount": amount, "currency": d.currency or "XOF"},
+                ],
+                user_id=pos.user_id,
+                portfolio_id=pf.id,
+            )
             pf.balance = (pf.balance or 0) + amount
             # Idempotence via ON CONFLICT DO NOTHING (Postgres) + fallback try/except SQLite
             pay = DividendPayment(

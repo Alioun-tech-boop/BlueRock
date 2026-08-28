@@ -107,12 +107,15 @@ def apply_payment_status(db: Session, order: DepositOrder,
                     Portfolio.id == order.portfolio_id
                 ).with_for_update().first()
                 if pf is not None:
-                    # Garde-fou : seul un compte réel en XOF peut être crédité via Stripe
+                    # Garde-fou : seul un compte réel en XOF avec broker_client_id peut être crédité via Stripe
                     if (getattr(pf, "type", "") or "demo").lower() != "real":
                         logger.warning(f"Paiement {order.id} : tentative de crédit sur compte {pf.type} {pf.id} — refusé")
                         return
                     if (pf.currency or "XOF") != (order.currency or "XOF"):
                         logger.warning(f"Paiement {order.id} : devise {order.currency} != {pf.currency} — refusé")
+                        return
+                    if pf.broker_client_id is None:
+                        logger.warning(f"Paiement {order.id} : compte réel sans broker_client_id — refusé")
                         return
                     from ..services.ledger import journal_deposit
                     # Journalisation double entrée (idempotente) AVANT le crédit.
@@ -177,6 +180,9 @@ def create_deposit(req: DepositRequest, request: Request,
     if (pf.currency or "XOF") != "XOF":
         raise HTTPException(status_code=422,
                             detail="Seuls les comptes FCFA (BRVM) acceptent les dépôts")
+    if pf.broker_client_id is None:
+        raise HTTPException(status_code=403,
+                            detail="Ce compte réel n'est pas lié à une SGI. Liez votre compte courtier via Broker Connect avant de déposer.")
     if req.amount < MIN_DEPOSIT or req.amount > MAX_DEPOSIT:
         raise HTTPException(
             status_code=422,
