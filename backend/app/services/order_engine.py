@@ -139,8 +139,22 @@ def run_order_engine(db: Session) -> dict:
     market_open = live_feed.in_market_hours()
     now = datetime.utcnow()
 
-    # Pagination: limite 500 ordres par cycle pour éviter OOM si backlog
-    pending = db.query(Order).filter(Order.status == "pending").order_by(Order.id.asc()).limit(500).all()
+    # Séparation stricte réel/démo : seul le démo est exécuté en interne (réel = délégation courtier)
+    pending = (
+        db.query(Order)
+        .join(Portfolio, Order.portfolio_id == Portfolio.id)
+        .filter(Order.status == "pending", Portfolio.type == "demo")
+        .order_by(Order.id.asc())
+        .limit(500)
+        .all()
+    )
+    # Log les réels en attente sans les exécuter
+    try:
+        pending_real = db.query(Order).join(Portfolio, Order.portfolio_id == Portfolio.id).filter(Order.status == "pending", Portfolio.type == "real").count()
+        if pending_real:
+            logger.info(f"Order engine: {pending_real} ordres réels en attente (délégation courtier)")
+    except Exception:
+        pass
     for order in pending:
         # Expiration des ordres à cours limité
         if order.valid_until is not None and order.valid_until <= now:
@@ -194,11 +208,19 @@ def run_order_engine(db: Session) -> dict:
             db.rollback()
 
     n_tpsl = 0
-    # TP/SL: ne scanne que les positions avec TP/SL définis (évite scan 100k)
-    tpsl_positions = db.query(Position).filter(
-        Position.qty > 0,
-        (Position.stop_loss.isnot(None)) | (Position.take_profit.isnot(None))
-    ).limit(2000).with_for_update(skip_locked=True).all()
+    # TP/SL: ne scanne que les positions démo avec TP/SL définis (réels = délégation courtier)
+    tpsl_positions = (
+        db.query(Position)
+        .join(Portfolio, Position.portfolio_id == Portfolio.id)
+        .filter(
+            Position.qty > 0,
+            Portfolio.type == "demo",
+            (Position.stop_loss.isnot(None)) | (Position.take_profit.isnot(None))
+        )
+        .limit(2000)
+        .with_for_update(skip_locked=True)
+        .all()
+    )
     for pos in tpsl_positions:
         cid = cids.get(pos.symbol)
         px = latest.get(cid)

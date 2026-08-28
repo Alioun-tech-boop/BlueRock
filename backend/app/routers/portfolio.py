@@ -51,14 +51,16 @@ def _portfolio_query(db: Session, user_id: int):
 
 def demo_capacity_used(db: Session, user_id: int, currency: str = "XOF", for_update: bool = False) -> float:
     """Montant investi = valeur d'achat des positions + ordres d'achat en attente,
-    limité aux comptes de la devise donnée. for_update=True verrouille les lignes pour TOCTOU."""
-    # Ne charge que les portfolios de l'utilisateur (pas tous ceux de la devise — fuite + perf)
+    limité aux comptes **démo** de la devise donnée. for_update=True verrouille les lignes pour TOCTOU."""
+    # Ne charge que les portfolios démo de l'utilisateur (réels exclus — séparation stricte)
     user_pids = set(_user_portfolio_ids(db, user_id))
     if not user_pids:
         return 0.0
-    pf_query = db.query(Portfolio).filter(Portfolio.id.in_(user_pids), Portfolio.currency == currency)
+    pf_query = db.query(Portfolio).filter(
+        Portfolio.id.in_(user_pids), Portfolio.currency == currency, Portfolio.type == "demo"
+    )
     pf_currency = {p.id: p.currency for p in pf_query.all()}
-    # Filtre portfolios de la devise
+    # Filtre portfolios démo de la devise
     valid_pids = {pid for pid, cur in pf_currency.items() if cur == currency}
     if not valid_pids:
         return 0.0
@@ -371,7 +373,7 @@ def get_portfolio(account_id: int | None = None, user: User = Depends(get_curren
         "positions": [_position_out(p) for p in positions if p.qty > 0],
         "orders": [_order_out(o) for o in orders],
         "linked_plan": linked,
-        **demo_capacity_payload(db, user.id, portfolio.currency or "XOF"),
+        **(demo_capacity_payload(db, user.id, portfolio.currency or "XOF") if (portfolio.type or "demo") == "demo" else {"demo_limit": None, "demo_used": None, "demo_remaining": None}),
     }
 
 
@@ -514,6 +516,11 @@ def withdraw_account(account_id: int, req: AmountRequest, request: Request,
                      user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     pf = _portfolio_by_id(db, user.id, account_id)
+    if (pf.type or "demo").lower() == "real":
+        raise HTTPException(
+            status_code=403,
+            detail="Retrait sur compte réel uniquement via un virement courtier ou la page Paiement — retrait direct refusé.",
+        )
     pf = db.query(Portfolio).filter(Portfolio.id == pf.id).with_for_update().first()
     if req.amount > (pf.balance or 0) + 1e-9:
         raise HTTPException(status_code=422,
@@ -581,9 +588,17 @@ def activate_demo(user: User = Depends(get_current_user), db: Session = Depends(
     pf = _default_portfolio(db, user.id)
     if not pf:
         pf = _create_demo_portfolio(db, user.id)
-    if pf.type != "demo":
-        pf.type = "demo"
-        pf.name = "Compte démo"
+    elif pf.type != "demo":
+        # Ne jamais muter un compte réel en démo — chercher un démo existant ou en créer un nouveau
+        demo_pf = _portfolio_query(db, user.id).filter(Portfolio.type == "demo").order_by(Portfolio.id.asc()).first()
+        if demo_pf:
+            pf = demo_pf
+            # Mettre ce démo comme défaut si besoin
+            if not pf.is_default:
+                _portfolio_query(db, user.id).update({Portfolio.is_default: False})
+                pf.is_default = True
+        else:
+            pf = _create_demo_portfolio(db, user.id)
     db.commit()
     return {
         "ok": True,
@@ -656,24 +671,27 @@ def place_order(req: OrderRequest, user: User = Depends(get_current_user), db: S
     _validate_tpsl(side, exec_px, req.take_profit, req.stop_loss)
 
     if side == "buy":
+        is_real = (getattr(portfolio, "type", "") or "demo").lower() == "real"
         from ..services.kyc_flow import kyc_verified
-        if not kyc_verified(db, user.id):
+        # KYC obligatoire uniquement pour le réel (démo = bac à sable)
+        if is_real and not kyc_verified(db, user.id):
             raise HTTPException(
                 status_code=403,
                 detail="Votre identité n'est pas encore vérifiée. Terminez la vérification KYC "
-                       "(page Vérification) avant d'acheter des titres."
+                       "(page Vérification) avant d'acheter des titres sur un compte réel."
             )
-        # TOCTOU: capacité vérifiée DANS la transaction verrouillée (FOR UPDATE sur positions/orders)
-        used = demo_capacity_used(db, user.id, pf_currency, for_update=True)
-        total = used + req.qty * exec_px
-        if total > _invest_limit_for(pf_currency) + 1e-9:
-            remaining = max(_invest_limit_for(pf_currency) - used, 0)
-            raise HTTPException(
-                status_code=422,
-                detail=f"Capacité d'investissement démo dépassée (plafond "
-                       f"{_invest_limit_for(pf_currency):,.0f} {_currency_label(pf_currency)}, "
-                       f"{remaining:,.0f} {_currency_label(pf_currency)} restants)."
-            )
+        # Plafond démo uniquement pour les comptes démo
+        if not is_real:
+            used = demo_capacity_used(db, user.id, pf_currency, for_update=True)
+            total = used + req.qty * exec_px
+            if total > _invest_limit_for(pf_currency) + 1e-9:
+                remaining = max(_invest_limit_for(pf_currency) - used, 0)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Capacité d'investissement démo dépassée (plafond "
+                           f"{_invest_limit_for(pf_currency):,.0f} {_currency_label(pf_currency)}, "
+                           f"{remaining:,.0f} {_currency_label(pf_currency)} restants)."
+                )
         if (portfolio.balance or 0) < req.qty * exec_px - 1e-9:
             raise HTTPException(
                 status_code=422,

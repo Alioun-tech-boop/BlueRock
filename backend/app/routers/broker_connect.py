@@ -163,6 +163,14 @@ def broker_link(user: User = Depends(get_current_user),
         raise HTTPException(status_code=409,
                             detail="Ce compte courtier est déjà lié à un autre utilisateur BlueRock")
 
+    from ..config import settings
+    from ..services.kyc_flow import kyc_verified
+    if getattr(settings, "FEATURE_KYC_ENABLED", False) and not kyc_verified(db, user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="Vérification KYC requise avant de lier un compte réel (page Vérification).",
+        )
+
     count = db.query(UserPortfolio).filter(UserPortfolio.user_id == user.id).count()
     if count >= 5:
         raise HTTPException(status_code=422,

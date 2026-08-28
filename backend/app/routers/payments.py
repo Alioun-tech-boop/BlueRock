@@ -107,6 +107,13 @@ def apply_payment_status(db: Session, order: DepositOrder,
                     Portfolio.id == order.portfolio_id
                 ).with_for_update().first()
                 if pf is not None:
+                    # Garde-fou : seul un compte réel en XOF peut être crédité via Stripe
+                    if (getattr(pf, "type", "") or "demo").lower() != "real":
+                        logger.warning(f"Paiement {order.id} : tentative de crédit sur compte {pf.type} {pf.id} — refusé")
+                        return
+                    if (pf.currency or "XOF") != (order.currency or "XOF"):
+                        logger.warning(f"Paiement {order.id} : devise {order.currency} != {pf.currency} — refusé")
+                        return
                     from ..services.ledger import journal_deposit
                     # Journalisation double entrée (idempotente) AVANT le crédit.
                     journal_deposit(db, order.user_id, pf.id, order.amount,

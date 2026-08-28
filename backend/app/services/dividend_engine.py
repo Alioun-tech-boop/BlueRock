@@ -59,11 +59,18 @@ def run_dividend_engine(db: Session) -> int:
         eligibility_date = d.ex_date or d.payment_date
         if eligibility_date and eligibility_date > now:
             continue
-        # Batch: toutes les positions sur ce symbole d'un coup
-        positions = db.query(Position).filter(
-            Position.symbol == company.symbol,
-            Position.qty > 0
-        ).all()
+        # Batch: toutes les positions sur ce symbole, filtrées par devise (évite mélange XOF→NGN)
+        # et séparées réel/démo via portfolio_id (isolation stricte)
+        positions = (
+            db.query(Position)
+            .join(Portfolio, Position.portfolio_id == Portfolio.id)
+            .filter(
+                Position.symbol == company.symbol,
+                Position.qty > 0,
+                Portfolio.currency == (d.currency or "XOF"),
+            )
+            .all()
+        )
         if not positions:
             continue
         # Batch: existants déjà payés pour ce dividende
