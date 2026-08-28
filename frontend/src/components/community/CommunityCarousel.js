@@ -3,7 +3,6 @@ import { Users, UserPlus, UserCheck, Clock, Coins, ChevronRight } from 'lucide-r
 import { t } from '../../lib/i18n'
 import { getCommunityGroups, joinCommunityGroup, leaveCommunityGroup } from '../../services/api'
 import { coverPhoto } from '../../lib/photo'
-import TriLoader from '../TriLoader'
 
 function hueOf(str) {
   let h = 0
@@ -69,7 +68,7 @@ export default function CommunityCarousel({ lang, onSeeAll, onOpen }) {
         </button>
       </div>
       {groups === null ? (
-        <div className="cc-track"><TriLoader compact label={t(lang, 'grpTitle')} /></div>
+        <div className="cc-track" aria-hidden />
       ) : groups.length === 0 ? (
         <div className="co-rail-empty">{t(lang, 'coRailProEmpty')}</div>
       ) : (

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { CalendarDays, ChevronRight, UserCheck, Calendar } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { getCommunityEvents, registerCommunityEvent, cancelCommunityEvent } from '../../services/api'
-import TriLoader from '../TriLoader'
 
 function isLive(ev) {
   if (!ev || !ev.starts_at) return false
@@ -57,7 +56,7 @@ export default function EventsStrip({ lang, onSeeAll }) {
       </div>
 
       {events === null ? (
-        <div className="es-grid"><TriLoader compact label={t(lang, 'coRailEvents')} /></div>
+        <div className="es-grid" aria-hidden />
       ) : events.length === 0 ? (
         <div className="co-rail-empty">{t(lang, 'coRailEventEmpty')}</div>
       ) : (
