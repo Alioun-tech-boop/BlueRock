@@ -218,7 +218,7 @@ export default function Companies() {
         </div>
       </div>
 
-      <BottomNav />
+      <BottomNav active="watchlist" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;

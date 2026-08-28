@@ -186,7 +186,7 @@ export default function Donnees() {
         </div>
       </div>
 
-      <BottomNav />
+      <BottomNav active="explorer" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;

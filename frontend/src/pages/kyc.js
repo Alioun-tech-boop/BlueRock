@@ -267,7 +267,7 @@ export default function Kyc() {
             .kyc-center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding-top: 60px; }
           `}</style>
         </div>
-        <BottomNav />
+        <BottomNav active="portfolio" />
       </div>
     )
   }
@@ -306,7 +306,7 @@ export default function Kyc() {
     return (
       <div className="mobile-root">
         <div className="safe-area"><TriLoader label={t(lang, 'loading')} /></div>
-        <BottomNav />
+        <BottomNav active="portfolio" />
       </div>
     )
   }

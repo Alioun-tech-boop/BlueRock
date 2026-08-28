@@ -25,16 +25,18 @@ export default function DesktopDock() {
 
   const active = (() => {
     const p = router.pathname
-    if (p.startsWith('/watchlist') || p.startsWith('/company') || p.startsWith('/quote')) return 'watchlist'
-    if (p.startsWith('/chart')) return 'graphique'
-    if (p.startsWith('/portfolio')) return 'portfolio'
+    if (p === '/login') return ''
+    if (p.startsWith('/watchlist') || p.startsWith('/company') || p.startsWith('/companies') || p.startsWith('/screen')) return 'watchlist'
+    if (p.startsWith('/quote') || p.startsWith('/chart')) return 'graphique'
+    if (p.startsWith('/portfolio') || p.startsWith('/paiement')) return 'portfolio'
     if (p.startsWith('/explorer') || p.startsWith('/calendar') || p.startsWith('/brokers') || p.startsWith('/donnees')) return 'explorer'
-    if (p.startsWith('/community') || p.startsWith('/challenges')) return 'community'
+    if (p.startsWith('/community')) return 'community'
+    if (p.startsWith('/challenges')) return 'challenges'
     if (p.startsWith('/ai-studio')) return 'ai-studio'
     if (p.startsWith('/analyst')) return 'analyst'
     if (p.startsWith('/premium')) return 'premium'
-    if (p.startsWith('/menu') || p.startsWith('/profile') || p.startsWith('/notifications') || p.startsWith('/compte-titre')) return 'menu'
-    return 'graphique'
+    if (p.startsWith('/menu') || p.startsWith('/profile') || p.startsWith('/notifications') || p.startsWith('/compte-titre') || p.startsWith('/kyc') || p.startsWith('/privacy')) return 'menu'
+    return ''
   })()
 
   return (

@@ -98,7 +98,7 @@ export default function Privacy() {
         </main>
       </div>
 
-      <BottomNav active="menu" />
+      <BottomNav active="portfolio" />
 
       <style jsx>{`
         .privacy-root {

@@ -214,7 +214,7 @@ export default function Analyst() {
         </div>
       </div>
 
-      <BottomNav />
+      <BottomNav active="community" />
       <style jsx>{`
         .mobile-root {
           display: flex; flex-direction: column; height: 100vh;

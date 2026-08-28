@@ -379,7 +379,7 @@ export default function Company() {
     return (
       <div className="mobile-root">
         <div className="loading-center"><TriLoader compact label={t(lang, 'loading')} /></div>
-        <BottomNav />
+        <BottomNav active="watchlist" />
         <style jsx>{`
           .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
@@ -397,7 +397,7 @@ export default function Company() {
             {t(lang, 'watchlist')}
           </button>
         </div>
-        <BottomNav />
+        <BottomNav active="watchlist" />
         <style jsx>{`
           .mobile-root { display: flex; flex-direction: column; height: 100vh; background: #000000; color: #fff; font-family: Inter, -apple-system, sans-serif; }
           .loading-center { flex: 1; display: flex; align-items: center; justify-content: center; }
