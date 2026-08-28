@@ -70,46 +70,64 @@ export default function Privacy() {
 
   return (
     <div className="privacy-root">
-      <header className="privacy-header">
-        <button className="privacy-back" onClick={() => router.back()} aria-label={t(lang, 'back')}>
-          <ArrowLeft size={18} />{t(lang, 'back')}
-        </button>
-        <div className="privacy-title-wrap">
-          <span className="privacy-badge"><Shield size={12} />{lang === 'fr' ? 'CONFIDENTIALITÉ' : 'PRIVACY'}</span>
-          <h1 className="privacy-title">{lang === 'fr' ? 'Politique de Confidentialité' : 'Privacy Policy'}</h1>
-          <p className="privacy-sub">{lang === 'fr' ? 'Votre confiance est notre priorité. Transparence totale sur vos données.' : 'Your trust is our priority. Full transparency on your data.'}</p>
-        </div>
-      </header>
+      <div className="privacy-scroll">
+        <header className="privacy-header">
+          <button className="privacy-back" onClick={() => router.back()} aria-label={t(lang, 'back')}>
+            <ArrowLeft size={18} />{t(lang, 'back')}
+          </button>
+          <div className="privacy-title-wrap">
+            <span className="privacy-badge"><Shield size={12} />{lang === 'fr' ? 'CONFIDENTIALITÉ' : 'PRIVACY'}</span>
+            <h1 className="privacy-title">{lang === 'fr' ? 'Politique de Confidentialité' : 'Privacy Policy'}</h1>
+            <p className="privacy-sub">{lang === 'fr' ? 'Votre confiance est notre priorité. Transparence totale sur vos données.' : 'Your trust is our priority. Full transparency on your data.'}</p>
+          </div>
+        </header>
 
-      <main className="privacy-main">
-        {sections.map((s, i) => {
-          const Icon = s.icon
-          return (
-            <section key={i} className="privacy-section">
-              <div className="privacy-section-head">
-                <span className="privacy-icon"><Icon size={16} /></span>
-                <h2 className="privacy-section-title">{s.title}</h2>
-              </div>
-              <div className="privacy-section-body" dangerouslySetInnerHTML={{ __html: s.content }} />
-            </section>
-          )
-        })}
-      </main>
+        <main className="privacy-main">
+          {sections.map((s, i) => {
+            const Icon = s.icon
+            return (
+              <section key={i} className="privacy-section">
+                <div className="privacy-section-head">
+                  <span className="privacy-icon"><Icon size={16} /></span>
+                  <h2 className="privacy-section-title">{s.title}</h2>
+                </div>
+                <div className="privacy-section-body" dangerouslySetInnerHTML={{ __html: s.content }} />
+              </section>
+            )
+          })}
+        </main>
+      </div>
 
       <BottomNav active="menu" />
 
       <style jsx>{`
         .privacy-root {
-          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          height: 100vh;
+          height: 100dvh;
+          overflow: hidden;
           background: #000;
           color: #fff;
           font-family: Inter, -apple-system, sans-serif;
+          width: 100%;
+          flex: 1;
         }
+        .privacy-scroll {
+          flex: 1;
+          overflow-y: auto;
+          overflow-x: hidden;
+          -webkit-overflow-scrolling: touch;
+          width: 100%;
+        }
+        .privacy-scroll::-webkit-scrollbar { display: none; }
         .privacy-header {
           position: relative;
           padding: 18px 22px 28px;
           background: linear-gradient(180deg, #0A0F1D 0%, #05070d 100%);
           border-bottom: 1px solid rgba(255,255,255,0.07);
+          width: 100%;
+          box-sizing: border-box;
         }
         .privacy-back {
           display: inline-flex; align-items: center; gap: 6px;
@@ -117,7 +135,7 @@ export default function Privacy() {
           color: rgba(255,255,255,0.85); border-radius: 999px; padding: 8px 14px;
           font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
         }
-        .privacy-title-wrap { margin-top: 22px; max-width: 760px; margin-left: auto; margin-right: auto; }
+        .privacy-title-wrap { margin-top: 22px; max-width: 760px; margin-left: auto; margin-right: auto; width: 100%; box-sizing: border-box; }
         .privacy-badge {
           display: inline-flex; align-items: center; gap: 6px;
           background: rgba(0,192,135,0.12); border: 1px solid rgba(0,192,135,0.3);
@@ -131,9 +149,10 @@ export default function Privacy() {
         }
         .privacy-sub { margin: 10px 0 0; font-size: 13.5px; color: #8b9bb4; line-height: 1.5; }
         .privacy-main {
-          max-width: 760px; margin: 0 auto;
+          max-width: 760px; width: 100%; margin: 0 auto;
           padding: 28px 22px 90px;
           display: flex; flex-direction: column; gap: 18px;
+          box-sizing: border-box;
         }
         .privacy-section {
           background: #141414; border: 1px solid #1e1e1e; border-radius: 20px;
@@ -153,6 +172,10 @@ export default function Privacy() {
           font-size: 13.5px; line-height: 1.7; color: #a3a3a3;
         }
         .privacy-section-body :global(strong) { color: #fff; font-weight: 600; }
+        @media (min-width: 1024px) {
+          .privacy-scroll { padding-top: 80px; }
+          .privacy-main { padding-bottom: 40px; }
+        }
         @media (max-width: 767px) {
           .privacy-title { font-size: 26px; }
           .privacy-main { padding: 18px 16px 90px; }
