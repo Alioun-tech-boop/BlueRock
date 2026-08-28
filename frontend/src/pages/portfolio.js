@@ -1290,13 +1290,14 @@ export default function Portfolio() {
         .order-status.cancelled { background: rgba(240,68,56,0.14); color: #F04438; }
         .order-total { font-size: 15px; font-weight: 600; color: #F7F8FA; }
         .pf-money-cards {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+          display: flex; gap: 10px; justify-content: center;
           padding: 14px 22px 0;
         }
         .pf-money-card {
+          flex: 0 1 148px; max-width: 148px; width: 100%;
           display: flex; align-items: center; gap: 10px;
           border-radius: 14px; padding: 12px 14px; cursor: pointer; font-family: inherit;
-          border: none; text-align: left;
+          border: none; text-align: left; justify-content: center;
           transition: transform 160ms ease-out, opacity 160ms ease-out;
         }
         .pf-money-card:active { transform: scale(0.97); opacity: 0.92; }
