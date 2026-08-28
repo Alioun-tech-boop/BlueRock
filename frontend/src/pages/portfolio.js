@@ -737,8 +737,11 @@ export default function Portfolio() {
                 {sortedList.map(p => {
                   const up = p.pl >= 0
                   const chgUp = (p.chg ?? 0) >= 0
+                  const dayUp = (p.dayPl ?? 0) >= 0
                   const cur = account?.currency
                   const curSuffix = cur === 'XOF' ? ' FCFA' : ''
+                  const isDay = sort === 'day'
+                  const isPl = sort === 'pl'
                   return (
                     <div key={p.symbol} className="pos-row" onClick={() => openSell(p)}>
                       <div className="pos-logo" style={{ background: `hsl(${(p.symbol?.charCodeAt(0) || 0) * 30}, 50%, 30%)` }}>
@@ -755,8 +758,22 @@ export default function Portfolio() {
                         <div className="pos-qty">{p.qty} {t(lang, 'shares')}</div>
                       </div>
                       <div className="pos-right">
-                        <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.value, cur)}{curSuffix}</div>
-                        <div className={`pos-perf mono ${up ? 'up' : 'down'}`}>{fmtPlPct(p.plPct)} · {up ? '+' : ''}{fmtMoney(p.pl, cur)}{curSuffix}</div>
+                        {isDay ? (
+                          <>
+                            <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.value, cur)}{curSuffix}</div>
+                            <div className={`pos-perf mono ${dayUp ? 'up' : 'down'}`}>{dayUp ? '+' : ''}{fmtMoney(p.dayPl, cur)}{curSuffix} · {chgUp ? '+' : ''}{p.chg.toFixed(2)}%</div>
+                          </>
+                        ) : isPl ? (
+                          <>
+                            <div className={`pos-price mono ${up ? 'up' : 'down'}`}>{fmtMoney(p.value, cur)}{curSuffix}</div>
+                            <div className={`pos-perf mono ${up ? 'up' : 'down'}`}>{fmtPlPct(p.plPct)} · {up ? '+' : ''}{fmtMoney(p.pl, cur)}{curSuffix}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`pos-price mono ${chgUp ? 'up' : 'down'}`}>{fmtMoney(p.value, cur)}{curSuffix}</div>
+                            <div className={`pos-perf mono ${up ? 'up' : 'down'}`}>{fmtPlPct(p.plPct)} · {up ? '+' : ''}{fmtMoney(p.pl, cur)}{curSuffix}</div>
+                          </>
+                        )}
                       </div>
                     </div>
                   )
