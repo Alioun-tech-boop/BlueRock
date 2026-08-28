@@ -30,7 +30,8 @@
   }
   .co-main,
   .privacy-scroll,
-  .chat-area {
+  .chat-area,
+  .quote-area {
     padding-top: 80px !important;
     padding-bottom: 28px !important;
   }
